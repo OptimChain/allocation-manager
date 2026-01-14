@@ -95,6 +95,7 @@ export const PORTFOLIO_ASSETS = [
   { symbol: 'BTC/USD', displayName: 'Bitcoin', color: '#F7931A' },
   { symbol: 'QQQ', displayName: 'QQQ (Nasdaq)', color: '#8B5CF6' },
   { symbol: 'SPY', displayName: 'S&P 500', color: '#3B82F6' },
+  { symbol: 'AMZN', displayName: 'Amazon', color: '#FF9900' },
 ];
 
 export async function getPortfolioData(
