@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { PortfolioChart } from '../components/PortfolioChart';
+import StockNews from '../components/StockNews';
 import { getPortfolioData, PORTFOLIO_ASSETS, PortfolioAsset } from '../services/twelveDataService';
 import { processPortfolioReturns } from '../utils/portfolioCalculations';
 
@@ -184,6 +185,11 @@ export default function ComparePage() {
           })}
         </div>
       )}
+
+      {/* Stock News Section */}
+      <div className="mt-8">
+        <StockNews articlesPerAsset={5} daysBack={7} />
+      </div>
     </div>
   );
 }
