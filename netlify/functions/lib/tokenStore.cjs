@@ -249,6 +249,98 @@ async function validateToken(token) {
   }
 }
 
+/**
+ * Store pending verification state (survives cold starts in production).
+ */
+async function setPendingVerification(verification) {
+  try {
+    const store = await getStore();
+    await store.setJSON('pending_verification', verification);
+    console.log('[TOKEN] Saved pending verification');
+    return true;
+  } catch (error) {
+    console.error('[TOKEN] Error saving verification:', error.message);
+    return false;
+  }
+}
+
+/**
+ * Get pending verification state.
+ */
+async function getPendingVerification() {
+  try {
+    const store = await getStore();
+    const data = await store.get('pending_verification', { type: 'json' });
+    return data;
+  } catch (error) {
+    console.error('[TOKEN] Error getting verification:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Clear pending verification state.
+ */
+async function clearPendingVerification() {
+  try {
+    const store = await getStore();
+    await store.delete('pending_verification');
+    console.log('[TOKEN] Cleared pending verification');
+    return true;
+  } catch (error) {
+    console.error('[TOKEN] Error clearing verification:', error.message);
+    return false;
+  }
+}
+
+/**
+ * Import a token directly (for manual token entry).
+ * Validates the token before storing.
+ */
+async function importToken(accessToken, refreshToken = null) {
+  const isValid = await validateToken(accessToken);
+  if (!isValid) {
+    return { success: false, error: 'Invalid token' };
+  }
+
+  const saved = await setToken(accessToken, refreshToken, 86400);
+  if (!saved) {
+    return { success: false, error: 'Failed to save token' };
+  }
+
+  return { success: true, message: 'Token imported successfully' };
+}
+
+/**
+ * Get raw token data for export/display.
+ * Only returns token if it's valid and not expired.
+ */
+async function getTokenData() {
+  try {
+    const store = await getStore();
+    const data = await store.get(TOKEN_KEY, { type: 'json' });
+
+    if (!data || !data.accessToken) {
+      return { hasToken: false };
+    }
+
+    const isExpired = data.expiresAt && Date.now() > data.expiresAt;
+    if (isExpired) {
+      return { hasToken: false, expired: true };
+    }
+
+    return {
+      hasToken: true,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      expiresAt: data.expiresAt ? new Date(data.expiresAt).toISOString() : null,
+    };
+  } catch (error) {
+    console.error('[TOKEN] Error getting token data:', error.message);
+    return { hasToken: false, error: error.message };
+  }
+}
+
 module.exports = {
   getToken,
   setToken,
@@ -256,4 +348,9 @@ module.exports = {
   refreshToken,
   getAuthStatus,
   validateToken,
+  setPendingVerification,
+  getPendingVerification,
+  clearPendingVerification,
+  importToken,
+  getTokenData,
 };

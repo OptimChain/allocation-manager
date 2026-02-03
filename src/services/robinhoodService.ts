@@ -213,3 +213,23 @@ export async function submitMFA(code: string): Promise<AuthResult> {
 export async function disconnectRobinhood(): Promise<AuthResult> {
   return fetchApi<AuthResult>('/robinhood-auth?action=disconnect');
 }
+
+export async function importToken(accessToken: string, refreshToken?: string): Promise<AuthResult> {
+  return fetchApi<AuthResult>('/robinhood-auth?action=import', {
+    method: 'POST',
+    body: JSON.stringify({ accessToken, refreshToken }),
+  });
+}
+
+export interface TokenData {
+  hasToken: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  expired?: boolean;
+  error?: string;
+}
+
+export async function getStoredToken(): Promise<TokenData> {
+  return fetchApi<TokenData>('/robinhood-auth?action=gettoken');
+}

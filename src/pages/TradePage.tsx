@@ -14,6 +14,7 @@ import {
   Unlink,
   Loader2,
   Shield,
+  Copy,
 } from 'lucide-react';
 import {
   PieChart,
@@ -32,6 +33,8 @@ import {
   checkVerification,
   submitMFA,
   disconnectRobinhood,
+  importToken,
+  getStoredToken,
   Portfolio,
   BotAction,
   BotAnalysis,
@@ -63,9 +66,12 @@ function AuthPanel({
   const [connecting, setConnecting] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
-  const [authState, setAuthState] = useState<'idle' | 'device' | 'mfa'>('idle');
+  const [tokenInput, setTokenInput] = useState('');
+  const [storedToken, setStoredToken] = useState<string | null>(null);
+  const [authState, setAuthState] = useState<'idle' | 'device' | 'mfa' | 'token'>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -156,6 +162,57 @@ function AuthPanel({
     }
   };
 
+  const handleTokenImport = async () => {
+    if (!tokenInput.trim()) return;
+
+    setConnecting(true);
+    setError(null);
+
+    try {
+      const result = await importToken(tokenInput.trim());
+
+      if (result.authenticated) {
+        setMessage(result.message || 'Token imported!');
+        setAuthState('idle');
+        setTokenInput('');
+        setStoredToken(null);
+        onAuthChange();
+      } else {
+        setError(result.error || 'Token import failed');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Token import failed');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleShowToken = async () => {
+    setAuthState('token');
+    setError(null);
+    setStoredToken(null);
+
+    try {
+      const data = await getStoredToken();
+      if (data.hasToken && data.accessToken) {
+        setStoredToken(data.accessToken);
+      }
+    } catch (err) {
+      // Ignore errors - user can still paste a token manually
+    }
+  };
+
+  const handleCopyToken = async () => {
+    if (!storedToken) return;
+    try {
+      await navigator.clipboard.writeText(storedToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      setError('Failed to copy to clipboard');
+    }
+  };
+
   const isConnected = authStatus?.authenticated;
 
   return (
@@ -189,18 +246,27 @@ function AuthPanel({
                   Disconnect
                 </button>
               ) : (
-                <button
-                  onClick={handleConnect}
-                  disabled={connecting}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
-                >
-                  {connecting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Link className="w-4 h-4" />
-                  )}
-                  Connect
-                </button>
+                <>
+                  <button
+                    onClick={handleConnect}
+                    disabled={connecting}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+                  >
+                    {connecting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Link className="w-4 h-4" />
+                    )}
+                    Generate Token
+                  </button>
+                  <button
+                    onClick={handleShowToken}
+                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  >
+                    <Shield className="w-4 h-4" />
+                    Use Token
+                  </button>
+                </>
               )}
             </>
           )}
@@ -255,6 +321,63 @@ function AuthPanel({
                 onClick={() => {
                   setAuthState('idle');
                   setMfaCode('');
+                }}
+                className="px-3 py-2 text-gray-500 hover:text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {authState === 'token' && (
+            <div className="flex items-center gap-2">
+              {storedToken && (
+                <button
+                  onClick={handleCopyToken}
+                  className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm ${
+                    copied
+                      ? 'border-green-300 bg-green-50 text-green-700'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                  title="Copy stored token"
+                >
+                  {copied ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copy Token
+                    </>
+                  )}
+                </button>
+              )}
+              <input
+                type="password"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder={storedToken ? 'Paste new token to replace' : 'Paste access token'}
+                className="w-64 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+              />
+              <button
+                onClick={handleTokenImport}
+                disabled={connecting || !tokenInput.trim()}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+              >
+                {connecting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-4 h-4" />
+                )}
+                Import
+              </button>
+              <button
+                onClick={() => {
+                  setAuthState('idle');
+                  setTokenInput('');
+                  setStoredToken(null);
                 }}
                 className="px-3 py-2 text-gray-500 hover:text-gray-700"
               >

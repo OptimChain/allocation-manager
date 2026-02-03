@@ -6,9 +6,6 @@ const tokenStore = require('./lib/tokenStore.cjs');
 
 const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
 
-// Store pending verification in memory (per function instance)
-let pendingVerification = null;
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -73,11 +70,12 @@ async function initiateAuth() {
 
   // Handle verification workflow (device verification required)
   if (data.verification_workflow) {
-    pendingVerification = {
+    const pendingVerification = {
       workflowId: data.verification_workflow.id,
       status: data.verification_workflow.workflow_status,
       startedAt: Date.now(),
     };
+    await tokenStore.setPendingVerification(pendingVerification);
     return {
       authenticated: false,
       requiresVerification: true,
@@ -90,12 +88,13 @@ async function initiateAuth() {
 
   // Handle MFA challenge
   if (data.mfa_required || data.challenge) {
-    pendingVerification = {
+    const pendingVerification = {
       mfaRequired: true,
       challengeId: data.challenge?.id,
       challengeType: data.challenge?.type || 'sms',
       startedAt: Date.now(),
     };
+    await tokenStore.setPendingVerification(pendingVerification);
     return {
       authenticated: false,
       requiresMFA: true,
@@ -108,7 +107,7 @@ async function initiateAuth() {
   // Success - got a token
   if (data.access_token) {
     await tokenStore.setToken(data.access_token, data.refresh_token, data.expires_in || 86400);
-    pendingVerification = null;
+    await tokenStore.clearPendingVerification();
     return {
       authenticated: true,
       message: 'Successfully connected to Robinhood!',
@@ -127,10 +126,11 @@ async function checkVerification() {
   const username = process.env.RH_USER;
   const password = process.env.RH_PASS;
 
+  const pendingVerification = await tokenStore.getPendingVerification();
   if (!pendingVerification) {
     return {
       status: 'no_pending',
-      message: 'No pending verification. Click "Connect" to start.',
+      message: 'No pending verification. Click "Generate Token" to start.',
     };
   }
 
@@ -158,7 +158,7 @@ async function checkVerification() {
   // Success - got a token!
   if (data.access_token) {
     await tokenStore.setToken(data.access_token, data.refresh_token, data.expires_in || 86400);
-    pendingVerification = null;
+    await tokenStore.clearPendingVerification();
     return {
       status: 'verified',
       authenticated: true,
@@ -189,6 +189,7 @@ async function checkVerification() {
  * Submit MFA code.
  */
 async function submitMFA(code) {
+  const pendingVerification = await tokenStore.getPendingVerification();
   if (!pendingVerification || !pendingVerification.mfaRequired) {
     throw new Error('No pending MFA challenge');
   }
@@ -219,7 +220,7 @@ async function submitMFA(code) {
 
   if (data.access_token) {
     await tokenStore.setToken(data.access_token, data.refresh_token, data.expires_in || 86400);
-    pendingVerification = null;
+    await tokenStore.clearPendingVerification();
     return {
       authenticated: true,
       message: 'Successfully connected to Robinhood!',
@@ -230,11 +231,26 @@ async function submitMFA(code) {
 }
 
 /**
+ * Import a token directly (manual entry from another source).
+ */
+async function importManualToken(accessToken, refreshToken = null) {
+  const result = await tokenStore.importToken(accessToken, refreshToken);
+  if (result.success) {
+    await tokenStore.clearPendingVerification();
+    return {
+      authenticated: true,
+      message: result.message,
+    };
+  }
+  throw new Error(result.error || 'Token import failed');
+}
+
+/**
  * Disconnect - clear stored token.
  */
 async function disconnect() {
   await tokenStore.clearToken();
-  pendingVerification = null;
+  await tokenStore.clearPendingVerification();
   return {
     authenticated: false,
     message: 'Disconnected from Robinhood',
@@ -260,6 +276,7 @@ exports.handler = async (event) => {
       case 'status':
         result = await tokenStore.getAuthStatus();
         // Add pending verification info if any
+        const pendingVerification = await tokenStore.getPendingVerification();
         if (pendingVerification) {
           result.pendingVerification = {
             type: pendingVerification.mfaRequired ? 'mfa' : 'device',
@@ -284,13 +301,28 @@ exports.handler = async (event) => {
         result = await submitMFA(mfaCode);
         break;
 
+      case 'import':
+        if (event.httpMethod !== 'POST') {
+          throw new Error('Import requires POST method with JSON body');
+        }
+        const body = JSON.parse(event.body || '{}');
+        if (!body.accessToken) {
+          throw new Error('accessToken is required in request body');
+        }
+        result = await importManualToken(body.accessToken, body.refreshToken);
+        break;
+
+      case 'gettoken':
+        result = await tokenStore.getTokenData();
+        break;
+
       case 'disconnect':
       case 'logout':
         result = await disconnect();
         break;
 
       default:
-        throw new Error(`Unknown action: ${action}. Available: status, connect, verify, mfa, disconnect`);
+        throw new Error(`Unknown action: ${action}. Available: status, connect, verify, mfa, import, gettoken, disconnect`);
     }
 
     return {
