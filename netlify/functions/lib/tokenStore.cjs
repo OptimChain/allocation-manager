@@ -313,6 +313,37 @@ async function importToken(accessToken, refreshToken = null) {
   return { success: true, message: 'Token imported successfully' };
 }
 
+/**
+ * Get raw token data for export/display.
+ * Only returns token if it's valid and not expired.
+ */
+async function getTokenData() {
+  try {
+    const store = await getStore();
+    const data = await store.get(TOKEN_KEY, { type: 'json' });
+
+    if (!data || !data.accessToken) {
+      return { hasToken: false };
+    }
+
+    // Check if expired
+    const isExpired = data.expiresAt && Date.now() > data.expiresAt;
+    if (isExpired) {
+      return { hasToken: false, expired: true };
+    }
+
+    return {
+      hasToken: true,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      expiresAt: data.expiresAt ? new Date(data.expiresAt).toISOString() : null,
+    };
+  } catch (error) {
+    console.error('[TOKEN] Error getting token data:', error.message);
+    return { hasToken: false, error: error.message };
+  }
+}
+
 module.exports = {
   getToken,
   setToken,
@@ -324,4 +355,5 @@ module.exports = {
   getPendingVerification,
   clearPendingVerification,
   importToken,
+  getTokenData,
 };

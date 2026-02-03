@@ -14,6 +14,7 @@ import {
   Unlink,
   Loader2,
   Shield,
+  Copy,
 } from 'lucide-react';
 import {
   PieChart,
@@ -33,6 +34,7 @@ import {
   submitMFA,
   disconnectRobinhood,
   importToken,
+  getStoredToken,
   Portfolio,
   BotAction,
   BotAnalysis,
@@ -65,9 +67,11 @@ function AuthPanel({
   const [verifying, setVerifying] = useState(false);
   const [mfaCode, setMfaCode] = useState('');
   const [tokenInput, setTokenInput] = useState('');
+  const [storedToken, setStoredToken] = useState<string | null>(null);
   const [authState, setAuthState] = useState<'idle' | 'device' | 'mfa' | 'token'>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -171,6 +175,7 @@ function AuthPanel({
         setMessage(result.message || 'Token imported!');
         setAuthState('idle');
         setTokenInput('');
+        setStoredToken(null);
         onAuthChange();
       } else {
         setError(result.error || 'Token import failed');
@@ -179,6 +184,32 @@ function AuthPanel({
       setError(err instanceof Error ? err.message : 'Token import failed');
     } finally {
       setConnecting(false);
+    }
+  };
+
+  const handleShowToken = async () => {
+    setAuthState('token');
+    setError(null);
+    setStoredToken(null);
+
+    try {
+      const data = await getStoredToken();
+      if (data.hasToken && data.accessToken) {
+        setStoredToken(data.accessToken);
+      }
+    } catch (err) {
+      // Ignore errors - user can still paste a token manually
+    }
+  };
+
+  const handleCopyToken = async () => {
+    if (!storedToken) return;
+    try {
+      await navigator.clipboard.writeText(storedToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      setError('Failed to copy to clipboard');
     }
   };
 
@@ -229,7 +260,7 @@ function AuthPanel({
                     Generate Token
                   </button>
                   <button
-                    onClick={() => setAuthState('token')}
+                    onClick={handleShowToken}
                     className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                   >
                     <Shield className="w-4 h-4" />
@@ -300,11 +331,34 @@ function AuthPanel({
 
           {authState === 'token' && (
             <div className="flex items-center gap-2">
+              {storedToken && (
+                <button
+                  onClick={handleCopyToken}
+                  className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm ${
+                    copied
+                      ? 'border-green-300 bg-green-50 text-green-700'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                  title="Copy stored token"
+                >
+                  {copied ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copy Token
+                    </>
+                  )}
+                </button>
+              )}
               <input
                 type="password"
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="Paste access token"
+                placeholder={storedToken ? 'Paste new token to replace' : 'Paste access token'}
                 className="w-64 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
               />
               <button
@@ -323,6 +377,7 @@ function AuthPanel({
                 onClick={() => {
                   setAuthState('idle');
                   setTokenInput('');
+                  setStoredToken(null);
                 }}
                 className="px-3 py-2 text-gray-500 hover:text-gray-700"
               >

@@ -315,13 +315,18 @@ exports.handler = async (event) => {
         result = await importManualToken(body.accessToken, body.refreshToken);
         break;
 
+      case 'gettoken':
+        // Get current token for export
+        result = await tokenStore.getTokenData();
+        break;
+
       case 'disconnect':
       case 'logout':
         result = await disconnect();
         break;
 
       default:
-        throw new Error(`Unknown action: ${action}. Available: status, connect, verify, mfa, import, disconnect`);
+        throw new Error(`Unknown action: ${action}. Available: status, connect, verify, mfa, import, gettoken, disconnect`);
     }
 
     return {

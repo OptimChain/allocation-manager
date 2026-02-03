@@ -220,3 +220,16 @@ export async function importToken(accessToken: string, refreshToken?: string): P
     body: JSON.stringify({ accessToken, refreshToken }),
   });
 }
+
+export interface TokenData {
+  hasToken: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  expired?: boolean;
+  error?: string;
+}
+
+export async function getStoredToken(): Promise<TokenData> {
+  return fetchApi<TokenData>('/robinhood-auth?action=gettoken');
+}
