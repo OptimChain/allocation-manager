@@ -4,6 +4,8 @@ export interface ReturnDataPoint {
   date: string;
   timestamp: number;
   returnPercent: number;
+  price: number;
+  smaReturnPercent?: number;
 }
 
 export interface PortfolioReturnData {
@@ -13,17 +15,33 @@ export interface PortfolioReturnData {
   returns: ReturnDataPoint[];
 }
 
-// Calculate percentage returns from price data (normalized to starting value = 0%)
-export function calculateReturns(priceData: NormalizedPriceData[]): ReturnDataPoint[] {
+// Calculate percentage returns from price data (normalized to startIndex value = 0%)
+export function calculateReturns(
+  priceData: NormalizedPriceData[],
+  startIndex: number = 0
+): ReturnDataPoint[] {
   if (priceData.length === 0) return [];
 
-  const startPrice = priceData[0].price;
+  const startPrice = priceData[startIndex].price;
 
   return priceData.map((point) => ({
     date: point.date,
     timestamp: point.timestamp,
     returnPercent: ((point.price - startPrice) / startPrice) * 100,
+    price: point.price,
   }));
+}
+
+// Calculate Simple Moving Average over return percentages
+export function calculateSMA(returns: ReturnDataPoint[], window: number): ReturnDataPoint[] {
+  return returns.map((point, index) => {
+    if (index < window - 1) {
+      return { ...point, smaReturnPercent: undefined };
+    }
+    const slice = returns.slice(index - window + 1, index + 1);
+    const avg = slice.reduce((sum, p) => sum + p.returnPercent, 0) / window;
+    return { ...point, smaReturnPercent: avg };
+  });
 }
 
 // Apply yearly fee deduction to returns
@@ -51,44 +69,92 @@ export function applyFees(
   });
 }
 
-// Process portfolio assets into chart-ready data with fees applied
+// Rebase a return series so that the value at rebaseIndex becomes 0%
+// Uses multiplicative rebasing: newReturn = (1+R)/(1+Rbase) - 1
+function rebaseReturns(returns: ReturnDataPoint[], rebaseIndex: number): ReturnDataPoint[] {
+  const baseReturn = returns[rebaseIndex].returnPercent;
+  const baseFactor = 1 + baseReturn / 100;
+
+  return returns.map((point) => {
+    const rebased = ((1 + point.returnPercent / 100) / baseFactor - 1) * 100;
+    const rebasedSMA = point.smaReturnPercent !== undefined
+      ? ((1 + point.smaReturnPercent / 100) / baseFactor - 1) * 100
+      : undefined;
+
+    return {
+      ...point,
+      returnPercent: rebased,
+      smaReturnPercent: rebasedSMA,
+    };
+  });
+}
+
+// Process portfolio assets into chart-ready data with fees applied and SMA calculated.
+// When smaWindow > 0, extra warm-up data is expected in asset.data.
+// Returns are calculated from the start of all data, SMA is computed on the full series,
+// then the warm-up is trimmed and returns are rebased so the visible range starts at 0%.
 export function processPortfolioReturns(
   assets: PortfolioAsset[],
-  fees: Record<string, number>
+  fees: Record<string, number>,
+  smaWindow: number = 0
 ): PortfolioReturnData[] {
   return assets.map((asset) => {
     const rawReturns = calculateReturns(asset.data);
     const feePercent = fees[asset.symbol] || 0;
     const adjustedReturns = applyFees(rawReturns, feePercent);
 
+    if (smaWindow <= 0) {
+      return {
+        symbol: asset.symbol,
+        displayName: asset.displayName,
+        color: asset.color,
+        returns: adjustedReturns,
+      };
+    }
+
+    const withSMA = calculateSMA(adjustedReturns, smaWindow);
+
+    // Trim warm-up points and rebase so visible range starts at 0%
+    const warmupSize = Math.min(smaWindow, withSMA.length - 1);
+    const rebased = rebaseReturns(withSMA, warmupSize);
+    const visible = rebased.slice(warmupSize);
+
     return {
       symbol: asset.symbol,
       displayName: asset.displayName,
       color: asset.color,
-      returns: adjustedReturns,
+      returns: visible,
     };
   });
 }
 
 // Merge multiple return series into a single dataset for Recharts
-// Each data point has: date, timestamp, and a key for each asset's return
+// Each data point has: date, timestamp, and keys for each asset's return, price, and SMA
 // Joins by DATE to handle assets with different trading calendars (e.g., BTC 24/7 vs stocks M-F)
 export function mergeReturnsForChart(
   portfolioReturns: PortfolioReturnData[]
 ): Array<Record<string, string | number>> {
   if (portfolioReturns.length === 0) return [];
 
-  // Build a map of date -> returns for each asset
+  // Build maps of date -> returns/prices/sma for each asset
   const returnsByDate = new Map<string, Record<string, number>>();
+  const pricesByDate = new Map<string, Record<string, number>>();
+  const smaByDate = new Map<string, Record<string, number>>();
   const timestampByDate = new Map<string, number>();
 
   portfolioReturns.forEach((asset) => {
     asset.returns.forEach((point) => {
       if (!returnsByDate.has(point.date)) {
         returnsByDate.set(point.date, {});
+        pricesByDate.set(point.date, {});
+        smaByDate.set(point.date, {});
         timestampByDate.set(point.date, point.timestamp);
       }
       returnsByDate.get(point.date)![asset.symbol] = Number(point.returnPercent.toFixed(2));
+      pricesByDate.get(point.date)![`${asset.symbol}_price`] = point.price;
+      if (point.smaReturnPercent !== undefined) {
+        smaByDate.get(point.date)![`${asset.symbol}_sma`] = Number(point.smaReturnPercent.toFixed(2));
+      }
     });
   });
 
@@ -110,6 +176,8 @@ export function mergeReturnsForChart(
         date,
         timestamp: timestampByDate.get(date) || 0,
         ...returnsByDate.get(date)!,
+        ...pricesByDate.get(date)!,
+        ...smaByDate.get(date)!,
       };
       return dataPoint;
     });

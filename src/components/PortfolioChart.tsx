@@ -17,8 +17,22 @@ interface PortfolioChartProps {
   height?: number;
 }
 
+function formatPrice(value: number): string {
+  if (value >= 1000) {
+    return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `$${value.toFixed(2)}`;
+}
+
 export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
   const chartData = useMemo(() => mergeReturnsForChart(data), [data]);
+
+  // Check if any asset has SMA data
+  const hasSMA = useMemo(() => {
+    return data.some((asset) =>
+      asset.returns.some((r) => r.smaReturnPercent !== undefined)
+    );
+  }, [data]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -29,10 +43,18 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
 
   const CustomTooltip = ({ active, payload, label }: {
     active?: boolean;
-    payload?: Array<{ color: string; name: string; value: number }>;
+    payload?: Array<{ color: string; name: string; value: number; dataKey: string }>;
     label?: string;
   }) => {
     if (!active || !payload) return null;
+
+    // Filter out SMA and price entries from the payload - we'll show price inline
+    const mainEntries = payload.filter(
+      (entry) => !entry.dataKey.endsWith('_sma') && !entry.dataKey.endsWith('_price')
+    );
+
+    // Get the full data point for prices
+    const dataPoint = chartData.find((d) => d.date === label);
 
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
@@ -43,22 +65,31 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
             year: 'numeric',
           })}
         </p>
-        {payload.map((entry, index) => (
-          <div key={index} className="flex items-center gap-2 text-sm">
-            <div
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-gray-700">{entry.name}:</span>
-            <span
-              className={`font-medium ${
-                entry.value >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}
-            >
-              {formatReturnPercent(entry.value)}
-            </span>
-          </div>
-        ))}
+        {mainEntries.map((entry, index) => {
+          const priceKey = `${entry.dataKey}_price`;
+          const price = dataPoint ? dataPoint[priceKey] : undefined;
+          return (
+            <div key={index} className="flex items-center gap-2 text-sm">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="text-gray-700">{entry.name}:</span>
+              {typeof price === 'number' && (
+                <span className="font-medium text-gray-900">
+                  {formatPrice(price)}
+                </span>
+              )}
+              <span
+                className={`font-medium ${
+                  entry.value >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}
+              >
+                ({formatReturnPercent(entry.value)})
+              </span>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -106,6 +137,21 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 4, strokeWidth: 2 }}
+            />
+          ))}
+          {hasSMA && data.map((asset) => (
+            <Line
+              key={`${asset.symbol}_sma`}
+              type="monotone"
+              dataKey={`${asset.symbol}_sma`}
+              name={`${asset.displayName} 150d SMA`}
+              stroke={asset.color}
+              strokeWidth={1.5}
+              strokeDasharray="6 3"
+              dot={false}
+              activeDot={false}
+              legendType="plainline"
+              connectNulls={false}
             />
           ))}
         </LineChart>

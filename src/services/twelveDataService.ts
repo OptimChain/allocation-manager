@@ -46,15 +46,23 @@ const getApiKey = (): string => {
   return key;
 };
 
+// SMA period in calendar days (converted to data-point windows per interval)
+const SMA_DAYS = 150;
+
 // Map time ranges to output sizes and intervals
-const RANGE_CONFIG: Record<string, { outputsize: number; interval: string }> = {
-  '1W': { outputsize: 7, interval: '1day' },
-  '1M': { outputsize: 22, interval: '1day' },
-  '3M': { outputsize: 66, interval: '1day' },
-  '6M': { outputsize: 130, interval: '1day' },
-  '1Y': { outputsize: 252, interval: '1day' },
-  '5Y': { outputsize: 260, interval: '1week' },
+// outputsize includes extra warm-up data so the SMA covers the entire visible chart
+const RANGE_CONFIG: Record<string, { outputsize: number; interval: string; smaWindow: number; visibleSize: number }> = {
+  '1W':  { outputsize: 7 + SMA_DAYS,               interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 7 },
+  '1M':  { outputsize: 22 + SMA_DAYS,              interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 22 },
+  '3M':  { outputsize: 66 + SMA_DAYS,              interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 66 },
+  '6M':  { outputsize: 130 + SMA_DAYS,             interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 130 },
+  '1Y':  { outputsize: 252 + SMA_DAYS,             interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 252 },
+  '5Y':  { outputsize: 260 + Math.ceil(SMA_DAYS / 7), interval: '1week', smaWindow: Math.ceil(SMA_DAYS / 7), visibleSize: 260 },
 };
+
+export function getRangeConfig(range: string) {
+  return RANGE_CONFIG[range] || RANGE_CONFIG['1Y'];
+}
 
 export async function getTimeSeries(
   symbol: string,

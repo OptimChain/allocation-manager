@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { PortfolioChart } from '../components/PortfolioChart';
-import { getPortfolioData, PORTFOLIO_ASSETS, PortfolioAsset } from '../services/twelveDataService';
+import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset } from '../services/twelveDataService';
 import { processPortfolioReturns } from '../utils/portfolioCalculations';
 
 const TIME_RANGES = [
@@ -13,6 +13,8 @@ const TIME_RANGES = [
   { label: '5Y', value: '5Y' },
 ];
 
+const DEFAULT_ENABLED = new Set(['BTC/USD', 'AMZN', 'QQQ', 'SPY']);
+
 export default function ComparePage() {
   const [portfolioData, setPortfolioData] = useState<PortfolioAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +22,7 @@ export default function ComparePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedRange, setSelectedRange] = useState('1Y');
   const [enabledAssets, setEnabledAssets] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(PORTFOLIO_ASSETS.map((a) => [a.symbol, true]))
+    () => Object.fromEntries(PORTFOLIO_ASSETS.map((a) => [a.symbol, DEFAULT_ENABLED.has(a.symbol)]))
   );
   const [fees, setFees] = useState<Record<string, number>>(
     () => Object.fromEntries(PORTFOLIO_ASSETS.map((a) => [a.symbol, 0]))
@@ -48,9 +50,10 @@ export default function ComparePage() {
 
   const chartData = useMemo(() => {
     if (portfolioData.length === 0) return [];
-    const allData = processPortfolioReturns(portfolioData, fees);
+    const { smaWindow } = getRangeConfig(selectedRange);
+    const allData = processPortfolioReturns(portfolioData, fees, smaWindow);
     return allData.filter((asset) => enabledAssets[asset.symbol]);
-  }, [portfolioData, fees, enabledAssets]);
+  }, [portfolioData, fees, enabledAssets, selectedRange]);
 
   const toggleAsset = (symbol: string) => {
     setEnabledAssets((prev) => ({ ...prev, [symbol]: !prev[symbol] }));
@@ -184,11 +187,13 @@ export default function ComparePage() {
       {/* Chart */}
       <PortfolioChart data={chartData} height={450} />
 
-      {/* Legend with current returns */}
+      {/* Legend with current returns and prices */}
       {chartData.length > 0 && (
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {chartData.map((asset) => {
-            const lastReturn = asset.returns[asset.returns.length - 1]?.returnPercent ?? 0;
+            const lastPoint = asset.returns[asset.returns.length - 1];
+            const lastReturn = lastPoint?.returnPercent ?? 0;
+            const lastPrice = lastPoint?.price;
             const isPositive = lastReturn >= 0;
             return (
               <div
@@ -199,8 +204,13 @@ export default function ComparePage() {
                   className="w-4 h-4 rounded-full flex-shrink-0"
                   style={{ backgroundColor: asset.color }}
                 />
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900">{asset.displayName}</p>
+                  {lastPrice !== undefined && (
+                    <p className="text-sm font-semibold text-gray-800">
+                      ${lastPrice >= 1000 ? lastPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : lastPrice.toFixed(2)}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-500">
                     Fee: {fees[asset.symbol] || 0}% / year
                   </p>
