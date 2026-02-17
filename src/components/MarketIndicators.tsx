@@ -249,18 +249,93 @@ export default function MarketIndicators() {
 
               {/* Charts */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 px-6 pb-6">
-                {/* IV Z-Score */}
+                {/* IV Z-Score — 30d Rolling */}
                 <div className="border border-gray-100 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                    IV Z-Score{data.iv.source ? ` (${data.iv.source})` : ''}
+                    DVOL — 30d Rolling
                   </h4>
                   {data.iv.series.length > 0 ? (
                     <ResponsiveContainer width="100%" height={chartHeight}>
-                      <LineChart data={filterByRange(data.iv.series, selectedRange)}>
+                      <LineChart data={filterByRange(data.iv.series, 30)}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                         <XAxis
                           dataKey="timestamp"
-                          tickFormatter={(ts) => formatAxis(ts, selectedRange)}
+                          tickFormatter={(ts) => formatAxis(ts, 30)}
+                          tick={{ fontSize: 11, fill: '#9ca3af' }}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                        />
+                        <YAxis
+                          tickFormatter={(v) => `${v.toFixed(0)}%`}
+                          tick={{ fontSize: 11, fill: '#9ca3af' }}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                          width={50}
+                        />
+                        <Tooltip
+                          labelFormatter={(ts) =>
+                            new Date(ts as number).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })
+                          }
+                          formatter={(value: number) => [`${value.toFixed(1)}%`, 'IV']}
+                        />
+                        {data.iv.mean !== null && (
+                          <ReferenceLine
+                            y={data.iv.mean}
+                            stroke="#9ca3af"
+                            strokeDasharray="3 3"
+                          />
+                        )}
+                        {data.iv.mean !== null && data.iv.std !== null && (
+                          <ReferenceLine
+                            y={data.iv.mean + data.iv.std}
+                            stroke="#ef4444"
+                            strokeDasharray="3 3"
+                          />
+                        )}
+                        {data.iv.mean !== null && data.iv.std !== null && (
+                          <ReferenceLine
+                            y={data.iv.mean - data.iv.std}
+                            stroke="#22c55e"
+                            strokeDasharray="3 3"
+                          />
+                        )}
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#8B5CF6"
+                          strokeWidth={1.5}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div
+                      className="flex items-center justify-center text-sm text-gray-400"
+                      style={{ height: chartHeight }}
+                    >
+                      IV data unavailable
+                    </div>
+                  )}
+                </div>
+
+                {/* IV Z-Score — Full History (Jul 2023+) */}
+                <div className="border border-gray-100 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                    DVOL — Jul &rsquo;23 to Present
+                  </h4>
+                  {data.iv.series.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={chartHeight}>
+                      <LineChart
+                        data={data.iv.series.filter(
+                          (d) => d.timestamp >= new Date('2023-07-01').getTime(),
+                        )}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis
+                          dataKey="timestamp"
+                          tickFormatter={(ts) => formatAxis(ts, 1825)}
                           tick={{ fontSize: 11, fill: '#9ca3af' }}
                           axisLine={{ stroke: '#e5e7eb' }}
                         />
