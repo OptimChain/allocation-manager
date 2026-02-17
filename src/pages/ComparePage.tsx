@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { PortfolioChart } from '../components/PortfolioChart';
 import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset } from '../services/twelveDataService';
-import { processPortfolioReturns } from '../utils/portfolioCalculations';
+import { processPortfolioReturns, calculateCorrelations } from '../utils/portfolioCalculations';
 
 const TIME_RANGES = [
   { label: '1W', value: '1W' },
@@ -54,6 +54,8 @@ export default function ComparePage() {
     const allData = processPortfolioReturns(portfolioData, fees, smaWindow);
     return allData.filter((asset) => enabledAssets[asset.symbol]);
   }, [portfolioData, fees, enabledAssets, selectedRange]);
+
+  const correlations = useMemo(() => calculateCorrelations(chartData), [chartData]);
 
   const toggleAsset = (symbol: string) => {
     setEnabledAssets((prev) => ({ ...prev, [symbol]: !prev[symbol] }));
@@ -221,6 +223,64 @@ export default function ComparePage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Correlation Matrix */}
+      {correlations.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Correlations</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {correlations.map((pair) => {
+              const corr = pair.correlation;
+              const abs = Math.abs(corr);
+              let corrColor = 'text-gray-600';
+              if (abs >= 0.7) corrColor = corr > 0 ? 'text-green-600' : 'text-red-600';
+              else if (abs >= 0.4) corrColor = corr > 0 ? 'text-green-500' : 'text-red-500';
+
+              let label = 'Weak';
+              if (abs >= 0.9) label = 'Very Strong';
+              else if (abs >= 0.7) label = 'Strong';
+              else if (abs >= 0.4) label = 'Moderate';
+
+              return (
+                <div
+                  key={`${pair.symbolA}-${pair.symbolB}`}
+                  className="bg-white rounded-xl border border-gray-200 p-4"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: pair.colorA }}
+                    />
+                    <span className="text-sm font-medium text-gray-700">{pair.nameA}</span>
+                    <span className="text-gray-400 text-xs">vs</span>
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: pair.colorB }}
+                    />
+                    <span className="text-sm font-medium text-gray-700">{pair.nameB}</span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-xl font-bold ${corrColor}`}>
+                      {corr >= 0 ? '+' : ''}{corr.toFixed(2)}
+                    </span>
+                    <span className="text-xs text-gray-400">{label}</span>
+                  </div>
+                  {/* Correlation bar */}
+                  <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${abs * 100}%`,
+                        backgroundColor: corr >= 0 ? '#22c55e' : '#ef4444',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

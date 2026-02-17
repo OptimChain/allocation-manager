@@ -183,6 +183,98 @@ export function mergeReturnsForChart(
     });
 }
 
+// Compute daily log returns from a return series (day-over-day changes)
+function dailyReturns(returns: ReturnDataPoint[]): number[] {
+  const daily: number[] = [];
+  for (let i = 1; i < returns.length; i++) {
+    const prev = 1 + returns[i - 1].returnPercent / 100;
+    const curr = 1 + returns[i].returnPercent / 100;
+    daily.push(prev > 0 ? curr / prev - 1 : 0);
+  }
+  return daily;
+}
+
+// Pearson correlation coefficient between two arrays of equal length
+function pearsonCorrelation(x: number[], y: number[]): number {
+  const n = x.length;
+  if (n === 0) return 0;
+
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += x[i];
+    sumY += y[i];
+    sumXY += x[i] * y[i];
+    sumX2 += x[i] * x[i];
+    sumY2 += y[i] * y[i];
+  }
+
+  const denom = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  if (denom === 0) return 0;
+  return (n * sumXY - sumX * sumY) / denom;
+}
+
+export interface CorrelationPair {
+  symbolA: string;
+  symbolB: string;
+  nameA: string;
+  nameB: string;
+  colorA: string;
+  colorB: string;
+  correlation: number;
+}
+
+// Calculate pairwise correlations between all portfolio return series
+// Uses daily returns (day-over-day changes) aligned by date
+export function calculateCorrelations(data: PortfolioReturnData[]): CorrelationPair[] {
+  if (data.length < 2) return [];
+
+  // Build date-aligned daily returns for each asset
+  const dateMap = new Map<string, Map<string, number>>();
+  const dailyByAsset = new Map<string, { date: string; ret: number }[]>();
+
+  for (const asset of data) {
+    const dr = dailyReturns(asset.returns);
+    const entries: { date: string; ret: number }[] = [];
+    for (let i = 0; i < dr.length; i++) {
+      const date = asset.returns[i + 1].date;
+      entries.push({ date, ret: dr[i] });
+      if (!dateMap.has(date)) dateMap.set(date, new Map());
+      dateMap.get(date)!.set(asset.symbol, dr[i]);
+    }
+    dailyByAsset.set(asset.symbol, entries);
+  }
+
+  // Get common dates across all assets
+  const symbols = data.map((a) => a.symbol);
+  const commonDates = Array.from(dateMap.keys()).filter((date) => {
+    const m = dateMap.get(date)!;
+    return symbols.every((s) => m.has(s));
+  });
+
+  const pairs: CorrelationPair[] = [];
+  for (let i = 0; i < data.length; i++) {
+    for (let j = i + 1; j < data.length; j++) {
+      const a = data[i];
+      const b = data[j];
+      const xVals = commonDates.map((d) => dateMap.get(d)!.get(a.symbol)!);
+      const yVals = commonDates.map((d) => dateMap.get(d)!.get(b.symbol)!);
+      pairs.push({
+        symbolA: a.symbol,
+        symbolB: b.symbol,
+        nameA: a.displayName,
+        nameB: b.displayName,
+        colorA: a.color,
+        colorB: b.color,
+        correlation: pearsonCorrelation(xVals, yVals),
+      });
+    }
+  }
+
+  // Sort by absolute correlation descending (most correlated first)
+  pairs.sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+  return pairs;
+}
+
 // Format percentage for display
 export function formatReturnPercent(value: number): string {
   const sign = value >= 0 ? '+' : '';
