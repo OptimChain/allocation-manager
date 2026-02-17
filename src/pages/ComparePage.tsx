@@ -55,6 +55,51 @@ export default function ComparePage() {
     return allData.filter((asset) => enabledAssets[asset.symbol]);
   }, [portfolioData, fees, enabledAssets, selectedRange]);
 
+  const correlations = useMemo(() => {
+    if (portfolioData.length === 0) return {} as Record<string, number | null>;
+
+    const btc = portfolioData.find((a) => a.symbol === 'BTC/USD');
+    if (!btc || btc.data.length < 3) return {} as Record<string, number | null>;
+
+    // BTC daily returns keyed by date
+    const btcReturnsByDate = new Map<string, number>();
+    for (let i = 1; i < btc.data.length; i++) {
+      btcReturnsByDate.set(btc.data[i].date, btc.data[i].price / btc.data[i - 1].price - 1);
+    }
+
+    const result: Record<string, number | null> = {};
+    for (const asset of portfolioData) {
+      if (asset.symbol === 'BTC/USD') { result[asset.symbol] = null; continue; }
+
+      // Compute aligned daily returns
+      const xVals: number[] = [];
+      const yVals: number[] = [];
+      for (let i = 1; i < asset.data.length; i++) {
+        const btcRet = btcReturnsByDate.get(asset.data[i].date);
+        if (btcRet === undefined) continue;
+        xVals.push(btcRet);
+        yVals.push(asset.data[i].price / asset.data[i - 1].price - 1);
+      }
+
+      if (xVals.length < 5) { result[asset.symbol] = null; continue; }
+
+      const n = xVals.length;
+      const meanX = xVals.reduce((a, b) => a + b, 0) / n;
+      const meanY = yVals.reduce((a, b) => a + b, 0) / n;
+      let cov = 0, varX = 0, varY = 0;
+      for (let i = 0; i < n; i++) {
+        const dx = xVals[i] - meanX;
+        const dy = yVals[i] - meanY;
+        cov += dx * dy;
+        varX += dx * dx;
+        varY += dy * dy;
+      }
+      const denom = Math.sqrt(varX * varY);
+      result[asset.symbol] = denom > 0 ? cov / denom : null;
+    }
+    return result;
+  }, [portfolioData]);
+
   const toggleAsset = (symbol: string) => {
     setEnabledAssets((prev) => ({ ...prev, [symbol]: !prev[symbol] }));
   };
@@ -213,6 +258,12 @@ export default function ComparePage() {
                   )}
                   <p className="text-xs text-gray-500">
                     Fee: {fees[asset.symbol] || 0}% / year
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Corr vs BTC:{' '}
+                    {correlations[asset.symbol] !== null && correlations[asset.symbol] !== undefined
+                      ? correlations[asset.symbol]!.toFixed(2)
+                      : '—'}
                   </p>
                 </div>
                 <div className={`text-lg font-semibold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
