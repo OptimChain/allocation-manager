@@ -1027,6 +1027,9 @@ function RealizedPnLSummary({ pnl, sharpeRatio, periodLabel, openOrders }: { pnl
           <div className={`text-2xl font-bold ${sharpeColor}`}>
             {sharpeRatio !== null ? sharpeRatio.toFixed(2) : '—'}
           </div>
+          {sharpeRatio === null && (
+            <div className="text-xs text-gray-400 mt-1">Needs 2+ sell days</div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -1389,6 +1392,15 @@ export default function TradePage() {
                   <h2 className="text-2xl font-bold text-gray-900">Order P&L</h2>
                   <p className="text-gray-500 mt-1">Realized profit & loss from filled orders</p>
                 </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => fetchData(true)}
+                    disabled={refreshing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
                 <div className="flex bg-gray-100 rounded-lg p-1">
                   {PNL_PERIODS.map(({ label, value }) => (
                     <button
@@ -1403,6 +1415,7 @@ export default function TradePage() {
                       {label}
                     </button>
                   ))}
+                </div>
                 </div>
               </div>
 
