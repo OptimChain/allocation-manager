@@ -231,6 +231,8 @@ export interface CorrelationPair {
   colorB: string;
   correlation: number;
   varianceContribution: number; // % of total equal-weight portfolio variance from this pair
+  varianceA: number; // asset A's own variance contribution (w^2 * var_A) as % of total
+  varianceB: number; // asset B's own variance contribution (w^2 * var_B) as % of total
 }
 
 // Calculate pairwise correlations between all portfolio return series
@@ -279,9 +281,12 @@ export function calculateCorrelations(data: PortfolioReturnData[]): CorrelationP
   let totalVariance = 0;
 
   // Diagonal terms: w^2 * var_i
+  const assetVariance = new Map<string, number>();
   for (const s of symbols) {
     const sd = stds.get(s)!;
-    totalVariance += w * w * sd * sd;
+    const v = w * w * sd * sd;
+    assetVariance.set(s, v);
+    totalVariance += v;
   }
 
   // Build pairs and accumulate off-diagonal variance
@@ -306,6 +311,8 @@ export function calculateCorrelations(data: PortfolioReturnData[]): CorrelationP
         colorB: b.color,
         correlation: corr,
         varianceContribution: pairVariance,
+        varianceA: assetVariance.get(a.symbol)!,
+        varianceB: assetVariance.get(b.symbol)!,
       });
     }
   }
@@ -314,6 +321,8 @@ export function calculateCorrelations(data: PortfolioReturnData[]): CorrelationP
   if (totalVariance > 0) {
     for (const pair of pairs) {
       pair.varianceContribution = (pair.varianceContribution / totalVariance) * 100;
+      pair.varianceA = (pair.varianceA / totalVariance) * 100;
+      pair.varianceB = (pair.varianceB / totalVariance) * 100;
     }
   }
 

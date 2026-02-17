@@ -264,7 +264,7 @@ export default function ComparePage() {
                     />
                     <span className="text-sm font-medium text-gray-700">{pair.nameB}</span>
                   </div>
-                  <div className="flex items-baseline justify-between">
+                  <div className="flex items-baseline justify-between mb-2">
                     <div className="flex items-baseline gap-2">
                       <span className={`text-xl font-bold ${corrColor}`}>
                         {corr >= 0 ? '+' : ''}{corr.toFixed(2)}
@@ -275,7 +275,23 @@ export default function ComparePage() {
                       <span className={`text-sm font-semibold ${varColor}`}>
                         {varContrib >= 0 ? '+' : ''}{varContrib.toFixed(1)}%
                       </span>
-                      <span className="text-xs text-gray-400 ml-1">var</span>
+                      <span className="text-xs text-gray-400 ml-1">cov</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 border-t border-gray-100 pt-2">
+                    <div className="flex items-center gap-1.5">
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: pair.colorA }}
+                      />
+                      <span>{pair.varianceA.toFixed(1)}% var</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: pair.colorB }}
+                      />
+                      <span>{pair.varianceB.toFixed(1)}% var</span>
                     </div>
                   </div>
                 </div>
