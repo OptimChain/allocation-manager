@@ -46,6 +46,7 @@ import {
   SymbolPnL,
   FilledOrder,
   OrderBookSnapshot,
+  SnapshotOrder,
   formatCurrency,
   formatPercent,
   getGainColor,
@@ -960,7 +961,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   );
 }
 
-function RealizedPnLSummary({ pnl, sharpeRatio, periodLabel }: { pnl: OrderPnL; sharpeRatio: number | null; periodLabel: string }) {
+function RealizedPnLSummary({ pnl, sharpeRatio, periodLabel, openOrders }: { pnl: OrderPnL; sharpeRatio: number | null; periodLabel: string; openOrders: SnapshotOrder[] }) {
   const totalTrades = pnl.symbols.reduce((sum, s) => sum + s.buyCount + s.sellCount, 0);
   const pnlPercent = pnl.totalBuyVolume > 0
     ? (pnl.totalRealizedPnL / pnl.totalBuyVolume) * 100
@@ -973,7 +974,7 @@ function RealizedPnLSummary({ pnl, sharpeRatio, periodLabel }: { pnl: OrderPnL; 
 
   return (
     <div className="mb-6">
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             {pnl.totalRealizedPnL >= 0 ? (
@@ -1025,6 +1026,19 @@ function RealizedPnLSummary({ pnl, sharpeRatio, periodLabel }: { pnl: OrderPnL; 
           </div>
           <div className={`text-2xl font-bold ${sharpeColor}`}>
             {sharpeRatio !== null ? sharpeRatio.toFixed(2) : '—'}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+            <Receipt className="w-4 h-4 text-orange-500" />
+            Open Orders
+          </div>
+          <div className="text-2xl font-bold text-gray-900">
+            {openOrders.length}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            {formatCurrency(openOrders.reduce((sum, o) => sum + o.quantity * o.limit_price, 0))} notional
           </div>
         </div>
       </div>
@@ -1392,7 +1406,12 @@ export default function TradePage() {
                 </div>
               </div>
 
-              <RealizedPnLSummary pnl={filteredPnL} sharpeRatio={sharpeRatio} periodLabel={getPeriodLabel(pnlPeriod)} />
+              <RealizedPnLSummary
+                pnl={filteredPnL}
+                sharpeRatio={sharpeRatio}
+                periodLabel={getPeriodLabel(pnlPeriod)}
+                openOrders={snapshot ? (snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book) : []}
+              />
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
