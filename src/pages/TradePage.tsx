@@ -63,11 +63,13 @@ const COLORS = [
   '#F97316', // orange
 ];
 
-type PnLPeriod = '30D' | '90D' | '1Y' | '5Y';
+type PnLPeriod = '1W' | '1M' | '3M' | '6M' | '1Y' | '5Y';
 
 const PNL_PERIODS: { label: string; value: PnLPeriod }[] = [
-  { label: '30D', value: '30D' },
-  { label: '90D', value: '90D' },
+  { label: '1W', value: '1W' },
+  { label: '1M', value: '1M' },
+  { label: '3M', value: '3M' },
+  { label: '6M', value: '6M' },
   { label: '1Y', value: '1Y' },
   { label: '5Y', value: '5Y' },
 ];
@@ -75,8 +77,10 @@ const PNL_PERIODS: { label: string; value: PnLPeriod }[] = [
 function getPeriodCutoff(period: PnLPeriod): Date {
   const now = new Date();
   switch (period) {
-    case '30D': return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    case '90D': return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    case '1W': return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    case '1M': return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    case '3M': return new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    case '6M': return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
     case '1Y': return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
     case '5Y': return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
   }
@@ -84,8 +88,10 @@ function getPeriodCutoff(period: PnLPeriod): Date {
 
 function getPeriodLabel(period: PnLPeriod): string {
   switch (period) {
-    case '30D': return 'last 30 days';
-    case '90D': return 'last 90 days';
+    case '1W': return 'last week';
+    case '1M': return 'last month';
+    case '3M': return 'last 3 months';
+    case '6M': return 'last 6 months';
     case '1Y': return 'last year';
     case '5Y': return 'last 5 years';
   }
@@ -162,30 +168,14 @@ function filterAndRecalcPnL(pnl: OrderPnL, period: PnLPeriod): OrderPnL {
 
 function calculateSharpeRatio(pnl: OrderPnL, period: PnLPeriod): number | null {
   const cutoff = getPeriodCutoff(period);
-  const sells = pnl.orders.filter(o => o.side === 'sell' && new Date(o.createdAt) >= cutoff);
-  if (sells.length < 2) return null;
-
-  // Group sell P&L by day
-  const dailyPnL: Record<string, number> = {};
-  // Build per-symbol cost basis from ALL buys in the period (chronological)
-  const buys = pnl.orders
-    .filter(o => o.side === 'buy' && new Date(o.createdAt) >= cutoff)
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-  const costBasis: Record<string, { shares: number; cost: number }> = {};
-
-  // Process buys first to build cost basis
-  for (const buy of buys) {
-    if (!costBasis[buy.symbol]) costBasis[buy.symbol] = { shares: 0, cost: 0 };
-    costBasis[buy.symbol].shares += buy.quantity;
-    costBasis[buy.symbol].cost += buy.quantity * buy.price;
-  }
-
-  // Reset for chronological processing
   const allOrders = [...pnl.orders]
     .filter(o => new Date(o.createdAt) >= cutoff)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
+  if (allOrders.length < 2) return null;
+
+  // Build daily realized P&L from chronological order processing
+  const dailyPnL: Record<string, number> = {};
   const tracker: Record<string, { shares: number; cost: number }> = {};
 
   for (const order of allOrders) {
@@ -203,6 +193,24 @@ function calculateSharpeRatio(pnl: OrderPnL, period: PnLPeriod): number | null {
       t.cost -= avgCost * order.quantity;
       t.shares -= order.quantity;
     }
+  }
+
+  // Fill in $0 for all trading days between first and last order
+  // so the Sharpe denominator reflects actual elapsed time
+  const orderDays = allOrders.map(o => o.createdAt.slice(0, 10));
+  const firstDay = new Date(orderDays[0]);
+  const lastDay = new Date(orderDays[orderDays.length - 1]);
+
+  const current = new Date(firstDay);
+  while (current <= lastDay) {
+    const dayOfWeek = current.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // skip weekends
+      const key = current.toISOString().slice(0, 10);
+      if (!(key in dailyPnL)) {
+        dailyPnL[key] = 0;
+      }
+    }
+    current.setDate(current.getDate() + 1);
   }
 
   const values = Object.values(dailyPnL);
