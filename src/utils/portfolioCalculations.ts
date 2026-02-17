@@ -213,6 +213,15 @@ function pearsonCorrelation(x: number[], y: number[]): number {
   return (n * sumXY - sumX * sumY) / denom;
 }
 
+// Standard deviation of an array
+function stdDev(x: number[]): number {
+  const n = x.length;
+  if (n === 0) return 0;
+  const mean = x.reduce((s, v) => s + v, 0) / n;
+  const variance = x.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+  return Math.sqrt(variance);
+}
+
 export interface CorrelationPair {
   symbolA: string;
   symbolB: string;
@@ -221,27 +230,28 @@ export interface CorrelationPair {
   colorA: string;
   colorB: string;
   correlation: number;
+  varianceContribution: number; // % of total equal-weight portfolio variance from this pair
 }
 
 // Calculate pairwise correlations between all portfolio return series
 // Uses daily returns (day-over-day changes) aligned by date
+// varianceContribution assumes equal-weight portfolio: 2 * w_i * w_j * cov(i,j) / totalVariance
 export function calculateCorrelations(data: PortfolioReturnData[]): CorrelationPair[] {
   if (data.length < 2) return [];
 
+  const n = data.length;
+  const w = 1 / n; // equal weight
+
   // Build date-aligned daily returns for each asset
   const dateMap = new Map<string, Map<string, number>>();
-  const dailyByAsset = new Map<string, { date: string; ret: number }[]>();
 
   for (const asset of data) {
     const dr = dailyReturns(asset.returns);
-    const entries: { date: string; ret: number }[] = [];
     for (let i = 0; i < dr.length; i++) {
       const date = asset.returns[i + 1].date;
-      entries.push({ date, ret: dr[i] });
       if (!dateMap.has(date)) dateMap.set(date, new Map());
       dateMap.get(date)!.set(asset.symbol, dr[i]);
     }
-    dailyByAsset.set(asset.symbol, entries);
   }
 
   // Get common dates across all assets
@@ -251,13 +261,42 @@ export function calculateCorrelations(data: PortfolioReturnData[]): CorrelationP
     return symbols.every((s) => m.has(s));
   });
 
+  // Extract aligned daily return vectors per asset
+  const alignedReturns = new Map<string, number[]>();
+  for (const s of symbols) {
+    alignedReturns.set(s, commonDates.map((d) => dateMap.get(d)!.get(s)!));
+  }
+
+  // Compute std devs
+  const stds = new Map<string, number>();
+  for (const s of symbols) {
+    stds.set(s, stdDev(alignedReturns.get(s)!));
+  }
+
+  // Compute total equal-weight portfolio variance:
+  // sum of w_i * w_j * cov(i,j) for all i,j (including diagonal)
+  // cov(i,j) = corr(i,j) * std_i * std_j, and corr(i,i) = 1
+  let totalVariance = 0;
+
+  // Diagonal terms: w^2 * var_i
+  for (const s of symbols) {
+    const sd = stds.get(s)!;
+    totalVariance += w * w * sd * sd;
+  }
+
+  // Build pairs and accumulate off-diagonal variance
   const pairs: CorrelationPair[] = [];
   for (let i = 0; i < data.length; i++) {
     for (let j = i + 1; j < data.length; j++) {
       const a = data[i];
       const b = data[j];
-      const xVals = commonDates.map((d) => dateMap.get(d)!.get(a.symbol)!);
-      const yVals = commonDates.map((d) => dateMap.get(d)!.get(b.symbol)!);
+      const xVals = alignedReturns.get(a.symbol)!;
+      const yVals = alignedReturns.get(b.symbol)!;
+      const corr = pearsonCorrelation(xVals, yVals);
+      const cov = corr * stds.get(a.symbol)! * stds.get(b.symbol)!;
+      const pairVariance = 2 * w * w * cov;
+      totalVariance += pairVariance;
+
       pairs.push({
         symbolA: a.symbol,
         symbolB: b.symbol,
@@ -265,8 +304,16 @@ export function calculateCorrelations(data: PortfolioReturnData[]): CorrelationP
         nameB: b.displayName,
         colorA: a.color,
         colorB: b.color,
-        correlation: pearsonCorrelation(xVals, yVals),
+        correlation: corr,
+        varianceContribution: pairVariance,
       });
+    }
+  }
+
+  // Convert to percentage of total portfolio variance
+  if (totalVariance > 0) {
+    for (const pair of pairs) {
+      pair.varianceContribution = (pair.varianceContribution / totalVariance) * 100;
     }
   }
 

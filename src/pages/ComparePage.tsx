@@ -243,6 +243,9 @@ export default function ComparePage() {
               else if (abs >= 0.7) label = 'Strong';
               else if (abs >= 0.4) label = 'Moderate';
 
+              const varContrib = pair.varianceContribution;
+              const varColor = varContrib >= 0 ? 'text-amber-600' : 'text-blue-600';
+
               return (
                 <div
                   key={`${pair.symbolA}-${pair.symbolB}`}
@@ -261,21 +264,19 @@ export default function ComparePage() {
                     />
                     <span className="text-sm font-medium text-gray-700">{pair.nameB}</span>
                   </div>
-                  <div className="flex items-baseline gap-2">
-                    <span className={`text-xl font-bold ${corrColor}`}>
-                      {corr >= 0 ? '+' : ''}{corr.toFixed(2)}
-                    </span>
-                    <span className="text-xs text-gray-400">{label}</span>
-                  </div>
-                  {/* Correlation bar */}
-                  <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{
-                        width: `${abs * 100}%`,
-                        backgroundColor: corr >= 0 ? '#22c55e' : '#ef4444',
-                      }}
-                    />
+                  <div className="flex items-baseline justify-between">
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-xl font-bold ${corrColor}`}>
+                        {corr >= 0 ? '+' : ''}{corr.toFixed(2)}
+                      </span>
+                      <span className="text-xs text-gray-400">{label}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-sm font-semibold ${varColor}`}>
+                        {varContrib >= 0 ? '+' : ''}{varContrib.toFixed(1)}%
+                      </span>
+                      <span className="text-xs text-gray-400 ml-1">var</span>
+                    </div>
                   </div>
                 </div>
               );
