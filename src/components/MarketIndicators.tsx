@@ -109,19 +109,19 @@ export default function MarketIndicators() {
   }, [expanded, fetched]);
 
   const chartHeight = 250;
-  const axisColor = isDark ? '#9ca3af' : '#9ca3af';
-  const gridColor = isDark ? '#374151' : '#e5e7eb';
+  const axisColor = isDark ? '#a1a1aa' : '#a1a1aa';
+  const gridColor = isDark ? '#27272a' : '#e5e7eb';
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-zinc-900">
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-2 text-left"
         >
           <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Market Indicators</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Market Indicators</h3>
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-gray-400 dark:text-gray-500" />
           ) : (
@@ -130,14 +130,14 @@ export default function MarketIndicators() {
         </button>
 
         {expanded && data && (
-          <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+          <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg">
             {RANGES.map((range) => (
               <button
                 key={range.days}
                 onClick={() => setSelectedRange(range.days)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   selectedRange === range.days
-                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                    ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
               >
@@ -171,7 +171,7 @@ export default function MarketIndicators() {
               {/* Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-6 py-4">
                 {/* IV Z-Score */}
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <div className="bg-gray-50 dark:bg-zinc-900 rounded-lg p-3">
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">IV Z-Score</p>
                   {data.iv.zscore !== null ? (
                     <>
@@ -189,7 +189,7 @@ export default function MarketIndicators() {
                 </div>
 
                 {/* ETF Net Flow */}
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <div className="bg-gray-50 dark:bg-zinc-900 rounded-lg p-3">
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ETF Net Flow (30d)</p>
                   {data.flows.etfCount > 0 ? (
                     <>
@@ -213,7 +213,7 @@ export default function MarketIndicators() {
                 </div>
 
                 {/* 200-Week MA */}
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <div className="bg-gray-50 dark:bg-zinc-900 rounded-lg p-3">
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Price / 200W MA</p>
                   {data.ma.ratio !== null ? (
                     <>
@@ -235,7 +235,7 @@ export default function MarketIndicators() {
                 </div>
 
                 {/* Historical Vol */}
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <div className="bg-gray-50 dark:bg-zinc-900 rounded-lg p-3">
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">30d Vol (Yang-Zhang)</p>
                   {data.vol.windows.length > 0 ? (
                     <>
@@ -259,7 +259,7 @@ export default function MarketIndicators() {
               {/* Charts */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 px-6 pb-6">
                 {/* IV Z-Score */}
-                <div className="border border-gray-100 dark:border-gray-800 rounded-lg p-4">
+                <div className="border border-gray-100 dark:border-zinc-900 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                     IV Z-Score{data.iv.source ? ` (${data.iv.source})` : ''}
                   </h4>
@@ -281,10 +281,10 @@ export default function MarketIndicators() {
                         />
                         <Tooltip
                           contentStyle={{
-                            backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                            border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                            backgroundColor: isDark ? '#09090b' : '#ffffff',
+                            border: `1px solid ${isDark ? '#27272a' : '#e5e7eb'}`,
                             borderRadius: '0.5rem',
-                            color: isDark ? '#f3f4f6' : '#111827',
+                            color: isDark ? '#ffffff' : '#111827',
                           }}
                           labelFormatter={(ts) =>
                             new Date(ts as number).toLocaleDateString('en-US', {
@@ -324,7 +324,7 @@ export default function MarketIndicators() {
                 </div>
 
                 {/* ETF Inflows / Outflows */}
-                <div className="border border-gray-100 dark:border-gray-800 rounded-lg p-4">
+                <div className="border border-gray-100 dark:border-zinc-900 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                     BTC ETF Daily Flows
                   </h4>
@@ -346,10 +346,10 @@ export default function MarketIndicators() {
                         />
                         <Tooltip
                           contentStyle={{
-                            backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                            border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                            backgroundColor: isDark ? '#09090b' : '#ffffff',
+                            border: `1px solid ${isDark ? '#27272a' : '#e5e7eb'}`,
                             borderRadius: '0.5rem',
-                            color: isDark ? '#f3f4f6' : '#111827',
+                            color: isDark ? '#ffffff' : '#111827',
                           }}
                           labelFormatter={(ts) =>
                             new Date(ts as number).toLocaleDateString('en-US', {
@@ -386,7 +386,7 @@ export default function MarketIndicators() {
                 </div>
 
                 {/* Historical Volatility */}
-                <div className="border border-gray-100 dark:border-gray-800 rounded-lg p-4">
+                <div className="border border-gray-100 dark:border-zinc-900 rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                     Historical Volatility (30d rolling, annualised)
                   </h4>
@@ -408,10 +408,10 @@ export default function MarketIndicators() {
                         />
                         <Tooltip
                           contentStyle={{
-                            backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                            border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                            backgroundColor: isDark ? '#09090b' : '#ffffff',
+                            border: `1px solid ${isDark ? '#27272a' : '#e5e7eb'}`,
                             borderRadius: '0.5rem',
-                            color: isDark ? '#f3f4f6' : '#111827',
+                            color: isDark ? '#ffffff' : '#111827',
                           }}
                           labelFormatter={(ts) =>
                             new Date(ts as number).toLocaleDateString('en-US', {

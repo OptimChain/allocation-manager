@@ -21,13 +21,13 @@ function MetricCard({
 }) {
   const color =
     isNegative === undefined
-      ? 'text-gray-900 dark:text-gray-100'
+      ? 'text-gray-900 dark:text-white'
       : isNegative
         ? 'text-red-600'
         : 'text-green-600';
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{label}</p>
       <p className={`text-2xl font-bold ${color}`}>
         {value.toFixed(2)}{suffix}
@@ -58,7 +58,7 @@ function PriceCell({ value }: { value: number }) {
 function MetricsGrid({ metrics, label }: { metrics: WeekendMetrics; label: string }) {
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
         {label}
         <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
           ({metrics.totalWeekends} weekends)
@@ -101,12 +101,12 @@ function WeekendTable({ weekends, title }: { weekends: WeekendData[]; title: str
 
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">{title}</h3>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">{title}</h3>
+      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+              <tr className="bg-gray-50 dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800">
                 <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Friday</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Fri Open</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Fri Close</th>
@@ -124,8 +124,8 @@ function WeekendTable({ weekends, title }: { weekends: WeekendData[]; title: str
             </thead>
             <tbody>
               {slice.map((w) => (
-                <tr key={w.fridayDate} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-gray-100">{w.fridayDate}</td>
+                <tr key={w.fridayDate} className="border-b border-gray-100 dark:border-zinc-900 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                  <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-white">{w.fridayDate}</td>
                   <PriceCell value={w.fridayOpen} />
                   <PriceCell value={w.fridayClose} />
                   <DriftCell value={w.friOpenToCloseDrift} />
@@ -158,7 +158,7 @@ function WeekendTable({ weekends, title }: { weekends: WeekendData[]; title: str
           </table>
         </div>
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900">
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Page {page + 1} of {totalPages}
             </p>
@@ -199,12 +199,12 @@ function HourlyTable({ bars }: { bars: HourlyBar[] }) {
 
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">BTC Hourly Price History (Last 7 Days)</h3>
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">BTC Hourly Price History (Last 7 Days)</h3>
+      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+              <tr className="bg-gray-50 dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800">
                 <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Datetime</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Day</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Open</th>
@@ -221,9 +221,9 @@ function HourlyTable({ bars }: { bars: HourlyBar[] }) {
                 return (
                   <tr
                     key={bar.datetime}
-                    className={`border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 ${isWeekend ? 'bg-gray-50/60 dark:bg-gray-800/40' : ''}`}
+                    className={`border-b border-gray-100 dark:border-zinc-900 hover:bg-gray-50 dark:hover:bg-zinc-900 ${isWeekend ? 'bg-gray-50/60 dark:bg-zinc-900/40' : ''}`}
                   >
-                    <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-gray-100">{bar.datetime}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-white">{bar.datetime}</td>
                     <td className={`px-4 py-2.5 text-center text-xs font-semibold ${isWeekend ? 'text-gray-700 dark:text-gray-300 font-bold' : 'text-gray-500 dark:text-gray-400'}`}>
                       {day}
                     </td>
@@ -249,7 +249,7 @@ function HourlyTable({ bars }: { bars: HourlyBar[] }) {
           </table>
         </div>
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900">
             <p className="text-sm text-gray-500 dark:text-gray-400">Page {page + 1} of {totalPages}</p>
             <div className="flex gap-2">
               <button
@@ -355,7 +355,7 @@ export default function WeekendMomentum() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Weekend Momentum</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Weekend Momentum</h2>
         <p className="text-gray-500 dark:text-gray-400">
           BTC weekend price behavior — Friday afternoon close, weekend drift, and Monday morning recovery.
         </p>

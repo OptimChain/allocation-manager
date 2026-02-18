@@ -80,15 +80,15 @@ export default function BitcoinPriceChart({
     });
   };
 
-  const axisColor = isDark ? '#9ca3af' : '#6b7280';
-  const gridColor = isDark ? '#374151' : '#e5e7eb';
+  const axisColor = isDark ? '#a1a1aa' : '#71717a';
+  const gridColor = isDark ? '#27272a' : '#e5e7eb';
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-6">
         <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4"></div>
-          <div className="h-[400px] bg-gray-100 dark:bg-gray-800 rounded"></div>
+          <div className="h-6 bg-gray-200 dark:bg-zinc-800 rounded w-1/4 mb-4"></div>
+          <div className="h-[400px] bg-gray-100 dark:bg-zinc-900 rounded"></div>
         </div>
       </div>
     );
@@ -96,7 +96,7 @@ export default function BitcoinPriceChart({
 
   if (error) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-6">
         <div className="text-red-500 text-center py-8">
           <p className="text-sm font-medium">Error loading chart</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{error}</p>
@@ -122,22 +122,22 @@ export default function BitcoinPriceChart({
   const chartColor = isPositive ? '#22c55e' : '#ef4444';
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Price History</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Price History</h3>
           <p className={`text-sm font-medium ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
             {isPositive ? '+' : ''}{priceChange.toFixed(2)}% in {selectedRange} day{selectedRange > 1 ? 's' : ''}
           </p>
         </div>
-        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+        <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg">
           {ranges.map((range) => (
             <button
               key={range.value}
               onClick={() => setSelectedRange(range.value)}
               className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 selectedRange === range.value
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                  ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
               }`}
             >
@@ -170,9 +170,9 @@ export default function BitcoinPriceChart({
               if (active && payload && payload.length) {
                 const data = payload[0].payload;
                 return (
-                  <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+                  <div className="bg-white dark:bg-zinc-900 p-3 rounded-lg shadow-lg border border-gray-200 dark:border-zinc-800">
                     <p className="text-sm text-gray-500 dark:text-gray-400">{formatTooltipDate(data.timestamp)}</p>
-                    <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(data.price)}</p>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">{formatCurrency(data.price)}</p>
                   </div>
                 );
               }

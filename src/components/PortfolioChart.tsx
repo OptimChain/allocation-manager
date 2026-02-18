@@ -35,8 +35,8 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
     );
   }, [data]);
 
-  const axisColor = isDark ? '#9ca3af' : '#6B7280';
-  const gridColor = isDark ? '#374151' : '#E5E7EB';
+  const axisColor = isDark ? '#a1a1aa' : '#6B7280';
+  const gridColor = isDark ? '#27272a' : '#E5E7EB';
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -59,7 +59,7 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
     const dataPoint = chartData.find((d) => d.date === label);
 
     return (
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
+      <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg shadow-lg p-3">
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
           {new Date(label || '').toLocaleDateString('en-US', {
             month: 'long',
@@ -78,7 +78,7 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
               />
               <span className="text-gray-700 dark:text-gray-300">{entry.name}:</span>
               {typeof price === 'number' && (
-                <span className="font-medium text-gray-900 dark:text-gray-100">
+                <span className="font-medium text-gray-900 dark:text-white">
                   {formatPrice(price)}
                 </span>
               )}
@@ -98,14 +98,14 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
 
   if (chartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 bg-gray-50 dark:bg-gray-800 rounded-lg">
+      <div className="flex items-center justify-center h-64 bg-gray-50 dark:bg-zinc-900 rounded-lg">
         <p className="text-gray-500 dark:text-gray-400">No data available</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
@@ -128,7 +128,7 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
             wrapperStyle={{ paddingTop: '20px' }}
             formatter={(value) => <span className="text-gray-700 dark:text-gray-300">{value}</span>}
           />
-          <ReferenceLine y={0} stroke={isDark ? '#6b7280' : '#9CA3AF'} strokeDasharray="3 3" />
+          <ReferenceLine y={0} stroke={isDark ? '#71717a' : '#9CA3AF'} strokeDasharray="3 3" />
           {data.map((asset) => (
             <Line
               key={asset.symbol}

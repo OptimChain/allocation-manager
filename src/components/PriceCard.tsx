@@ -63,18 +63,18 @@ export default function PriceCard({
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-6">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
           {image ? (
             <img src={image} alt={name} className="w-10 h-10 rounded-full" />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-zinc-900 flex items-center justify-center">
               <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">{symbol.charAt(0).toUpperCase()}</span>
             </div>
           )}
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{name}</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{name}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 uppercase">{symbol}</p>
           </div>
         </div>
@@ -82,7 +82,7 @@ export default function PriceCard({
       </div>
 
       <div className="mb-4">
-        <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{formatCurrency(currentPrice)}</p>
+        <p className="text-3xl font-bold text-gray-900 dark:text-white">{formatCurrency(currentPrice)}</p>
         <div className={`flex items-center gap-1 mt-1 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
           {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
           <span className="font-medium">{formatPercentage(priceChangePercentage24h)}</span>
@@ -92,16 +92,16 @@ export default function PriceCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+      <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100 dark:border-zinc-900">
         <div>
           <p className="text-sm text-gray-500 dark:text-gray-400">Volume</p>
-          <p className="font-medium text-gray-900 dark:text-gray-100">
+          <p className="font-medium text-gray-900 dark:text-white">
             {volumeError ? <span className="text-amber-500 text-sm">{volumeError}</span> : formatLargeNumber(volume24h)}
           </p>
         </div>
         <div>
           <p className="text-sm text-gray-500 dark:text-gray-400">Market Cap</p>
-          <p className="font-medium text-gray-900 dark:text-gray-100">
+          <p className="font-medium text-gray-900 dark:text-white">
             {marketCapError ? <span className="text-amber-500 text-sm">{marketCapError}</span> : marketCap ? formatLargeNumber(marketCap) : 'N/A'}
           </p>
         </div>
