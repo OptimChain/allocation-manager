@@ -175,7 +175,7 @@ export default function ComparePage() {
                   value={fees[asset.symbol] || ''}
                   onChange={(e) => handleFeeChange(asset.symbol, e.target.value)}
                   placeholder="0.00"
-                  className="w-full px-3 py-2 pr-8 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-zinc-900 text-gray-900 dark:text-white focus:ring-1 focus:ring-gray-900 dark:focus:ring-gray-400 focus:border-gray-900 dark:focus:border-gray-400 outline-none"
+                  className="w-full px-3 py-2 pr-8 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-zinc-900 text-gray-900 dark:text-white focus:ring-1 focus:ring-gray-900 dark:focus:ring-gray-400 focus:border-gray-900 dark:focus:border-gray-400 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm">
                   %

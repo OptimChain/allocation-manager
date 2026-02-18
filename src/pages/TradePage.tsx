@@ -994,11 +994,10 @@ export default function TradePage() {
           <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
           <p className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No agents configured</p>
           <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            Go to the{' '}
             <RouterLink to="/configure" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
-              Configure
+              Configure your own agent
             </RouterLink>{' '}
-            page to set up a trading agent.
+            in the configure page.
           </p>
         </div>
       </div>
