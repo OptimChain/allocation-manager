@@ -49,7 +49,7 @@ function AppShell() {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-black">
+    <div className="min-h-screen bg-gray-50 dark:bg-black flex flex-col">
       <header className="sticky top-0 z-50 bg-white dark:bg-zinc-950 border-b border-gray-200 dark:border-zinc-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -141,7 +141,7 @@ function AppShell() {
         )}
       </header>
 
-      <main>
+      <main className="flex-1">
         <Routes>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/compare" element={<ComparePage />} />

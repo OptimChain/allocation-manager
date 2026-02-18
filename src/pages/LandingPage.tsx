@@ -34,14 +34,6 @@ export default function LandingPage() {
 
       {/* Centered content */}
       <div className="flex-1 flex flex-col items-center justify-center px-4">
-        {/* Brand */}
-        <div className="flex items-center gap-3 mb-12">
-          <Bitcoin className="w-8 h-8 text-gray-900 dark:text-white" />
-          <span className="text-2xl font-semibold text-gray-900 dark:text-white tracking-tight">
-            Systemmatic BTC
-          </span>
-        </div>
-
         {/* Prompt */}
         <p className="text-sm text-gray-400 dark:text-zinc-600 mb-6 tracking-wide uppercase">
           Select asset
