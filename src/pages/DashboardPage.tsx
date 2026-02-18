@@ -82,7 +82,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Bitcoin Dashboard</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Overview</h1>
           <p className="text-gray-500 mt-1">
             Real-time price tracking and market analysis
           </p>
