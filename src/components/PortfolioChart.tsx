@@ -103,7 +103,7 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-white rounded-lg border border-gray-200 p-4">
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />

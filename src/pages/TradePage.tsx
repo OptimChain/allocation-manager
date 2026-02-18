@@ -273,7 +273,7 @@ function AuthPanel({
   const isConnected = authStatus?.authenticated;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={`p-2 rounded-lg ${isConnected ? 'bg-green-100' : 'bg-gray-100'}`}>
@@ -306,7 +306,7 @@ function AuthPanel({
                 <button
                   onClick={handleConnect}
                   disabled={connecting}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50 text-sm"
                 >
                   {connecting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -325,7 +325,7 @@ function AuthPanel({
               <button
                 onClick={handleVerify}
                 disabled={verifying}
-                className="flex items-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:opacity-50 text-sm"
               >
                 {verifying ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -356,7 +356,7 @@ function AuthPanel({
               <button
                 onClick={handleMFA}
                 disabled={connecting || !mfaCode.trim()}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 text-sm"
               >
                 {connecting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -401,7 +401,7 @@ function PortfolioSummary({ portfolio }: { portfolio: Portfolio }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
           <DollarSign className="w-4 h-4" />
           Portfolio Value
@@ -411,7 +411,7 @@ function PortfolioSummary({ portfolio }: { portfolio: Portfolio }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
           {portfolio.totalGain >= 0 ? (
             <TrendingUp className="w-4 h-4 text-green-500" />
@@ -425,7 +425,7 @@ function PortfolioSummary({ portfolio }: { portfolio: Portfolio }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
           <Activity className="w-4 h-4" />
           Buying Power
@@ -435,7 +435,7 @@ function PortfolioSummary({ portfolio }: { portfolio: Portfolio }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
           <BarChart3 className="w-4 h-4" />
           Positions
@@ -479,7 +479,7 @@ function PortfolioAllocation({ portfolio }: { portfolio: Portfolio }) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-white rounded-lg border border-gray-200 p-4">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Portfolio Allocation</h3>
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
@@ -506,7 +506,7 @@ function PortfolioAllocation({ portfolio }: { portfolio: Portfolio }) {
 
 function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900">Holdings</h3>
       </div>
@@ -560,7 +560,7 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
       case 'error':
         return <XCircle className="w-4 h-4 text-red-500" />;
       case 'simulated':
-        return <Bot className="w-4 h-4 text-blue-500" />;
+        return <Bot className="w-4 h-4 text-gray-500" />;
       default:
         return <Activity className="w-4 h-4 text-gray-500" />;
     }
@@ -573,7 +573,7 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
       case 'SELL_ORDER':
         return 'bg-red-100 text-red-800';
       case 'ANALYSIS':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-gray-100 text-gray-800';
       case 'ERROR':
         return 'bg-red-100 text-red-800';
       default:
@@ -582,9 +582,9 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
+    <div className="bg-white rounded-lg border border-gray-200">
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-        <Bot className="w-5 h-5 text-indigo-500" />
+        <Bot className="w-5 h-5 text-gray-500" />
         <h3 className="text-lg font-semibold text-gray-900">Bot Activity</h3>
       </div>
       <div className="max-h-[400px] overflow-y-auto">
@@ -643,7 +643,7 @@ function AnalysisSuggestions({ analysis }: { analysis: BotAnalysis | null }) {
   if (!analysis) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
+    <div className="bg-white rounded-lg border border-gray-200">
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
         <AlertTriangle className="w-5 h-5 text-yellow-500" />
         <h3 className="text-lg font-semibold text-gray-900">Bot Suggestions</h3>
@@ -714,7 +714,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
         </div>
         {btcState && (
           <div className="flex items-center gap-2">
-            <span className="px-2 py-1 text-xs font-medium rounded bg-indigo-100 text-indigo-800">
+            <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 text-gray-800">
               BTC Signal: {btcState.last_signal.signal}
             </span>
             {hasBtcMetrics && (
@@ -728,7 +728,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <DollarSign className="w-4 h-4" />
             Equity
@@ -738,7 +738,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <BarChart3 className="w-4 h-4" />
             Market Value
@@ -748,7 +748,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <Activity className="w-4 h-4" />
             Buying Power
@@ -758,7 +758,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             {totalPnL >= 0 ? (
               <TrendingUp className="w-4 h-4 text-green-500" />
@@ -775,7 +775,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
 
       {/* BTC metrics bar */}
       {hasBtcMetrics && (
-        <div className="bg-white rounded-xl border border-gray-200 p-3 mb-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-3 mb-4">
           <div className="flex items-center gap-6 text-sm">
             <span className="text-gray-500">BTC Intraday</span>
             {btcMetrics.intraday_low != null && (
@@ -813,9 +813,9 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Positions table */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-blue-500" />
+            <BarChart3 className="w-5 h-5 text-gray-500" />
             <h3 className="text-lg font-semibold text-gray-900">Positions</h3>
             <span className="text-sm text-gray-400 ml-auto">{portfolio.positions.length} holdings</span>
           </div>
@@ -855,9 +855,9 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
         </div>
 
         {/* Open orders */}
-        <div className="bg-white rounded-xl border border-gray-200">
+        <div className="bg-white rounded-lg border border-gray-200">
           <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-orange-500" />
+            <Receipt className="w-5 h-5 text-gray-500" />
             <h3 className="text-lg font-semibold text-gray-900">Open Orders</h3>
             <span className="text-sm text-gray-400 ml-auto">{openOrders.length}</span>
           </div>
@@ -920,7 +920,7 @@ function RealizedPnLSummary({ pnl, periodLabel, openOrders }: { pnl: OrderPnL; p
   return (
     <div className="mb-6">
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             {pnl.totalRealizedPnL >= 0 ? (
               <TrendingUp className="w-4 h-4 text-green-500" />
@@ -934,7 +934,7 @@ function RealizedPnLSummary({ pnl, periodLabel, openOrders }: { pnl: OrderPnL; p
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <ArrowUpRight className="w-4 h-4 text-green-500" />
             Buy Volume
@@ -944,7 +944,7 @@ function RealizedPnLSummary({ pnl, periodLabel, openOrders }: { pnl: OrderPnL; p
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <ArrowDownRight className="w-4 h-4 text-red-500" />
             Sell Volume
@@ -954,7 +954,7 @@ function RealizedPnLSummary({ pnl, periodLabel, openOrders }: { pnl: OrderPnL; p
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <Receipt className="w-4 h-4" />
             Filled Trades
@@ -964,9 +964,9 @@ function RealizedPnLSummary({ pnl, periodLabel, openOrders }: { pnl: OrderPnL; p
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
-            <Receipt className="w-4 h-4 text-orange-500" />
+            <Receipt className="w-4 h-4 text-gray-400" />
             Open Orders
           </div>
           <div className="text-2xl font-bold text-gray-900">
@@ -986,9 +986,9 @@ function PnLBySymbolTable({ symbols }: { symbols: SymbolPnL[] }) {
   if (symbols.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-        <Receipt className="w-5 h-5 text-blue-500" />
+        <Receipt className="w-5 h-5 text-gray-500" />
         <h3 className="text-lg font-semibold text-gray-900">Realized P&L by Symbol</h3>
       </div>
       <div className="overflow-x-auto">
@@ -1056,9 +1056,9 @@ function OrderHistoryList({ orders }: { orders: FilledOrder[] }) {
   if (orders.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200">
+    <div className="bg-white rounded-lg border border-gray-200">
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-        <Activity className="w-5 h-5 text-blue-500" />
+        <Activity className="w-5 h-5 text-gray-500" />
         <h3 className="text-lg font-semibold text-gray-900">Filled Orders</h3>
       </div>
       <div className="max-h-[400px] overflow-y-auto">
@@ -1215,7 +1215,7 @@ export default function TradePage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Trade</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Trade</h1>
             <p className="text-gray-500 mt-1">
               Connect to Robinhood to view your portfolio
             </p>
@@ -1226,7 +1226,7 @@ export default function TradePage() {
 
         {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
 
-        <div className="text-center py-12 bg-gray-50 rounded-xl border border-gray-200">
+        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
           <Shield className="w-16 h-16 mx-auto mb-4 text-gray-300" />
           <p className="text-lg font-medium text-gray-600 mb-2">Connect to Robinhood</p>
           <p className="text-gray-500 max-w-md mx-auto">
@@ -1247,7 +1247,7 @@ export default function TradePage() {
           <p className="text-lg font-medium text-red-600 mb-2">{error}</p>
           <button
             onClick={() => fetchData()}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm"
           >
             Try Again
           </button>
@@ -1260,7 +1260,7 @@ export default function TradePage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Trade</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Trade</h1>
           <p className="text-gray-500 mt-1">
             Robinhood portfolio and trading bot activity
           </p>
@@ -1269,7 +1269,7 @@ export default function TradePage() {
           <button
             onClick={runAnalysis}
             disabled={analyzing}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50 text-sm"
           >
             <Bot className={`w-4 h-4 ${analyzing ? 'animate-pulse' : ''}`} />
             {analyzing ? 'Analyzing...' : 'Run Analysis'}
@@ -1277,7 +1277,7 @@ export default function TradePage() {
           <button
             onClick={() => fetchData(true)}
             disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 text-sm"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh

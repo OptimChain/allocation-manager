@@ -80,7 +80,7 @@ export default function BitcoinPriceChart({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="animate-pulse">
           <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
           <div className="h-[400px] bg-gray-100 rounded"></div>
@@ -91,13 +91,13 @@ export default function BitcoinPriceChart({
 
   if (error) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="text-red-500 text-center py-8">
-          <p className="font-medium">Error loading chart</p>
-          <p className="text-sm text-gray-500 mt-1">{error}</p>
+          <p className="text-sm font-medium">Error loading chart</p>
+          <p className="text-xs text-gray-500 mt-1">{error}</p>
           <button
             onClick={() => setSelectedRange(selectedRange)}
-            className="mt-4 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+            className="mt-4 px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm"
           >
             Retry
           </button>
@@ -117,7 +117,7 @@ export default function BitcoinPriceChart({
   const chartColor = isPositive ? '#22c55e' : '#ef4444';
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-semibold text-gray-900">Price History</h3>

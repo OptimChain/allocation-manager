@@ -70,7 +70,7 @@ export default function BtcEtfProjection({ currentBtcPrice }: BtcEtfProjectionPr
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="animate-pulse">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-8 h-8 bg-gray-200 rounded-lg" />
@@ -93,17 +93,17 @@ export default function BtcEtfProjection({ currentBtcPrice }: BtcEtfProjectionPr
 
   if (error) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="flex items-center gap-2 mb-2">
-          <div className="p-1.5 rounded-lg bg-purple-50">
-            <BarChart3 className="w-5 h-5 text-purple-600" />
+          <div className="p-1.5 rounded-lg bg-gray-100">
+            <BarChart3 className="w-5 h-5 text-gray-600" />
           </div>
           <h3 className="text-lg font-semibold text-gray-900">BTC ETF Projection</h3>
         </div>
         <p className="text-sm text-red-600">{error}</p>
         <button
           onClick={() => { setLastFetched(null); setError(null); }}
-          className="text-sm text-orange-600 hover:text-orange-700 mt-1"
+          className="text-sm text-gray-600 hover:underline mt-1"
         >
           Try again
         </button>
@@ -120,19 +120,19 @@ export default function BtcEtfProjection({ currentBtcPrice }: BtcEtfProjectionPr
   const isPositive = displayChange !== null && displayChange >= 0;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-purple-50">
-            <BarChart3 className="w-5 h-5 text-purple-600" />
+          <div className="p-1.5 rounded-lg bg-gray-100">
+            <BarChart3 className="w-5 h-5 text-gray-600" />
           </div>
           <h3 className="text-lg font-semibold text-gray-900">BTC ETF Projection</h3>
         </div>
         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
           isMarketOpen
-            ? 'bg-green-100 text-green-700'
-            : 'bg-gray-100 text-gray-600'
+            ? 'border border-green-200 text-green-700'
+            : 'border border-gray-200 text-gray-500'
         }`}>
           {isMarketOpen ? 'Market Open' : 'Market Closed'}
         </span>

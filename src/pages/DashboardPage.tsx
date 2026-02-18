@@ -52,10 +52,10 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <Bitcoin className="w-16 h-16 text-orange-500 animate-pulse mx-auto mb-4" />
-          <p className="text-lg font-medium text-gray-900">Loading Bitcoin data...</p>
+          <Bitcoin className="w-10 h-10 text-gray-300 animate-pulse mx-auto mb-4" />
+          <p className="text-sm font-medium text-gray-500">Loading Bitcoin data...</p>
         </div>
       </div>
     );
@@ -63,12 +63,12 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <p className="text-lg font-medium text-red-600 mb-4">{error}</p>
+          <p className="text-sm font-medium text-red-600 mb-4">{error}</p>
           <button
             onClick={() => fetchData()}
-            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+            className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm"
           >
             Try Again
           </button>
@@ -82,7 +82,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Bitcoin Dashboard</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Bitcoin Dashboard</h1>
           <p className="text-gray-500 mt-1">
             Real-time price tracking and market analysis
           </p>
@@ -96,7 +96,7 @@ export default function DashboardPage() {
           <button
             onClick={() => fetchData(true)}
             disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 text-sm"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh

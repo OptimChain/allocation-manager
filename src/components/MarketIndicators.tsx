@@ -42,13 +42,13 @@ function zscoreColor(z: number | null): string {
   const az = Math.abs(z);
   if (az < 0.5) return 'text-green-600';
   if (az < 1.0) return 'text-yellow-600';
-  if (az < 2.0) return 'text-orange-600';
+  if (az < 2.0) return 'text-amber-600';
   return 'text-red-600';
 }
 
 function volRegimeColor(regime: string): string {
   if (regime === 'low') return 'text-green-600';
-  if (regime === 'high') return 'text-orange-600';
+  if (regime === 'high') return 'text-amber-600';
   if (regime === 'extreme') return 'text-red-600';
   return 'text-gray-600';
 }
@@ -109,14 +109,14 @@ export default function MarketIndicators() {
   const chartHeight = 250;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+    <div className="bg-white rounded-lg border border-gray-200">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-2 text-left"
         >
-          <Activity className="w-5 h-5 text-orange-500" />
+          <Activity className="w-5 h-5 text-gray-500" />
           <h3 className="text-lg font-semibold text-gray-900">Market Indicators</h3>
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-gray-400" />
@@ -148,7 +148,7 @@ export default function MarketIndicators() {
         <>
           {loading || (!fetched && !error) ? (
             <div className="px-6 py-12 text-center">
-              <Activity className="w-8 h-8 text-gray-300 animate-pulse mx-auto mb-2" />
+            <Activity className="w-8 h-8 text-gray-200 animate-pulse mx-auto mb-2" />
               <p className="text-sm text-gray-500">Loading market indicators...</p>
               <p className="text-xs text-gray-400 mt-1">Fetching BTC, ETF, and volatility data...</p>
             </div>
@@ -157,7 +157,7 @@ export default function MarketIndicators() {
               <p className="text-sm text-red-500 mb-2">{error}</p>
               <button
                 onClick={() => { setError(null); setFetched(false); }}
-                className="text-sm text-orange-600 hover:underline"
+                className="text-sm text-gray-600 hover:underline"
               >
                 Try again
               </button>
@@ -416,14 +416,14 @@ export default function MarketIndicators() {
                         <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={0.7} />
                         <defs>
                           <linearGradient id="volGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#F97316" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#F97316" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#94a3b8" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <Area
                           type="monotone"
                           dataKey="vol"
-                          stroke="#EA580C"
+                          stroke="#64748b"
                           fill="url(#volGradient)"
                           strokeWidth={1.5}
                         />

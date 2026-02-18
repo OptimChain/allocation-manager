@@ -55,14 +55,14 @@ export default function NewsSummary() {
   }, [selectedTicker]);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+    <div className="bg-white rounded-lg border border-gray-200">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-2 text-left"
         >
-          <Newspaper className="w-5 h-5 text-orange-500" />
+          <Newspaper className="w-5 h-5 text-gray-500" />
           <h3 className="text-lg font-semibold text-gray-900">Market News</h3>
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-gray-400" />
@@ -88,9 +88,9 @@ export default function NewsSummary() {
               <button
                 key={filter.value}
                 onClick={() => setSelectedTicker(filter.value)}
-                className={`px-3 py-1 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                className={`px-3 py-1 rounded text-sm font-medium whitespace-nowrap transition-colors ${
                   selectedTicker === filter.value
-                    ? 'bg-orange-100 text-orange-700'
+                    ? 'bg-gray-900 text-white'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
@@ -111,7 +111,7 @@ export default function NewsSummary() {
                 <p className="text-sm text-red-500 mb-2">{error}</p>
                 <button
                   onClick={() => fetchNews()}
-                  className="text-sm text-orange-600 hover:underline"
+                  className="text-sm text-gray-600 hover:underline"
                 >
                   Try again
                 </button>
@@ -141,10 +141,10 @@ export default function NewsSummary() {
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <h4 className="text-sm font-medium text-gray-900 group-hover:text-orange-600 transition-colors line-clamp-2">
+                      <h4 className="text-sm font-medium text-gray-900 group-hover:text-gray-600 transition-colors line-clamp-2">
                         {article.title}
                       </h4>
-                      <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-orange-400 flex-shrink-0 mt-0.5" />
+                      <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 flex-shrink-0 mt-0.5" />
                     </div>
                     {article.description && (
                       <p className="text-xs text-gray-500 mt-1 line-clamp-2">

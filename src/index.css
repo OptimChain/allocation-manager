@@ -55,5 +55,8 @@
   }
   body {
     @apply bg-white text-gray-900;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }

@@ -64,14 +64,14 @@ export default function PriceCard({
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
           {image ? (
-            <img src={image} alt={name} className="w-12 h-12 rounded-full" />
+            <img src={image} alt={name} className="w-10 h-10 rounded-full" />
           ) : (
-            <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
-              <span className="text-orange-600 font-bold text-lg">{symbol.charAt(0).toUpperCase()}</span>
+            <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+              <span className="text-gray-600 font-semibold text-sm">{symbol.charAt(0).toUpperCase()}</span>
             </div>
           )}
           <div>

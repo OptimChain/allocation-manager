@@ -13,7 +13,7 @@ export default function MarketStats({ quoteData, geckoData, loading }: MarketSta
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {[...Array(6)].map((_, i) => (
-          <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 animate-pulse">
+          <div key={i} className="bg-white rounded-lg border border-gray-200 p-4 animate-pulse">
             <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
             <div className="h-6 bg-gray-200 rounded w-1/2"></div>
           </div>
@@ -30,22 +30,22 @@ export default function MarketStats({ quoteData, geckoData, loading }: MarketSta
       label: 'Market Cap',
       value: geckoError ? geckoError : geckoData?.market_cap ? formatLargeNumber(geckoData.market_cap) : 'N/A',
       icon: Landmark,
-      color: geckoError ? 'text-amber-600' : 'text-blue-600',
-      bgColor: geckoError ? 'bg-amber-50' : 'bg-blue-50',
+      color: geckoError ? 'text-amber-600' : 'text-gray-700',
+      bgColor: 'bg-gray-50',
     },
     {
       label: '24h Volume',
       value: geckoError ? geckoError : geckoData?.total_volume ? formatLargeNumber(geckoData.total_volume) : formatLargeNumber(quoteData.volume),
       icon: BarChart3,
-      color: geckoError ? 'text-amber-600' : 'text-purple-600',
-      bgColor: geckoError ? 'bg-amber-50' : 'bg-purple-50',
+      color: geckoError ? 'text-amber-600' : 'text-gray-700',
+      bgColor: 'bg-gray-50',
     },
     {
       label: 'Previous Close',
       value: formatCurrency(quoteData.previous_close),
       icon: DollarSign,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
+      color: 'text-gray-700',
+      bgColor: 'bg-gray-50',
     },
     {
       label: 'Change',
@@ -75,7 +75,7 @@ export default function MarketStats({ quoteData, geckoData, loading }: MarketSta
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow"
+          className="bg-white rounded-lg border border-gray-200 p-4"
         >
           <div className="flex items-center gap-2 mb-2">
             <div className={`p-1.5 rounded-lg ${stat.bgColor}`}>

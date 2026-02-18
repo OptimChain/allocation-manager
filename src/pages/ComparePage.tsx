@@ -86,7 +86,7 @@ export default function ComparePage() {
           <p className="text-lg font-medium text-red-600 mb-4">{error}</p>
           <button
             onClick={() => fetchData()}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm"
           >
             Try Again
           </button>
@@ -99,7 +99,7 @@ export default function ComparePage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Portfolio Comparison</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Portfolio Comparison</h1>
           <p className="text-gray-500 mt-1">
             Compare returns across BTC, indices, and MAG7 stocks with custom fee adjustments
           </p>
@@ -107,7 +107,7 @@ export default function ComparePage() {
         <button
           onClick={() => fetchData(true)}
           disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 text-sm"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           Refresh
@@ -132,7 +132,7 @@ export default function ComparePage() {
       </div>
 
       {/* Asset Toggles */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
         <h2 className="text-sm font-medium text-gray-700 mb-3">Assets</h2>
         <div className="flex flex-wrap gap-2">
           {PORTFOLIO_ASSETS.map((asset) => {
@@ -156,7 +156,7 @@ export default function ComparePage() {
       </div>
 
       {/* Fee Inputs */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
         <h2 className="text-sm font-medium text-gray-700 mb-3">Yearly Fees (%)</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {PORTFOLIO_ASSETS.map((asset) => (
@@ -175,7 +175,7 @@ export default function ComparePage() {
                   value={fees[asset.symbol] || ''}
                   onChange={(e) => handleFeeChange(asset.symbol, e.target.value)}
                   placeholder="0.00"
-                  className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 pr-8 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
                   %
@@ -200,7 +200,7 @@ export default function ComparePage() {
             return (
               <div
                 key={asset.symbol}
-                className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3"
+                className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3"
               >
                 <div
                   className="w-4 h-4 rounded-full flex-shrink-0"
@@ -244,12 +244,12 @@ export default function ComparePage() {
               else if (abs >= 0.4) label = 'Moderate';
 
               const varContrib = pair.varianceContribution;
-              const varColor = varContrib >= 0 ? 'text-amber-600' : 'text-blue-600';
+              const varColor = varContrib >= 0 ? 'text-amber-600' : 'text-gray-600';
 
               return (
                 <div
                   key={`${pair.symbolA}-${pair.symbolB}`}
-                  className="bg-white rounded-xl border border-gray-200 p-4"
+                  className="bg-white rounded-lg border border-gray-200 p-4"
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <div

@@ -27,7 +27,7 @@ function MetricCard({
         : 'text-green-600';
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-white rounded-lg border border-gray-200 p-4">
       <p className="text-sm text-gray-500 mb-1">{label}</p>
       <p className={`text-2xl font-bold ${color}`}>
         {value.toFixed(2)}{suffix}
@@ -150,7 +150,7 @@ function WeekendTable({ weekends, title }: { weekends: WeekendData[]; title: str
   return (
     <div>
       <h3 className="text-lg font-semibold text-gray-900 mb-3">{title}</h3>
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -248,7 +248,7 @@ function HourlyTable({ bars }: { bars: HourlyBar[] }) {
   return (
     <div>
       <h3 className="text-lg font-semibold text-gray-900 mb-3">BTC Hourly Price History (Last 7 Days)</h3>
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -269,10 +269,10 @@ function HourlyTable({ bars }: { bars: HourlyBar[] }) {
                 return (
                   <tr
                     key={bar.datetime}
-                    className={`border-b border-gray-100 hover:bg-gray-50 ${isWeekend ? 'bg-orange-50/40' : ''}`}
+                    className={`border-b border-gray-100 hover:bg-gray-50 ${isWeekend ? 'bg-gray-50/60' : ''}`}
                   >
                     <td className="px-4 py-2.5 font-medium text-gray-900">{bar.datetime}</td>
-                    <td className={`px-4 py-2.5 text-center text-xs font-semibold ${isWeekend ? 'text-orange-600' : 'text-gray-500'}`}>
+                    <td className={`px-4 py-2.5 text-center text-xs font-semibold ${isWeekend ? 'text-gray-700 font-bold' : 'text-gray-500'}`}>
                       {day}
                     </td>
                     <td className="px-4 py-2.5 text-right text-gray-700">
@@ -348,7 +348,7 @@ export default function WeekendMomentum() {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-center">
-          <Calendar className="w-12 h-12 text-orange-500 animate-pulse mx-auto mb-3" />
+          <Calendar className="w-10 h-10 text-gray-300 animate-pulse mx-auto mb-3" />
           <p className="text-gray-600">Loading weekend momentum data...</p>
           <p className="text-sm text-gray-400 mt-1">Fetching BTC + Grayscale Mini Trust history</p>
         </div>
@@ -363,7 +363,7 @@ export default function WeekendMomentum() {
           <p className="text-red-600 mb-4">{error}</p>
           <button
             onClick={fetchData}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 mx-auto"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 mx-auto text-sm"
           >
             <RefreshCw className="w-4 h-4" />
             Retry
