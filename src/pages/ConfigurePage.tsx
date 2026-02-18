@@ -128,7 +128,7 @@ function PlaidOnboarding({
               ) : (
                 <Link className="w-4 h-4" />
               )}
-              Start Portfolio Onboarding
+              Start
             </button>
           )}
         </div>
@@ -293,7 +293,7 @@ function AgentOnboarding({
                   ) : (
                     <TrendingUp className="w-4 h-4" />
                   )}
-                  Start Agent Onboarding
+                  Start
                 </button>
               )}
             </>

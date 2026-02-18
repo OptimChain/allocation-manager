@@ -964,46 +964,6 @@ export default function TradePage() {
     );
   }
 
-  if (!authStatus?.authenticated && !loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Trade</h1>
-            <p className="text-gray-500 dark:text-gray-400 mt-1">Configured agents</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <select
-              value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
-              className="px-3 py-2 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              {USERS.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
-
-        <div className="text-center py-12 bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-          <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-          <p className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No agents configured</p>
-          <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            <RouterLink to="/configure" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
-              Configure your own agent
-            </RouterLink>{' '}
-            in the configure page.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (error && !portfolio) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1067,6 +1027,19 @@ export default function TradePage() {
       {error && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
           {error}
+        </div>
+      )}
+
+      {!authStatus?.authenticated && !loading && (
+        <div className="text-center py-12 mb-6 bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+          <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+          <p className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No agents configured</p>
+          <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+            <RouterLink to="/configure" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+              Configure your own agent
+            </RouterLink>{' '}
+            in the configure page.
+          </p>
         </div>
       )}
 
