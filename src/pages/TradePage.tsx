@@ -27,7 +27,6 @@ import {
 import {
   getPortfolio,
   getBotActions,
-  analyzePortfolio,
   getAuthStatus,
   getOrderPnL,
   getOrderBookSnapshot,
@@ -468,7 +467,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
 
   return (
     <div className="mb-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Order Book Snapshot</h2>
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -537,7 +536,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
 
       {hasBtcMetrics && (
         <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-3 mb-4">
-          <div className="flex items-center gap-6 text-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
             <span className="text-gray-500 dark:text-gray-400">BTC Intraday</span>
             {btcMetrics.intraday_low != null && (
               <span>
@@ -862,12 +861,11 @@ export default function TradePage() {
   const [orderPnL, setOrderPnL] = useState<OrderPnL | null>(null);
   const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
-  const [analysis, setAnalysis] = useState<BotAnalysis | null>(null);
+  const [analysis] = useState<BotAnalysis | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
   const [pnlPeriod, setPnlPeriod] = useState<PnLPeriod>('1Y');
   const [selectedUser, setSelectedUser] = useState(USERS[0].id);
 
@@ -929,19 +927,6 @@ export default function TradePage() {
     }
   };
 
-  const runAnalysis = async () => {
-    setAnalyzing(true);
-    try {
-      const analysisData = await analyzePortfolio();
-      setAnalysis(analysisData);
-      const actionsData = await getBotActions(50);
-      setBotActions(actionsData.actions);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
 
   useEffect(() => {
     fetchData();
@@ -983,7 +968,7 @@ export default function TradePage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Trade</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">Configured agents</p>
@@ -1003,14 +988,6 @@ export default function TradePage() {
               ))}
             </select>
           </div>
-          <button
-            onClick={runAnalysis}
-            disabled={analyzing}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-800 dark:hover:bg-gray-200 disabled:opacity-50 text-sm"
-          >
-            <Bot className={`w-4 h-4 ${analyzing ? 'animate-pulse' : ''}`} />
-            {analyzing ? 'Analyzing...' : 'Run Analysis'}
-          </button>
           <button
             onClick={() => fetchData(true)}
             disabled={refreshing}
