@@ -32,8 +32,8 @@ function AppContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center group">
-              <Bitcoin className="h-5 w-5 text-gray-900" />
-              <h1 className="ml-2.5 text-base font-semibold text-gray-900 tracking-tight">Systemmatic BTC</h1>
+              <Bitcoin className="h-6 w-6 text-gray-900" />
+              <h1 className="ml-3 text-xl font-semibold text-gray-900 tracking-tight">Systemmatic BTC</h1>
             </Link>
             <nav className="flex items-center space-x-8">
               <NavLink to="/">

@@ -55,7 +55,7 @@
   }
   body {
     @apply bg-white text-gray-900;
-    font-family: 'CMU Serif', 'Computer Modern', Georgia, serif;
+    font-family: ui-serif, 'New York', 'Georgia', serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
