@@ -51,7 +51,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white dark:bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
         <div className="text-center">
           <Bitcoin className="w-10 h-10 text-gray-300 dark:text-gray-600 animate-pulse mx-auto mb-4" />
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Loading Bitcoin data...</p>
@@ -62,7 +62,7 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-white dark:bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
         <div className="text-center">
           <p className="text-sm font-medium text-red-600 mb-4">{error}</p>
           <button

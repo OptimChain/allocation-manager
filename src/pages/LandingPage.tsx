@@ -13,7 +13,7 @@ export default function LandingPage() {
   const { isDark, toggle, font, cycleFont } = useTheme();
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black flex flex-col">
+    <div className="min-h-screen bg-gray-50 dark:bg-black flex flex-col">
       {/* Top-right controls */}
       <div className="flex justify-end gap-1 p-4">
         <button
