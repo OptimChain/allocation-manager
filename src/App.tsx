@@ -4,6 +4,7 @@ import { Bitcoin, LayoutDashboard, GitCompare, TrendingUp, FlaskConical, Moon, S
 import { ThemeProvider, useTheme, FontMode } from './contexts/ThemeContext';
 
 // Import page components
+import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
 import ComparePage from './pages/ComparePage';
 import TradePage from './pages/TradePage';
@@ -16,7 +17,7 @@ const FONT_LABELS: Record<FontMode, string> = {
 };
 
 const NAV_ITEMS = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/compare', icon: GitCompare, label: 'Compare' },
   { to: '/trade', icon: TrendingUp, label: 'Trade' },
   { to: '/strategies', icon: FlaskConical, label: 'Strategies' },
@@ -40,7 +41,7 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
   );
 }
 
-function AppContent() {
+function AppShell() {
   const { isDark, toggle, font, cycleFont } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -136,7 +137,7 @@ function AppContent() {
 
       <main>
         <Routes>
-          <Route path="/" element={<DashboardPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/compare" element={<ComparePage />} />
           <Route path="/trade" element={<TradePage />} />
           <Route path="/strategies" element={<StrategiesPage />} />
@@ -184,7 +185,10 @@ export function App() {
   return (
     <ThemeProvider>
       <Router>
-        <AppContent />
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/*" element={<AppShell />} />
+        </Routes>
       </Router>
     </ThemeProvider>
   );
