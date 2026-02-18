@@ -21,7 +21,6 @@ const NAV_ITEMS = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/compare', icon: GitCompare, label: 'Compare' },
   { to: '/trade', icon: TrendingUp, label: 'Trade' },
-  { to: '/configure', icon: Settings, label: 'Configure' },
   { to: '/strategies', icon: FlaskConical, label: 'Strategies' },
 ];
 
@@ -59,30 +58,40 @@ function AppShell() {
             </Link>
 
             {/* Desktop nav */}
-            <nav className="hidden md:flex items-center space-x-8">
-              {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-                <NavLink key={to} to={to}>
+            <nav className="hidden md:flex items-center flex-1 ml-8">
+              <div className="flex items-center space-x-8">
+                {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
+                  <NavLink key={to} to={to}>
+                    <span className="flex items-center gap-2">
+                      <Icon className="w-4 h-4" />
+                      {label}
+                    </span>
+                  </NavLink>
+                ))}
+              </div>
+              <div className="flex items-center space-x-4 ml-auto">
+                <NavLink to="/configure">
                   <span className="flex items-center gap-2">
-                    <Icon className="w-4 h-4" />
-                    {label}
+                    <Settings className="w-4 h-4" />
+                    Configure
                   </span>
                 </NavLink>
-              ))}
-              <button
-                onClick={cycleFont}
-                className="px-2 py-1 rounded text-xs font-medium text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-900 transition-colors"
-                aria-label="Cycle font"
-                title={`Font: ${font}`}
-              >
-                {FONT_LABELS[font]}
-              </button>
-              <button
-                onClick={toggle}
-                className="p-1.5 rounded text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-900 transition-colors"
-                aria-label="Toggle dark mode"
-              >
-                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
+                <button
+                  onClick={cycleFont}
+                  className="px-2 py-1 rounded text-xs font-medium text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-900 transition-colors"
+                  aria-label="Cycle font"
+                  title={`Font: ${font}`}
+                >
+                  {FONT_LABELS[font]}
+                </button>
+                <button
+                  onClick={toggle}
+                  className="p-1.5 rounded text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-900 transition-colors"
+                  aria-label="Toggle dark mode"
+                >
+                  {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </button>
+              </div>
             </nav>
 
             {/* Mobile: controls + hamburger */}

@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Receipt,
+  User,
 } from 'lucide-react';
 import {
   PieChart,
@@ -44,6 +45,10 @@ import {
   formatPercent,
   getGainColor,
 } from '../services/robinhoodService';
+
+const USERS = [
+  { id: 'jasonzipb', label: 'jasonzipb' },
+];
 
 const COLORS = [
   '#3B82F6',
@@ -864,6 +869,7 @@ export default function TradePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [pnlPeriod, setPnlPeriod] = useState<PnLPeriod>('1Y');
+  const [selectedUser, setSelectedUser] = useState(USERS[0].id);
 
   const filteredPnL = useMemo(() => {
     if (!orderPnL) return null;
@@ -966,6 +972,20 @@ export default function TradePage() {
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Trade</h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1">Configured agents</p>
           </div>
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <select
+              value={selectedUser}
+              onChange={(e) => setSelectedUser(e.target.value)}
+              className="px-3 py-2 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              {USERS.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
@@ -1009,7 +1029,21 @@ export default function TradePage() {
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Trade</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">Configured agents</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <select
+              value={selectedUser}
+              onChange={(e) => setSelectedUser(e.target.value)}
+              className="px-3 py-2 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              {USERS.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             onClick={runAnalysis}
             disabled={analyzing}

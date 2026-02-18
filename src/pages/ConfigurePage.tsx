@@ -2,12 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Shield,
   TrendingUp,
-  Lock,
   Link,
   Unlink,
   Loader2,
-  CheckCircle,
-  RefreshCw,
+  Lock,
+  Bot,
 } from 'lucide-react';
 import { usePlaidLink } from 'react-plaid-link';
 import {
@@ -26,7 +25,7 @@ import {
   AuthStatus,
 } from '../services/robinhoodService';
 
-function PlaidAuthPanel({
+function PlaidOnboarding({
   plaidStatus,
   onPlaidChange,
 }: {
@@ -92,18 +91,18 @@ function PlaidAuthPanel({
   const isConnected = plaidStatus?.connected;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${isConnected ? 'bg-green-100' : 'bg-gray-100'}`}>
-            <Shield className={`w-5 h-5 ${isConnected ? 'text-green-600' : 'text-gray-400'}`} />
+          <div className={`p-2 rounded-lg ${isConnected ? 'bg-green-100 dark:bg-green-900/30' : 'bg-gray-100 dark:bg-zinc-800'}`}>
+            <Shield className={`w-5 h-5 ${isConnected ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`} />
           </div>
           <div>
-            <h3 className="font-medium text-gray-900">Plaid Connection</h3>
-            <p className="text-sm text-gray-500">
+            <h3 className="font-semibold text-gray-900 dark:text-white">Portfolio Onboarding</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               {isConnected
                 ? `Connected${plaidStatus?.institutionName ? ` — ${plaidStatus.institutionName}` : ''}`
-                : 'Link your brokerage account via Plaid for read-only portfolio sync'}
+                : 'Start portfolio onboarding'}
             </p>
           </div>
         </div>
@@ -113,7 +112,7 @@ function PlaidAuthPanel({
             <button
               onClick={handleDisconnect}
               disabled={plaidLoading}
-              className="flex items-center gap-2 px-4 py-2 text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50"
             >
               <Unlink className="w-4 h-4" />
               Disconnect
@@ -129,14 +128,14 @@ function PlaidAuthPanel({
               ) : (
                 <Link className="w-4 h-4" />
               )}
-              Connect via Plaid
+              Start Portfolio Onboarding
             </button>
           )}
         </div>
       </div>
 
       {plaidError && (
-        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+        <div className="mt-3 p-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded text-sm text-red-700 dark:text-red-400">
           {plaidError}
         </div>
       )}
@@ -144,12 +143,14 @@ function PlaidAuthPanel({
   );
 }
 
-function RobinhoodAuthPanel({
+function AgentOnboarding({
   authStatus,
   onAuthChange,
+  portfolioConnected,
 }: {
   authStatus: AuthStatus | null;
   onAuthChange: () => void;
+  portfolioConnected: boolean;
 }) {
   const [connecting, setConnecting] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -248,118 +249,123 @@ function RobinhoodAuthPanel({
   };
 
   const isConnected = authStatus?.authenticated;
+  const isDisabled = !portfolioConnected;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`p-2 rounded-lg ${isConnected ? 'bg-green-100' : 'bg-orange-100'}`}>
-          <TrendingUp className={`w-5 h-5 ${isConnected ? 'text-green-600' : 'text-orange-600'}`} />
+    <div className={`bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-6 ${isDisabled ? 'opacity-60' : ''}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${isConnected ? 'bg-green-100 dark:bg-green-900/30' : 'bg-orange-100 dark:bg-orange-900/30'}`}>
+            <Bot className={`w-5 h-5 ${isConnected ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'}`} />
+          </div>
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Agent Onboarding</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {isDisabled
+                ? 'Requires portfolio onboarding first'
+                : isConnected
+                  ? `Connected — Robinhood • Expires in ${Math.floor((authStatus?.expiresIn || 0) / 3600)}h`
+                  : 'Connect to Robinhood to enable the trading agent'}
+            </p>
+          </div>
         </div>
-        <div>
-          <h3 className="font-semibold text-gray-900">Robinhood Trading Connection</h3>
-          <p className="text-sm text-gray-500">
-            {isConnected
-              ? `Connected • Expires in ${Math.floor((authStatus?.expiresIn || 0) / 3600)}h`
-              : 'Click connect to Robinhood to start trading system'}
-          </p>
-        </div>
-      </div>
 
-      <div className="flex items-center gap-2">
-        {authState === 'idle' && (
-          <>
-            {isConnected ? (
+        <div className="flex items-center gap-2">
+          {authState === 'idle' && (
+            <>
+              {isConnected ? (
+                <button
+                  onClick={handleDisconnect}
+                  disabled={connecting}
+                  className="flex items-center gap-2 px-4 py-2 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50"
+                >
+                  <Unlink className="w-4 h-4" />
+                  Disconnect
+                </button>
+              ) : (
+                <button
+                  onClick={handleConnect}
+                  disabled={connecting || isDisabled}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+                >
+                  {connecting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <TrendingUp className="w-4 h-4" />
+                  )}
+                  Start Agent Onboarding
+                </button>
+              )}
+            </>
+          )}
+
+          {authState === 'device' && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-yellow-600 dark:text-yellow-400">Approve in Robinhood app</span>
               <button
-                onClick={handleDisconnect}
-                disabled={connecting}
-                className="flex items-center gap-2 px-4 py-2 text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                onClick={handleVerify}
+                disabled={verifying}
+                className="flex items-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50"
               >
-                <Unlink className="w-4 h-4" />
-                Disconnect
+                {verifying ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <TrendingUp className="w-4 h-4" />
+                )}
+                Check
               </button>
-            ) : (
               <button
-                onClick={handleConnect}
-                disabled={connecting}
-                className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+                onClick={() => setAuthState('idle')}
+                className="px-3 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {authState === 'mfa' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                placeholder="MFA Code"
+                className="w-32 px-3 py-2 border border-gray-300 dark:border-zinc-700 rounded-lg text-center bg-white dark:bg-zinc-900 text-gray-900 dark:text-white"
+                maxLength={6}
+              />
+              <button
+                onClick={handleMFA}
+                disabled={connecting || !mfaCode.trim()}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
               >
                 {connecting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Link className="w-4 h-4" />
+                  <TrendingUp className="w-4 h-4" />
                 )}
-                Connect to Robinhood
+                Submit
               </button>
-            )}
-          </>
-        )}
-
-        {authState === 'device' && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-yellow-600">Approve in Robinhood app</span>
-            <button
-              onClick={handleVerify}
-              disabled={verifying}
-              className="flex items-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50"
-            >
-              {verifying ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              Check
-            </button>
-            <button
-              onClick={() => setAuthState('idle')}
-              className="px-3 py-2 text-gray-500 hover:text-gray-700"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-
-        {authState === 'mfa' && (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={mfaCode}
-              onChange={(e) => setMfaCode(e.target.value)}
-              placeholder="MFA Code"
-              className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-center"
-              maxLength={6}
-            />
-            <button
-              onClick={handleMFA}
-              disabled={connecting || !mfaCode.trim()}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
-            >
-              {connecting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CheckCircle className="w-4 h-4" />
-              )}
-              Submit
-            </button>
-            <button
-              onClick={() => {
-                setAuthState('idle');
-                setMfaCode('');
-              }}
-              className="px-3 py-2 text-gray-500 hover:text-gray-700"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
+              <button
+                onClick={() => {
+                  setAuthState('idle');
+                  setMfaCode('');
+                }}
+                className="px-3 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {message && (
-        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+        <div className="mt-3 p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded text-sm text-green-700 dark:text-green-400">
           {message}
         </div>
       )}
       {error && (
-        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+        <div className="mt-3 p-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded text-sm text-red-700 dark:text-red-400">
           {error}
         </div>
       )}
@@ -400,10 +406,10 @@ export default function ConfigurePage() {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-64 mb-4"></div>
-          <div className="h-4 bg-gray-200 rounded w-96 mb-8"></div>
-          <div className="h-24 bg-gray-200 rounded-xl mb-6"></div>
-          <div className="h-48 bg-gray-200 rounded-xl"></div>
+          <div className="h-8 bg-gray-200 dark:bg-zinc-800 rounded w-64 mb-4"></div>
+          <div className="h-4 bg-gray-200 dark:bg-zinc-800 rounded w-96 mb-8"></div>
+          <div className="h-24 bg-gray-200 dark:bg-zinc-800 rounded-lg mb-6"></div>
+          <div className="h-48 bg-gray-200 dark:bg-zinc-800 rounded-lg"></div>
         </div>
       </div>
     );
@@ -412,22 +418,23 @@ export default function ConfigurePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Configure</h1>
-        <p className="text-gray-500 mt-1">
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Configure</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">
           Set up your brokerage connections and trading agents
         </p>
       </div>
 
-      {/* Local storage notice */}
-      <div className="flex items-start gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg mb-6">
-        <Lock className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-        <p className="text-xs text-gray-500">
+      <div className="flex items-start gap-2 p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg mb-6">
+        <Lock className="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           Credentials and trading engine will be managed locally. Hosted agents are coming soon.
         </p>
       </div>
 
-      <PlaidAuthPanel plaidStatus={plaidStatus} onPlaidChange={fetchPlaidStatus} />
-      <RobinhoodAuthPanel authStatus={authStatus} onAuthChange={fetchAuthStatus} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <PlaidOnboarding plaidStatus={plaidStatus} onPlaidChange={fetchPlaidStatus} />
+        <AgentOnboarding authStatus={authStatus} onAuthChange={fetchAuthStatus} portfolioConnected={plaidStatus?.connected ?? false} />
+      </div>
     </div>
   );
 }
