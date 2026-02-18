@@ -20,6 +20,7 @@ import {
   MarketIndicatorData,
 } from '../services/marketIndicatorService';
 import { formatLargeNumber } from '../utils/formatters';
+import { useTheme } from '../contexts/ThemeContext';
 
 const RANGES = [
   { label: '7D', days: 7 },
@@ -73,6 +74,7 @@ function formatFlowAxis(v: number): string {
 }
 
 export default function MarketIndicators() {
+  const { isDark } = useTheme();
   const [data, setData] = useState<MarketIndicatorData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,34 +109,36 @@ export default function MarketIndicators() {
   }, [expanded, fetched]);
 
   const chartHeight = 250;
+  const axisColor = isDark ? '#9ca3af' : '#9ca3af';
+  const gridColor = isDark ? '#374151' : '#e5e7eb';
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-2 text-left"
         >
-          <Activity className="w-5 h-5 text-gray-500" />
-          <h3 className="text-lg font-semibold text-gray-900">Market Indicators</h3>
+          <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Market Indicators</h3>
           {expanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-400" />
+            <ChevronUp className="w-4 h-4 text-gray-400 dark:text-gray-500" />
           ) : (
-            <ChevronDown className="w-4 h-4 text-gray-400" />
+            <ChevronDown className="w-4 h-4 text-gray-400 dark:text-gray-500" />
           )}
         </button>
 
         {expanded && data && (
-          <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
             {RANGES.map((range) => (
               <button
                 key={range.days}
                 onClick={() => setSelectedRange(range.days)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   selectedRange === range.days
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
               >
                 {range.label}
@@ -148,16 +152,16 @@ export default function MarketIndicators() {
         <>
           {loading || (!fetched && !error) ? (
             <div className="px-6 py-12 text-center">
-            <Activity className="w-8 h-8 text-gray-200 animate-pulse mx-auto mb-2" />
-              <p className="text-sm text-gray-500">Loading market indicators...</p>
-              <p className="text-xs text-gray-400 mt-1">Fetching BTC, ETF, and volatility data...</p>
+              <Activity className="w-8 h-8 text-gray-200 dark:text-gray-700 animate-pulse mx-auto mb-2" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading market indicators...</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Fetching BTC, ETF, and volatility data...</p>
             </div>
           ) : error ? (
             <div className="px-6 py-8 text-center">
               <p className="text-sm text-red-500 mb-2">{error}</p>
               <button
                 onClick={() => { setError(null); setFetched(false); }}
-                className="text-sm text-gray-600 hover:underline"
+                className="text-sm text-gray-600 dark:text-gray-400 hover:underline"
               >
                 Try again
               </button>
@@ -167,26 +171,26 @@ export default function MarketIndicators() {
               {/* Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-6 py-4">
                 {/* IV Z-Score */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs font-medium text-gray-500 mb-1">IV Z-Score</p>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">IV Z-Score</p>
                   {data.iv.zscore !== null ? (
                     <>
                       <p className={`text-xl font-bold ${zscoreColor(data.iv.zscore)}`}>
                         {data.iv.zscore >= 0 ? '+' : ''}
                         {data.iv.zscore.toFixed(2)}&sigma;
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         {zscoreLabel(data.iv.zscore)} &middot; {data.iv.source}
                       </p>
                     </>
                   ) : (
-                    <p className="text-sm text-gray-400">Unavailable</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500">Unavailable</p>
                   )}
                 </div>
 
                 {/* ETF Net Flow */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs font-medium text-gray-500 mb-1">ETF Net Flow (30d)</p>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ETF Net Flow (30d)</p>
                   {data.flows.etfCount > 0 ? (
                     <>
                       <p
@@ -197,20 +201,20 @@ export default function MarketIndicators() {
                         {data.flows.recent30d >= 0 ? '+' : '-'}
                         {formatLargeNumber(Math.abs(data.flows.recent30d))}
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         {data.flows.etfCount} ETFs &middot; 7d:{' '}
                         {data.flows.recent7d >= 0 ? '+' : '-'}
                         {formatLargeNumber(Math.abs(data.flows.recent7d))}
                       </p>
                     </>
                   ) : (
-                    <p className="text-sm text-gray-400">No ETF data</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500">No ETF data</p>
                   )}
                 </div>
 
                 {/* 200-Week MA */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs font-medium text-gray-500 mb-1">Price / 200W MA</p>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Price / 200W MA</p>
                   {data.ma.ratio !== null ? (
                     <>
                       <p
@@ -220,25 +224,25 @@ export default function MarketIndicators() {
                       >
                         {data.ma.ratio.toFixed(2)}x
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         {data.ma.pctAbove! >= 0 ? '+' : ''}
                         {data.ma.pctAbove!.toFixed(1)}% above MA
                       </p>
                     </>
                   ) : (
-                    <p className="text-sm text-gray-400">Insufficient data</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500">Insufficient data</p>
                   )}
                 </div>
 
                 {/* Historical Vol */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs font-medium text-gray-500 mb-1">30d Vol (Yang-Zhang)</p>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">30d Vol (Yang-Zhang)</p>
                   {data.vol.windows.length > 0 ? (
                     <>
                       <p className={`text-xl font-bold ${volRegimeColor(data.vol.windows[0].regime)}`}>
                         {(data.vol.windows[0].vol * 100).toFixed(1)}%
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         Regime: {data.vol.windows[0].regime}
                         {data.vol.windows.length > 1 &&
                           ` \u00b7 60d: ${(data.vol.windows[1].vol * 100).toFixed(1)}%`}
@@ -247,7 +251,7 @@ export default function MarketIndicators() {
                       </p>
                     </>
                   ) : (
-                    <p className="text-sm text-gray-400">Insufficient data</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500">Insufficient data</p>
                   )}
                 </div>
               </div>
@@ -255,27 +259,33 @@ export default function MarketIndicators() {
               {/* Charts */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 px-6 pb-6">
                 {/* IV Z-Score */}
-                <div className="border border-gray-100 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                <div className="border border-gray-100 dark:border-gray-800 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                     IV Z-Score{data.iv.source ? ` (${data.iv.source})` : ''}
                   </h4>
                   {data.iv.series.length > 0 ? (
                     <ResponsiveContainer width="100%" height={chartHeight}>
                       <LineChart data={filterByRange(data.iv.series, selectedRange)}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                         <XAxis
                           dataKey="timestamp"
                           tickFormatter={(ts) => formatAxis(ts, selectedRange)}
-                          tick={{ fontSize: 11, fill: '#9ca3af' }}
-                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fontSize: 11, fill: axisColor }}
+                          axisLine={{ stroke: gridColor }}
                         />
                         <YAxis
                           tickFormatter={(v) => `${v.toFixed(0)}%`}
-                          tick={{ fontSize: 11, fill: '#9ca3af' }}
-                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fontSize: 11, fill: axisColor }}
+                          axisLine={{ stroke: gridColor }}
                           width={50}
                         />
                         <Tooltip
+                          contentStyle={{
+                            backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                            border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '0.5rem',
+                            color: isDark ? '#f3f4f6' : '#111827',
+                          }}
                           labelFormatter={(ts) =>
                             new Date(ts as number).toLocaleDateString('en-US', {
                               month: 'short',
@@ -286,25 +296,13 @@ export default function MarketIndicators() {
                           formatter={(value: number) => [`${value.toFixed(1)}%`, 'IV']}
                         />
                         {data.iv.mean !== null && (
-                          <ReferenceLine
-                            y={data.iv.mean}
-                            stroke="#9ca3af"
-                            strokeDasharray="3 3"
-                          />
+                          <ReferenceLine y={data.iv.mean} stroke={axisColor} strokeDasharray="3 3" />
                         )}
                         {data.iv.mean !== null && data.iv.std !== null && (
-                          <ReferenceLine
-                            y={data.iv.mean + data.iv.std}
-                            stroke="#ef4444"
-                            strokeDasharray="3 3"
-                          />
+                          <ReferenceLine y={data.iv.mean + data.iv.std} stroke="#ef4444" strokeDasharray="3 3" />
                         )}
                         {data.iv.mean !== null && data.iv.std !== null && (
-                          <ReferenceLine
-                            y={data.iv.mean - data.iv.std}
-                            stroke="#22c55e"
-                            strokeDasharray="3 3"
-                          />
+                          <ReferenceLine y={data.iv.mean - data.iv.std} stroke="#22c55e" strokeDasharray="3 3" />
                         )}
                         <Line
                           type="monotone"
@@ -317,7 +315,7 @@ export default function MarketIndicators() {
                     </ResponsiveContainer>
                   ) : (
                     <div
-                      className="flex items-center justify-center text-sm text-gray-400"
+                      className="flex items-center justify-center text-sm text-gray-400 dark:text-gray-500"
                       style={{ height: chartHeight }}
                     >
                       IV data unavailable
@@ -326,27 +324,33 @@ export default function MarketIndicators() {
                 </div>
 
                 {/* ETF Inflows / Outflows */}
-                <div className="border border-gray-100 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                <div className="border border-gray-100 dark:border-gray-800 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                     BTC ETF Daily Flows
                   </h4>
                   {data.flows.dailyFlows.length > 0 ? (
                     <ResponsiveContainer width="100%" height={chartHeight}>
                       <BarChart data={filterByRange(data.flows.dailyFlows, selectedRange)}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                         <XAxis
                           dataKey="timestamp"
                           tickFormatter={(ts) => formatAxis(ts, selectedRange)}
-                          tick={{ fontSize: 11, fill: '#9ca3af' }}
-                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fontSize: 11, fill: axisColor }}
+                          axisLine={{ stroke: gridColor }}
                         />
                         <YAxis
                           tickFormatter={formatFlowAxis}
-                          tick={{ fontSize: 11, fill: '#9ca3af' }}
-                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fontSize: 11, fill: axisColor }}
+                          axisLine={{ stroke: gridColor }}
                           width={60}
                         />
                         <Tooltip
+                          contentStyle={{
+                            backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                            border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '0.5rem',
+                            color: isDark ? '#f3f4f6' : '#111827',
+                          }}
                           labelFormatter={(ts) =>
                             new Date(ts as number).toLocaleDateString('en-US', {
                               month: 'short',
@@ -359,7 +363,7 @@ export default function MarketIndicators() {
                             value >= 0 ? 'Inflow' : 'Outflow',
                           ]}
                         />
-                        <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={0.5} />
+                        <ReferenceLine y={0} stroke={axisColor} strokeWidth={0.5} />
                         <Bar dataKey="flow">
                           {filterByRange(data.flows.dailyFlows, selectedRange).map((entry, index) => (
                             <Cell
@@ -373,7 +377,7 @@ export default function MarketIndicators() {
                     </ResponsiveContainer>
                   ) : (
                     <div
-                      className="flex items-center justify-center text-sm text-gray-400"
+                      className="flex items-center justify-center text-sm text-gray-400 dark:text-gray-500"
                       style={{ height: chartHeight }}
                     >
                       No ETF flow data
@@ -382,27 +386,33 @@ export default function MarketIndicators() {
                 </div>
 
                 {/* Historical Volatility */}
-                <div className="border border-gray-100 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                <div className="border border-gray-100 dark:border-gray-800 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                     Historical Volatility (30d rolling, annualised)
                   </h4>
                   {data.vol.rollingSeries.length > 0 ? (
                     <ResponsiveContainer width="100%" height={chartHeight}>
                       <AreaChart data={filterByRange(data.vol.rollingSeries, selectedRange)}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                         <XAxis
                           dataKey="timestamp"
                           tickFormatter={(ts) => formatAxis(ts, selectedRange)}
-                          tick={{ fontSize: 11, fill: '#9ca3af' }}
-                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fontSize: 11, fill: axisColor }}
+                          axisLine={{ stroke: gridColor }}
                         />
                         <YAxis
                           tickFormatter={(v) => `${v.toFixed(0)}%`}
-                          tick={{ fontSize: 11, fill: '#9ca3af' }}
-                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fontSize: 11, fill: axisColor }}
+                          axisLine={{ stroke: gridColor }}
                           width={45}
                         />
                         <Tooltip
+                          contentStyle={{
+                            backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                            border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                            borderRadius: '0.5rem',
+                            color: isDark ? '#f3f4f6' : '#111827',
+                          }}
                           labelFormatter={(ts) =>
                             new Date(ts as number).toLocaleDateString('en-US', {
                               month: 'short',
@@ -412,7 +422,7 @@ export default function MarketIndicators() {
                           }
                           formatter={(value: number) => [`${value.toFixed(1)}%`, 'Vol']}
                         />
-                        <ReferenceLine y={50} stroke="#9ca3af" strokeDasharray="3 3" strokeWidth={0.7} />
+                        <ReferenceLine y={50} stroke={axisColor} strokeDasharray="3 3" strokeWidth={0.7} />
                         <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={0.7} />
                         <defs>
                           <linearGradient id="volGradient" x1="0" y1="0" x2="0" y2="1">
@@ -431,7 +441,7 @@ export default function MarketIndicators() {
                     </ResponsiveContainer>
                   ) : (
                     <div
-                      className="flex items-center justify-center text-sm text-gray-400"
+                      className="flex items-center justify-center text-sm text-gray-400 dark:text-gray-500"
                       style={{ height: chartHeight }}
                     >
                       Insufficient data

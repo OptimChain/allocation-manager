@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { getBitcoinPriceHistory, NormalizedPriceData } from '../services/twelveDataService';
 import { formatCurrency } from '../utils/formatters';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface BitcoinPriceChartProps {
   days?: number;
@@ -26,6 +27,7 @@ export default function BitcoinPriceChart({
   showGrid = true,
   chartType = 'area',
 }: BitcoinPriceChartProps) {
+  const { isDark } = useTheme();
   const [priceData, setPriceData] = useState<NormalizedPriceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,12 +80,15 @@ export default function BitcoinPriceChart({
     });
   };
 
+  const axisColor = isDark ? '#9ca3af' : '#6b7280';
+  const gridColor = isDark ? '#374151' : '#e5e7eb';
+
   if (loading) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="h-[400px] bg-gray-100 rounded"></div>
+          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4"></div>
+          <div className="h-[400px] bg-gray-100 dark:bg-gray-800 rounded"></div>
         </div>
       </div>
     );
@@ -91,13 +96,13 @@ export default function BitcoinPriceChart({
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <div className="text-red-500 text-center py-8">
           <p className="text-sm font-medium">Error loading chart</p>
-          <p className="text-xs text-gray-500 mt-1">{error}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{error}</p>
           <button
             onClick={() => setSelectedRange(selectedRange)}
-            className="mt-4 px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm"
+            className="mt-4 px-4 py-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-800 dark:hover:bg-gray-200 text-sm"
           >
             Retry
           </button>
@@ -117,23 +122,23 @@ export default function BitcoinPriceChart({
   const chartColor = isPositive ? '#22c55e' : '#ef4444';
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">Price History</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Price History</h3>
           <p className={`text-sm font-medium ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
             {isPositive ? '+' : ''}{priceChange.toFixed(2)}% in {selectedRange} day{selectedRange > 1 ? 's' : ''}
           </p>
         </div>
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
           {ranges.map((range) => (
             <button
               key={range.value}
               onClick={() => setSelectedRange(range.value)}
               className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 selectedRange === range.value
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
               }`}
             >
               {range.label}
@@ -144,20 +149,20 @@ export default function BitcoinPriceChart({
 
       <ResponsiveContainer width="100%" height={height}>
         <ChartComponent data={priceData}>
-          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />}
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />}
           <XAxis
             dataKey="timestamp"
             tickFormatter={formatXAxis}
-            tick={{ fontSize: 12, fill: '#6b7280' }}
-            axisLine={{ stroke: '#e5e7eb' }}
-            tickLine={{ stroke: '#e5e7eb' }}
+            tick={{ fontSize: 12, fill: axisColor }}
+            axisLine={{ stroke: gridColor }}
+            tickLine={{ stroke: gridColor }}
           />
           <YAxis
             domain={[minPrice * 0.99, maxPrice * 1.01]}
             tickFormatter={(value) => formatCurrency(value)}
-            tick={{ fontSize: 12, fill: '#6b7280' }}
-            axisLine={{ stroke: '#e5e7eb' }}
-            tickLine={{ stroke: '#e5e7eb' }}
+            tick={{ fontSize: 12, fill: axisColor }}
+            axisLine={{ stroke: gridColor }}
+            tickLine={{ stroke: gridColor }}
             width={80}
           />
           <Tooltip
@@ -165,9 +170,9 @@ export default function BitcoinPriceChart({
               if (active && payload && payload.length) {
                 const data = payload[0].payload;
                 return (
-                  <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
-                    <p className="text-sm text-gray-500">{formatTooltipDate(data.timestamp)}</p>
-                    <p className="text-lg font-semibold text-gray-900">{formatCurrency(data.price)}</p>
+                  <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{formatTooltipDate(data.timestamp)}</p>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(data.price)}</p>
                   </div>
                 );
               }
