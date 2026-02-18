@@ -1,6 +1,12 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Bitcoin, LayoutDashboard, GitCompare, TrendingUp, FlaskConical, Moon, Sun } from 'lucide-react';
-import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { ThemeProvider, useTheme, FontMode } from './contexts/ThemeContext';
+
+const FONT_LABELS: Record<FontMode, string> = {
+  clean: 'Aa',
+  serif: 'Ff',
+  hacker: '</>',
+};
 
 // Import page components
 import DashboardPage from './pages/DashboardPage';
@@ -27,7 +33,7 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
 }
 
 function AppContent() {
-  const { isDark, toggle } = useTheme();
+  const { isDark, toggle, font, cycleFont } = useTheme();
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950">
@@ -63,6 +69,14 @@ function AppContent() {
                   Strategies
                 </span>
               </NavLink>
+              <button
+                onClick={cycleFont}
+                className="px-2 py-1 rounded text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Cycle font"
+                title={`Font: ${font}`}
+              >
+                {FONT_LABELS[font]}
+              </button>
               <button
                 onClick={toggle}
                 className="p-1.5 rounded text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
