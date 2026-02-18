@@ -115,7 +115,7 @@ export default function MarketIndicators() {
   return (
     <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-zinc-900">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-gray-100 dark:border-zinc-900">
         <button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-2 text-left"
@@ -130,12 +130,12 @@ export default function MarketIndicators() {
         </button>
 
         {expanded && data && (
-          <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg">
+          <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg overflow-x-auto">
             {RANGES.map((range) => (
               <button
                 key={range.days}
                 onClick={() => setSelectedRange(range.days)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
                   selectedRange === range.days
                     ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'

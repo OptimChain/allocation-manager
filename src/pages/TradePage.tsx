@@ -1296,7 +1296,7 @@ export default function TradePage() {
 
           {filteredPnL && (
             <>
-              <div className="mt-8 mb-6 flex items-center justify-between">
+              <div className="mt-8 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Order P&L</h2>
                   <p className="text-gray-500 dark:text-gray-400 mt-1">Realized profit & loss from filled orders</p>
@@ -1310,12 +1310,12 @@ export default function TradePage() {
                     <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
                     Refresh
                   </button>
-                  <div className="flex bg-gray-100 dark:bg-zinc-900 rounded-lg p-1">
+                  <div className="flex bg-gray-100 dark:bg-zinc-900 rounded-lg p-1 overflow-x-auto">
                     {PNL_PERIODS.map(({ label, value }) => (
                       <button
                         key={value}
                         onClick={() => setPnlPeriod(value)}
-                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
                           pnlPeriod === value
                             ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
                             : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'

@@ -115,12 +115,12 @@ export default function ComparePage() {
       </div>
 
       {/* Time Range Selector */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg w-fit mb-6">
+      <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg w-fit mb-6 overflow-x-auto max-w-full">
         {TIME_RANGES.map((range) => (
           <button
             key={range.value}
             onClick={() => setSelectedRange(range.value)}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
               selectedRange === range.value
                 ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'

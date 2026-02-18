@@ -123,19 +123,19 @@ export default function BitcoinPriceChart({
 
   return (
     <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Price History</h3>
           <p className={`text-sm font-medium ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
             {isPositive ? '+' : ''}{priceChange.toFixed(2)}% in {selectedRange} day{selectedRange > 1 ? 's' : ''}
           </p>
         </div>
-        <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg">
+        <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg overflow-x-auto">
           {ranges.map((range) => (
             <button
               key={range.value}
               onClick={() => setSelectedRange(range.value)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
                 selectedRange === range.value
                   ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
