@@ -1,12 +1,17 @@
 // Market Cap & Volume Netlify Function
 // Primary: CoinCap (free, no key, generous rate limits)
 // Fallback: CoinGecko
+// In-memory cache to avoid rate-limiting (429s)
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
+
+// Cache lives across invocations within the same Lambda container
+let cache = { data: null, source: null, timestamp: 0 };
+const CACHE_TTL_MS = 60_000; // 60 seconds
 
 async function fetchFromCoinCap() {
   const response = await fetch('https://api.coincap.io/v2/assets/bitcoin');
@@ -35,6 +40,23 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
+  const now = Date.now();
+
+  // Return cached data if still fresh
+  if (cache.data && now - cache.timestamp < CACHE_TTL_MS) {
+    return {
+      statusCode: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=60',
+        'X-Data-Source': cache.source,
+        'X-Cache': 'HIT',
+      },
+      body: JSON.stringify(cache.data),
+    };
+  }
+
   // Try CoinCap first, fall back to CoinGecko
   let result = null;
   let source = 'coincap';
@@ -50,6 +72,23 @@ exports.handler = async (event) => {
       console.log('CoinGecko fallback OK — market_cap:', result.market_cap, 'volume:', result.total_volume);
     } catch (err2) {
       console.error('Both sources failed:', err2.message);
+
+      // Serve stale cache if available rather than returning an error
+      if (cache.data) {
+        console.log('Serving stale cache (age:', Math.round((now - cache.timestamp) / 1000), 's)');
+        return {
+          statusCode: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=30',
+            'X-Data-Source': cache.source,
+            'X-Cache': 'STALE',
+          },
+          body: JSON.stringify(cache.data),
+        };
+      }
+
       return {
         statusCode: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -58,9 +97,18 @@ exports.handler = async (event) => {
     }
   }
 
+  // Update cache
+  cache = { data: result, source, timestamp: now };
+
   return {
     statusCode: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Data-Source': source },
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=60',
+      'X-Data-Source': source,
+      'X-Cache': 'MISS',
+    },
     body: JSON.stringify(result),
   };
 };
