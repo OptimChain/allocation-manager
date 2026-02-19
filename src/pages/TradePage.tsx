@@ -449,9 +449,15 @@ function AnalysisSuggestions({ analysis }: { analysis: BotAnalysis | null }) {
   );
 }
 
+const OPEN_ORDER_STATES = new Set(['queued', 'confirmed', 'unconfirmed', 'partially_filled']);
+
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   const { portfolio, order_book, market_data, timestamp } = snapshot;
   const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
+  const openOrderIds = new Set(openOrders.map(o => o.order_id));
+  const historicalOrders = order_book
+    .filter(o => !openOrderIds.has(o.order_id) && !OPEN_ORDER_STATES.has(o.state.toLowerCase()))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
@@ -613,56 +619,111 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Open Orders</h3>
-            <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length}</span>
-          </div>
-          <div className="max-h-[400px] overflow-y-auto">
-            {openOrders.length === 0 ? (
-              <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                <Receipt className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                <p className="text-sm">No open orders</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-100 dark:divide-zinc-900">
-                {openOrders.map((order) => (
-                  <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
-                    <div className="flex items-start gap-3">
-                      {order.side === 'BUY' ? (
-                        <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
-                      ) : (
-                        <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                            order.side === 'BUY'
-                              ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                              : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                          }`}>
-                            {order.side}
-                          </span>
-                          <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
-                          <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">
-                            {order.state}
-                          </span>
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Open Orders</h3>
+              <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length}</span>
+            </div>
+            <div className="max-h-[400px] overflow-y-auto">
+              {openOrders.length === 0 ? (
+                <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                  <Receipt className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                  <p className="text-sm">No open orders</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
+                  {openOrders.map((order) => (
+                    <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                      <div className="flex items-start gap-3">
+                        {order.side === 'BUY' ? (
+                          <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
+                        ) : (
+                          <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                              order.side === 'BUY'
+                                ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                            }`}>
+                              {order.side}
+                            </span>
+                            <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">
+                              {order.state}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {order.quantity} @ {formatCurrency(order.limit_price)}
+                            {order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}
+                          </p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}
+                          </p>
                         </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                          {order.quantity} @ {formatCurrency(order.limit_price)}
-                          {order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}
-                        </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                          {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}
-                        </p>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {historicalOrders.length > 0 && (
+            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Historical Orders</h3>
+                <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOrders.length}</span>
+              </div>
+              <div className="max-h-[400px] overflow-y-auto">
+                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
+                  {historicalOrders.map((order) => (
+                    <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                      <div className="flex items-start gap-3">
+                        {order.side === 'BUY' ? (
+                          <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
+                        ) : (
+                          <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                              order.side === 'BUY'
+                                ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                            }`}>
+                              {order.side}
+                            </span>
+                            <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
+                            <span className={`px-2 py-0.5 text-xs rounded ${
+                              order.state.toLowerCase() === 'filled'
+                                ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400'
+                                : order.state.toLowerCase() === 'cancelled'
+                                  ? 'bg-gray-100 dark:bg-zinc-900 text-gray-500 dark:text-gray-400'
+                                  : 'bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400'
+                            }`}>
+                              {order.state}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {order.quantity} @ {formatCurrency(order.limit_price)}
+                            {order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}
+                          </p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
