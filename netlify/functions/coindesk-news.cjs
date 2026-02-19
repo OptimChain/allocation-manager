@@ -1,10 +1,16 @@
 // CoinDesk News Netlify Function
 // Proxies BTC/crypto news requests to CoinDesk data API
 // Supports filtering for specific keywords like "microstrategy", "strategy"
+// In-memory cache to avoid rate-limiting (429s)
 
 const COINDESK_API = 'https://data-api.coindesk.com/news/v1/article/list';
 const BLOB_STORE = 'news-articles';
 const API_KEY = process.env.COINDESK_API_KEY;
+
+// Cache keyed by query params, lives across invocations within the same Lambda container
+const cache = new Map(); // key -> { data, timestamp }
+const CACHE_TTL_MS = 5 * 60_000; // 5 minutes
+const MAX_CACHE_ENTRIES = 20;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,6 +54,23 @@ exports.handler = async (event) => {
     const requestedLimit = parseInt(params.limit || '10', 10);
     const filter = params.filter || ''; // comma-separated keywords like "microstrategy,strategy,mstr"
     const categories = params.categories || 'BTC'; // default to BTC, can be overridden
+
+    // Check in-memory cache
+    const cacheKey = `${categories}|${filter}|${requestedLimit}`;
+    const now = Date.now();
+    const cached = cache.get(cacheKey);
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300',
+          'X-Cache': 'HIT',
+        },
+        body: cached.data,
+      };
+    }
 
     // Parse filter keywords
     const filterKeywords = filter ? filter.split(',').map(k => k.trim()).filter(Boolean) : [];
@@ -112,6 +135,20 @@ exports.handler = async (event) => {
       };
     });
 
+    // Update in-memory cache
+    const responseBody = JSON.stringify({
+      results: articles,
+      count: articles.length,
+      filter: filterKeywords.length > 0 ? filterKeywords : null,
+      total_fetched: items.length,
+    });
+    cache.set(cacheKey, { data: responseBody, timestamp: now });
+    // Evict oldest entries if cache grows too large
+    if (cache.size > MAX_CACHE_ENTRIES) {
+      const oldest = [...cache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+      cache.delete(oldest[0]);
+    }
+
     // Store articles to blob storage (fire-and-forget, don't block response)
     (async () => {
       try {
@@ -156,16 +193,32 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        results: articles,
-        count: articles.length,
-        filter: filterKeywords.length > 0 ? filterKeywords : null,
-        total_fetched: items.length,
-      }),
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=300',
+        'X-Cache': 'MISS',
+      },
+      body: responseBody,
     };
   } catch (error) {
     console.error('CoinDesk news API error:', error);
+
+    // Serve stale cache if available
+    if (cached) {
+      console.log('[COINDESK] Serving stale cache (age:', Math.round((now - cached.timestamp) / 1000), 's)');
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=60',
+          'X-Cache': 'STALE',
+        },
+        body: cached.data,
+      };
+    }
+
     return {
       statusCode: 502,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

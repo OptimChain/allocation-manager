@@ -1,9 +1,15 @@
 // Polygon.io News Netlify Function
 // Proxies market news requests to Polygon.io API
+// In-memory cache to avoid rate-limiting (429s)
 
 const POLYGON_API = 'https://api.polygon.io/v2/reference/news';
 const BLOB_STORE = 'news-articles';
 const API_KEY = process.env.POLYGON_API_KEY;
+
+// Cache keyed by query params, lives across invocations within the same Lambda container
+const cache = new Map(); // key -> { data, timestamp }
+const CACHE_TTL_MS = 5 * 60_000; // 5 minutes
+const MAX_CACHE_ENTRIES = 20;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,6 +38,23 @@ exports.handler = async (event) => {
     const params = event.queryStringParameters || {};
     const ticker = params.ticker || '';
     const limit = params.limit || '10';
+
+    // Check in-memory cache
+    const cacheKey = `${ticker}|${limit}`;
+    const now = Date.now();
+    const cached = cache.get(cacheKey);
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300',
+          'X-Cache': 'HIT',
+        },
+        body: cached.data,
+      };
+    }
 
     const url = new URL(POLYGON_API);
     if (ticker) url.searchParams.set('ticker', ticker);
@@ -69,6 +92,15 @@ exports.handler = async (event) => {
         favicon_url: article.publisher.favicon_url,
       } : null,
     }));
+
+    // Update in-memory cache
+    const responseBody = JSON.stringify({ results: articles, count: articles.length });
+    cache.set(cacheKey, { data: responseBody, timestamp: now });
+    // Evict oldest entries if cache grows too large
+    if (cache.size > MAX_CACHE_ENTRIES) {
+      const oldest = [...cache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+      cache.delete(oldest[0]);
+    }
 
     // Store articles to blob storage (fire-and-forget, don't block response)
     (async () => {
@@ -118,11 +150,32 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ results: articles, count: articles.length }),
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=300',
+        'X-Cache': 'MISS',
+      },
+      body: responseBody,
     };
   } catch (error) {
     console.error('Polygon.io news API error:', error);
+
+    // Serve stale cache if available
+    if (cached) {
+      console.log('[POLYGON] Serving stale cache (age:', Math.round((now - cached.timestamp) / 1000), 's)');
+      return {
+        statusCode: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=60',
+          'X-Cache': 'STALE',
+        },
+        body: cached.data,
+      };
+    }
+
     return {
       statusCode: 502,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
