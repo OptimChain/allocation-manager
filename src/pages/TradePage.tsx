@@ -30,7 +30,6 @@ import {
   getAuthStatus,
   getOrderPnL,
   getOrderBookSnapshot,
-  getOptionsPositions,
   sendSlackAlert,
   Portfolio,
   BotAction,
@@ -41,7 +40,7 @@ import {
   FilledOrder,
   OrderBookSnapshot,
   SnapshotOrder,
-  OptionsPortfolio,
+  SnapshotOption,
   formatCurrency,
   formatPercent,
   getGainColor,
@@ -317,26 +316,20 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
   );
 }
 
-function formatStrategy(strategy: string): string {
-  return strategy
-    .split('_')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function formatExpiration(dateStr: string | null): string {
-  if (!dateStr) return '--';
+function formatExpiration(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 }
 
-function OptionsPositionsTable({ options }: { options: OptionsPortfolio }) {
-  if (options.positions.length === 0) return null;
+function OptionsPositionsTable({ options }: { options: SnapshotOption[] }) {
+  if (options.length === 0) return null;
 
   return (
     <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
+        <BarChart3 className="w-5 h-5 text-gray-500 dark:text-gray-400" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Options Positions</h3>
+        <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{options.length} contracts</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
@@ -346,48 +339,72 @@ function OptionsPositionsTable({ options }: { options: OptionsPortfolio }) {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Strike</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Exp</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">DTE</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Qty</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avg Cost</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Mark</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Value</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">P&L</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Greeks</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Signal</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-zinc-800">
-            {options.positions.map((pos, index) => (
-              <tr key={`${pos.symbol}-${pos.strike}-${pos.expiration}-${index}`} className={index % 2 === 0 ? 'bg-white dark:bg-zinc-950' : 'bg-gray-50 dark:bg-zinc-900'}>
+            {options.map((opt, index) => (
+              <tr key={`${opt.chain_symbol}-${opt.strike}-${opt.expiration}-${index}`} className={index % 2 === 0 ? 'bg-white dark:bg-zinc-950' : 'bg-gray-50 dark:bg-zinc-900'}>
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900 dark:text-white">{pos.symbol}</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">{formatStrategy(pos.strategy)}</div>
+                  <div className="font-medium text-gray-900 dark:text-white">{opt.chain_symbol}</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    {opt.position_type} · BE {formatCurrency(opt.break_even)}
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                    pos.optionType === 'call'
+                    opt.option_type === 'call'
                       ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
                       : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
                   }`}>
-                    {pos.optionType ? pos.optionType.toUpperCase() : '--'}
+                    {opt.option_type.toUpperCase()}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">
-                  {pos.strike !== null ? formatCurrency(pos.strike) : '--'}
-                </td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(opt.strike)}</td>
                 <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400 text-sm whitespace-nowrap">
-                  {formatExpiration(pos.expiration)}
+                  {formatExpiration(opt.expiration)}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{pos.quantity}</td>
-                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avgOpenPrice)}</td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">
-                  {pos.markPrice !== null ? formatCurrency(pos.markPrice) : '--'}
-                </td>
-                <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(pos.currentValue)}</td>
                 <td className="px-4 py-3 text-right">
-                  <div className={`font-medium ${getGainColor(pos.gain)}`}>
-                    {formatCurrency(pos.gain)}
+                  <span className={`text-sm font-medium ${opt.dte <= 7 ? 'text-red-600' : opt.dte <= 14 ? 'text-amber-600' : 'text-gray-900 dark:text-white'}`}>
+                    {opt.dte}d
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{opt.quantity}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(opt.avg_price)}</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(opt.mark_price)}</td>
+                <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(opt.current_value)}</td>
+                <td className="px-4 py-3 text-right">
+                  <div className={`font-medium ${getGainColor(opt.unrealized_pl)}`}>
+                    {formatCurrency(opt.unrealized_pl)}
                   </div>
-                  <div className={`text-sm ${getGainColor(pos.gainPercent)}`}>
-                    {formatPercent(pos.gainPercent)}
+                  <div className={`text-sm ${getGainColor(opt.unrealized_pl_pct)}`}>
+                    {formatPercent(opt.unrealized_pl_pct)}
                   </div>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+                    <div>Δ {opt.greeks.delta.toFixed(3)}</div>
+                    <div>θ {opt.greeks.theta.toFixed(3)}</div>
+                    <div>IV {(opt.greeks.iv * 100).toFixed(1)}%</div>
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                    opt.recommended_action.action === 'HOLD'
+                      ? 'bg-gray-100 dark:bg-zinc-900 text-gray-800 dark:text-gray-300'
+                      : opt.recommended_action.action === 'SELL' || opt.recommended_action.action === 'CLOSE'
+                      ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                      : 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                  }`}>
+                    {opt.recommended_action.action}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -943,7 +960,6 @@ export default function TradePage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [orderPnL, setOrderPnL] = useState<OrderPnL | null>(null);
   const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
-  const [optionsPositions, setOptionsPositions] = useState<OptionsPortfolio | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
   const [analysis] = useState<BotAnalysis | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
@@ -992,19 +1008,14 @@ export default function TradePage() {
         return;
       }
 
-      const [portfolioData, actionsData, pnlData, optionsData] = await Promise.all([
+      const [portfolioData, actionsData, pnlData] = await Promise.all([
         getPortfolio(),
         getBotActions(50),
         getOrderPnL(),
-        getOptionsPositions().catch((err) => {
-          console.error('Failed to fetch options positions:', err);
-          return null;
-        }),
       ]);
       setPortfolio(portfolioData);
       setBotActions(actionsData.actions);
       setOrderPnL(pnlData);
-      setOptionsPositions(optionsData);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch data';
       if (!errorMsg.includes('Not authenticated') && !errorMsg.includes('expired')) {
@@ -1127,9 +1138,9 @@ export default function TradePage() {
             </div>
           </div>
 
-          {optionsPositions && optionsPositions.positions.length > 0 && (
+          {snapshot?.portfolio.options && snapshot.portfolio.options.length > 0 && (
             <div className="mt-6">
-              <OptionsPositionsTable options={optionsPositions} />
+              <OptionsPositionsTable options={snapshot.portfolio.options} />
             </div>
           )}
 

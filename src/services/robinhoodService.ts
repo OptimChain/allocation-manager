@@ -40,25 +40,44 @@ export interface Position {
   gainPercent: number;
 }
 
-export interface OptionsPosition {
-  symbol: string;
-  strategy: string;
-  direction: 'credit' | 'debit';
-  optionType: 'call' | 'put' | null;
-  strike: number | null;
-  expiration: string | null;
+export interface SnapshotOption {
+  chain_symbol: string;
+  option_type: 'call' | 'put';
+  strike: number;
+  expiration: string;
+  dte: number;
   quantity: number;
-  avgOpenPrice: number;
-  markPrice: number | null;
+  position_type: string;
+  avg_price: number;
+  mark_price: number;
   multiplier: number;
-  totalCost: number;
-  currentValue: number;
-  gain: number;
-  gainPercent: number;
-}
-
-export interface OptionsPortfolio {
-  positions: OptionsPosition[];
+  cost_basis: number;
+  current_value: number;
+  unrealized_pl: number;
+  unrealized_pl_pct: number;
+  underlying_price: number;
+  break_even: number;
+  greeks: {
+    delta: number;
+    gamma: number;
+    theta: number;
+    vega: number;
+    rho: number;
+    iv: number;
+  };
+  expected_pl: {
+    '-5%': number;
+    '-1%': number;
+    '+1%': number;
+    '+5%': number;
+    theta_daily: number;
+  };
+  chance_of_profit: number;
+  recommended_action: {
+    action: string;
+    reasons: string[];
+  };
+  btc_correlation: number;
 }
 
 export interface Portfolio {
@@ -182,6 +201,7 @@ export interface OrderBookSnapshot {
     market_value: number;
     positions: SnapshotPosition[];
     open_orders: SnapshotOrder[];
+    options?: SnapshotOption[];
   };
   market_data: MarketData | null;
 }
@@ -261,11 +281,6 @@ export async function getOrders(): Promise<Order[]> {
 
 export async function getOrderPnL(): Promise<OrderPnL> {
   return fetchApi<OrderPnL>('/robinhood-portfolio?action=pnl');
-}
-
-// Options positions
-export async function getOptionsPositions(): Promise<OptionsPortfolio> {
-  return fetchApi<OptionsPortfolio>('/robinhood-portfolio?action=options');
 }
 
 // Order Book Snapshot
