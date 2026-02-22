@@ -40,6 +40,27 @@ export interface Position {
   gainPercent: number;
 }
 
+export interface OptionsPosition {
+  symbol: string;
+  strategy: string;
+  direction: 'credit' | 'debit';
+  optionType: 'call' | 'put' | null;
+  strike: number | null;
+  expiration: string | null;
+  quantity: number;
+  avgOpenPrice: number;
+  markPrice: number | null;
+  multiplier: number;
+  totalCost: number;
+  currentValue: number;
+  gain: number;
+  gainPercent: number;
+}
+
+export interface OptionsPortfolio {
+  positions: OptionsPosition[];
+}
+
 export interface Portfolio {
   accountNumber: string;
   buyingPower: number;
@@ -240,6 +261,11 @@ export async function getOrders(): Promise<Order[]> {
 
 export async function getOrderPnL(): Promise<OrderPnL> {
   return fetchApi<OrderPnL>('/robinhood-portfolio?action=pnl');
+}
+
+// Options positions
+export async function getOptionsPositions(): Promise<OptionsPortfolio> {
+  return fetchApi<OptionsPortfolio>('/robinhood-portfolio?action=options');
 }
 
 // Order Book Snapshot
