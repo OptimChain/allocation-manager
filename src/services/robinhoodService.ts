@@ -187,6 +187,32 @@ export interface MarketData {
   symbols: Record<string, SymbolMarketData>;
 }
 
+export interface SnapshotOptionOrderLeg {
+  side: string;
+  position_effect: string;
+  quantity: number;
+  strike: number;
+  expiration: string;
+  option_type: string;
+  chain_symbol: string;
+}
+
+export interface SnapshotOptionOrder {
+  order_id: string;
+  state: string;
+  quantity: number;
+  price: number;
+  premium: number;
+  direction: string;
+  order_type: string;
+  trigger: string;
+  time_in_force: string;
+  opening_strategy: string;
+  created_at: string;
+  updated_at: string;
+  legs: SnapshotOptionOrderLeg[];
+}
+
 export interface OrderBookSnapshot {
   timestamp: string;
   order_book: SnapshotOrder[];
@@ -201,6 +227,7 @@ export interface OrderBookSnapshot {
     market_value: number;
     positions: SnapshotPosition[];
     open_orders: SnapshotOrder[];
+    open_option_orders?: SnapshotOptionOrder[];
     options?: SnapshotOption[];
   };
   market_data: MarketData | null;

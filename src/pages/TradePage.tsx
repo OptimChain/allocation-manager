@@ -552,6 +552,7 @@ function AnalysisSuggestions({ analysis }: { analysis: BotAnalysis | null }) {
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   const { portfolio, order_book, market_data, timestamp } = snapshot;
   const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
+  const openOptionOrders = portfolio.open_option_orders || [];
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
@@ -717,10 +718,10 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
             <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Open Orders</h3>
-            <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length}</span>
+            <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length + openOptionOrders.length}</span>
           </div>
           <div className="max-h-[400px] overflow-y-auto">
-            {openOrders.length === 0 ? (
+            {openOrders.length === 0 && openOptionOrders.length === 0 ? (
               <div className="p-6 text-center text-gray-500 dark:text-gray-400">
                 <Receipt className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                 <p className="text-sm">No open orders</p>
@@ -760,6 +761,66 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                     </div>
                   </div>
                 ))}
+                {openOptionOrders.length > 0 && (
+                  <>
+                    {openOrders.length > 0 && (
+                      <div className="px-4 py-2 bg-gray-50 dark:bg-zinc-900">
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Option Orders</span>
+                      </div>
+                    )}
+                    {openOptionOrders.map((order) => {
+                      const leg = order.legs[0];
+                      const side = leg?.side || 'N/A';
+                      const isBuy = side === 'BUY';
+                      return (
+                        <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                          <div className="flex items-start gap-3">
+                            {isBuy ? (
+                              <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
+                            ) : (
+                              <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                  isBuy
+                                    ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                    : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                                }`}>
+                                  {side}
+                                </span>
+                                <span className="font-medium text-gray-900 dark:text-white">{leg?.chain_symbol || '?'}</span>
+                                {leg?.option_type && (
+                                  <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+                                    leg.option_type === 'call'
+                                      ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                      : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                                  }`}>
+                                    {leg.option_type.toUpperCase()}
+                                  </span>
+                                )}
+                                <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">
+                                  {order.state}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                {order.quantity}x ${leg?.strike} · {leg?.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
+                              </p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                {order.order_type} / {order.direction} · {order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
+                              </p>
+                              {order.legs.length > 1 && (
+                                <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                                  {order.legs.length} legs: {order.legs.map(l => `${l.side} ${l.chain_symbol} $${l.strike} ${l.option_type?.toUpperCase()}`).join(' / ')}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1101,6 +1162,12 @@ export default function TradePage() {
 
       {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
 
+      {snapshot?.portfolio.options && snapshot.portfolio.options.length > 0 && (
+        <div className="mt-6">
+          <OptionsPositionsTable options={snapshot.portfolio.options} />
+        </div>
+      )}
+
       {error && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
           {error}
@@ -1137,12 +1204,6 @@ export default function TradePage() {
               <BotActionsLog actions={botActions} />
             </div>
           </div>
-
-          {snapshot?.portfolio.options && snapshot.portfolio.options.length > 0 && (
-            <div className="mt-6">
-              <OptionsPositionsTable options={snapshot.portfolio.options} />
-            </div>
-          )}
 
           {filteredPnL && (
             <>
