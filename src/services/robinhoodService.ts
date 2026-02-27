@@ -40,46 +40,6 @@ export interface Position {
   gainPercent: number;
 }
 
-export interface SnapshotOption {
-  chain_symbol: string;
-  option_type: 'call' | 'put';
-  strike: number;
-  expiration: string;
-  dte: number;
-  quantity: number;
-  position_type: string;
-  avg_price: number;
-  mark_price: number;
-  multiplier: number;
-  cost_basis: number;
-  current_value: number;
-  unrealized_pl: number;
-  unrealized_pl_pct: number;
-  underlying_price: number;
-  break_even: number;
-  greeks: {
-    delta: number;
-    gamma: number;
-    theta: number;
-    vega: number;
-    rho: number;
-    iv: number;
-  };
-  expected_pl: {
-    '-5%': number;
-    '-1%': number;
-    '+1%': number;
-    '+5%': number;
-    theta_daily: number;
-  };
-  chance_of_profit: number;
-  recommended_action: {
-    action: string;
-    reasons: string[];
-  };
-  btc_correlation: number;
-}
-
 export interface Portfolio {
   accountNumber: string;
   buyingPower: number;
@@ -137,6 +97,46 @@ export interface OrderPnL {
 }
 
 // Order Book Snapshot types (from 5thstreetcapital blob store)
+export interface OptionPosition {
+  chain_symbol: string;
+  option_type: string;
+  strike: number;
+  expiration: string;
+  dte: number;
+  quantity: number;
+  position_type: string;
+  avg_price: number;
+  mark_price: number;
+  multiplier: number;
+  cost_basis: number;
+  current_value: number;
+  unrealized_pl: number;
+  unrealized_pl_pct: number;
+  underlying_price: number;
+  break_even: number;
+  greeks: {
+    delta: number;
+    gamma: number;
+    theta: number;
+    vega: number;
+    rho: number;
+    iv: number;
+  };
+  expected_pl: {
+    '-5%': number;
+    '-1%': number;
+    '+1%': number;
+    '+5%': number;
+    theta_daily: number;
+  };
+  chance_of_profit: number;
+  recommended_action: {
+    action: string;
+    reasons: string[];
+  };
+  btc_correlation: number;
+}
+
 export interface SnapshotPosition {
   symbol: string;
   name?: string;
@@ -163,6 +163,8 @@ export interface SnapshotOrder {
   quantity: number;
   limit_price: number;
   stop_price: number | null;
+  average_price?: number;
+  filled_quantity?: number;
   created_at: string;
   updated_at: string;
 }
@@ -234,8 +236,9 @@ export interface OrderBookSnapshot {
     positions: SnapshotPosition[];
     open_orders: SnapshotOrder[];
     open_option_orders?: SnapshotOptionOrder[];
-    options?: SnapshotOption[];
+    options?: OptionPosition[];
   };
+  recent_orders?: SnapshotOrder[];
   market_data: MarketData | null;
 }
 
