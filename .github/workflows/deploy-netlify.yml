@@ -34,14 +34,14 @@ jobs:
       - name: Install Netlify CLI
         run: npm install -g netlify-cli
 
-      - name: Deploy to Gamma
+      - name: Deploy preview
         if: github.event_name == 'pull_request'
-        run: netlify deploy --dir=dist --prod --site ${{ secrets.NETLIFY_SITE_ID_GAMMA }}
+        run: netlify deploy --dir=dist --site ${{ secrets.NETLIFY_SITE_ID }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
 
-      - name: Deploy to Prod
+      - name: Deploy to production
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: netlify deploy --dir=dist --prod --site ${{ secrets.NETLIFY_SITE_ID_PROD }}
+        run: netlify deploy --dir=dist --prod --site ${{ secrets.NETLIFY_SITE_ID }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
