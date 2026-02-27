@@ -34,7 +34,14 @@ jobs:
       - name: Install Netlify CLI
         run: npm install -g netlify-cli
 
-      - name: Deploy to 5thstreetcapital
-        run: netlify deploy --dir=dist --prod --site ${{ secrets.NETLIFY_SITE_ID }}
+      - name: Deploy to Gamma
+        if: github.event_name == 'pull_request'
+        run: netlify deploy --dir=dist --prod --site ${{ secrets.NETLIFY_SITE_ID_GAMMA }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+
+      - name: Deploy to Prod
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: netlify deploy --dir=dist --prod --site ${{ secrets.NETLIFY_SITE_ID_PROD }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
