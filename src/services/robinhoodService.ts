@@ -139,12 +139,18 @@ export interface OrderPnL {
 // Order Book Snapshot types (from 5thstreetcapital blob store)
 export interface SnapshotPosition {
   symbol: string;
+  name?: string;
+  type?: string;
   quantity: number;
   avg_buy_price: number;
   current_price: number;
   equity: number;
   profit_loss: number;
   profit_loss_pct: number;
+  percent_change?: number | null;
+  equity_change?: number | null;
+  pe_ratio?: number | null;
+  percentage?: number | null;
 }
 
 export interface SnapshotOrder {

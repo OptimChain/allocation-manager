@@ -686,19 +686,38 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Symbol</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Qty</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Price</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Day</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avg Cost</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Value</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alloc</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">P&L</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-zinc-800">
                 {sortedPositions.map((pos, index) => (
                   <tr key={pos.symbol} className={index % 2 === 0 ? 'bg-white dark:bg-zinc-950' : 'bg-gray-50 dark:bg-zinc-900'}>
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{pos.symbol}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-900 dark:text-white">{pos.symbol}</div>
+                      {pos.name && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">{pos.name}</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{pos.quantity.toFixed(4)}</td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(pos.current_price)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {pos.percent_change != null ? (
+                        <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>
+                          {pos.percent_change >= 0 ? '+' : ''}{pos.percent_change.toFixed(2)}%
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(pos.equity)}</td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">
+                      {pos.percentage != null ? `${pos.percentage.toFixed(1)}%` : '—'}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>
                         {formatCurrency(pos.profit_loss)}
