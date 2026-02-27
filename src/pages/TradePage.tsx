@@ -317,6 +317,11 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
   );
 }
 
+function formatExpiration(dateStr: string): string {
+  const date = new Date(dateStr + 'T00:00:00');
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
+
 function BotActionsLog({ actions }: { actions: BotAction[] }) {
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -654,6 +659,7 @@ function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
   const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
+  const openOptionOrders = portfolio.open_option_orders || [];
   const historicalOrders = (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const recentPnL = computeRecentOrdersPnL(recent_orders || []);
@@ -790,19 +796,38 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Symbol</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Qty</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Price</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Day</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avg Cost</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Value</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alloc</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">P&L</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-zinc-800">
                 {sortedPositions.map((pos, index) => (
                   <tr key={pos.symbol} className={index % 2 === 0 ? 'bg-white dark:bg-zinc-950' : 'bg-gray-50 dark:bg-zinc-900'}>
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{pos.symbol}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-900 dark:text-white">{pos.symbol}</div>
+                      {pos.name && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">{pos.name}</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{pos.quantity.toFixed(4)}</td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(pos.current_price)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {pos.percent_change != null ? (
+                        <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>
+                          {pos.percent_change >= 0 ? '+' : ''}{pos.percent_change.toFixed(2)}%
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(pos.equity)}</td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">
+                      {pos.percentage != null ? `${pos.percentage.toFixed(1)}%` : '—'}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>
                         {formatCurrency(pos.profit_loss)}
@@ -823,10 +848,10 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
             <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
               <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Open Orders</h3>
-              <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length}</span>
+              <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length + openOptionOrders.length}</span>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
-              {openOrders.length === 0 ? (
+              {openOrders.length === 0 && openOptionOrders.length === 0 ? (
                 <div className="p-6 text-center text-gray-500 dark:text-gray-400">
                   <Receipt className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                   <p className="text-sm">No open orders</p>
@@ -866,6 +891,66 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                       </div>
                     </div>
                   ))}
+                  {openOptionOrders.length > 0 && (
+                    <>
+                      {openOrders.length > 0 && (
+                        <div className="px-4 py-2 bg-gray-50 dark:bg-zinc-900">
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Option Orders</span>
+                        </div>
+                      )}
+                      {openOptionOrders.map((order) => {
+                        const leg = order.legs[0];
+                        const side = leg?.side || 'N/A';
+                        const isBuy = side === 'BUY';
+                        return (
+                          <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                            <div className="flex items-start gap-3">
+                              {isBuy ? (
+                                <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
+                              ) : (
+                                <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                    isBuy
+                                      ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                      : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                                  }`}>
+                                    {side}
+                                  </span>
+                                  <span className="font-medium text-gray-900 dark:text-white">{leg?.chain_symbol || '?'}</span>
+                                  {leg?.option_type && (
+                                    <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+                                      leg.option_type === 'call'
+                                        ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                        : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                                    }`}>
+                                      {leg.option_type.toUpperCase()}
+                                    </span>
+                                  )}
+                                  <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">
+                                    {order.state}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                  {order.quantity}x ${leg?.strike} · {leg?.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
+                                </p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                  {order.order_type} / {order.direction} · {order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
+                                </p>
+                                {order.legs.length > 1 && (
+                                  <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                                    {order.legs.length} legs: {order.legs.map(l => `${l.side} ${l.chain_symbol} $${l.strike} ${l.option_type?.toUpperCase()}`).join(' / ')}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
               )}
             </div>
