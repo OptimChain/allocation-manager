@@ -15,6 +15,7 @@ import {
   ArrowDownRight,
   Receipt,
   User,
+  Clock,
 } from 'lucide-react';
 import {
   PieChart,
@@ -40,6 +41,7 @@ import {
   FilledOrder,
   OrderBookSnapshot,
   SnapshotOrder,
+  OptionPosition,
   formatCurrency,
   formatPercent,
   getGainColor,
@@ -449,15 +451,212 @@ function AnalysisSuggestions({ analysis }: { analysis: BotAnalysis | null }) {
   );
 }
 
-const OPEN_ORDER_STATES = new Set(['queued', 'confirmed', 'unconfirmed', 'partially_filled']);
+function OptionsPositions({ options }: { options: OptionPosition[] }) {
+  if (options.length === 0) return null;
+
+  const totalCostBasis = options.reduce((sum, o) => sum + o.cost_basis, 0);
+  const totalCurrentValue = options.reduce((sum, o) => sum + o.current_value, 0);
+  const totalPL = options.reduce((sum, o) => sum + o.unrealized_pl, 0);
+  const totalPLPct = totalCostBasis > 0 ? (totalPL / totalCostBasis) * 100 : 0;
+  const totalThetaDaily = options.reduce((sum, o) => sum + o.expected_pl.theta_daily, 0);
+
+  return (
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
+        <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Options</h3>
+        <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{options.length} position{options.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 border-b border-gray-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900">
+        <div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Cost Basis</div>
+          <div className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalCostBasis)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Current Value</div>
+          <div className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalCurrentValue)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Unrealized P&L</div>
+          <div className={`font-medium ${getGainColor(totalPL)}`}>
+            {formatCurrency(totalPL)} ({formatPercent(totalPLPct)})
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Theta/Day</div>
+          <div className={`font-medium ${getGainColor(totalThetaDaily)}`}>
+            {formatCurrency(totalThetaDaily)}
+          </div>
+        </div>
+      </div>
+
+      <div className="divide-y divide-gray-200 dark:divide-zinc-800">
+        {options.map((opt) => (
+          <div key={`${opt.chain_symbol}-${opt.option_type}-${opt.strike}-${opt.expiration}`} className="p-4">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="font-semibold text-gray-900 dark:text-white">{opt.chain_symbol}</span>
+              <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                opt.option_type === 'call'
+                  ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                  : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+              }`}>
+                {opt.option_type.toUpperCase()}
+              </span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                ${opt.strike} strike
+              </span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                exp {opt.expiration}
+              </span>
+              <span className={`px-2 py-0.5 text-xs rounded ${
+                opt.dte <= 7
+                  ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                  : opt.dte <= 21
+                    ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400'
+                    : 'bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400'
+              }`}>
+                {opt.dte}d
+              </span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {opt.quantity} × {opt.position_type}
+              </span>
+
+              {opt.recommended_action && (
+                <span className={`ml-auto px-2 py-0.5 text-xs font-medium rounded ${
+                  opt.recommended_action.action === 'CLOSE' || opt.recommended_action.action === 'SELL'
+                    ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                    : opt.recommended_action.action === 'HOLD'
+                      ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400'
+                      : 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                }`}>
+                  {opt.recommended_action.action}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+              <div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">Underlying</div>
+                <div className="text-sm text-gray-900 dark:text-white">${opt.underlying_price.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">Break Even</div>
+                <div className="text-sm text-gray-900 dark:text-white">${opt.break_even.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">P&L</div>
+                <div className={`text-sm font-medium ${getGainColor(opt.unrealized_pl)}`}>
+                  {formatCurrency(opt.unrealized_pl)} ({formatPercent(opt.unrealized_pl_pct)})
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">Prob. of Profit</div>
+                <div className="text-sm text-gray-900 dark:text-white">{(opt.chance_of_profit * 100).toFixed(1)}%</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
+              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Delta</div>
+                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.delta.toFixed(3)}</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Gamma</div>
+                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.gamma.toFixed(4)}</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Theta</div>
+                <div className={`text-xs font-mono ${getGainColor(opt.greeks.theta)}`}>{opt.greeks.theta.toFixed(3)}</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Vega</div>
+                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.vega.toFixed(3)}</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">IV</div>
+                <div className="text-xs font-mono text-gray-900 dark:text-white">{(opt.greeks.iv * 100).toFixed(1)}%</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Rho</div>
+                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.rho.toFixed(4)}</div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="text-gray-400 dark:text-gray-500">Scenario P&L:</span>
+              {Object.entries(opt.expected_pl).filter(([k]) => k !== 'theta_daily').map(([scenario, pl]) => (
+                <span key={scenario} className={`font-mono ${getGainColor(pl)}`}>
+                  {scenario}: {formatCurrency(pl)}
+                </span>
+              ))}
+            </div>
+
+            {opt.recommended_action?.reasons?.length > 0 && (
+              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                {opt.recommended_action.reasons.join(' · ')}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
+  const filled = orders
+    .filter(o => o.state === 'filled' && o.average_price != null)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const symbolMap: Record<string, {
+    symbol: string; realizedPnL: number;
+    totalBought: number; totalSold: number; buyCount: number; sellCount: number;
+    sharesHeld: number; costBasis: number;
+  }> = {};
+
+  for (const order of filled) {
+    if (!symbolMap[order.symbol]) {
+      symbolMap[order.symbol] = {
+        symbol: order.symbol, realizedPnL: 0,
+        totalBought: 0, totalSold: 0, buyCount: 0, sellCount: 0,
+        sharesHeld: 0, costBasis: 0,
+      };
+    }
+    const s = symbolMap[order.symbol];
+    const qty = order.filled_quantity ?? order.quantity;
+    const price = order.average_price!;
+    const total = qty * price;
+
+    if (order.side === 'BUY') {
+      s.sharesHeld += qty;
+      s.costBasis += total;
+      s.totalBought += total;
+      s.buyCount++;
+    } else {
+      const avgCost = s.sharesHeld > 0 ? s.costBasis / s.sharesHeld : 0;
+      s.realizedPnL += (price - avgCost) * qty;
+      s.costBasis -= avgCost * qty;
+      s.sharesHeld -= qty;
+      s.totalSold += total;
+      s.sellCount++;
+    }
+  }
+
+  const symbols = Object.values(symbolMap).sort((a, b) => Math.abs(b.realizedPnL) - Math.abs(a.realizedPnL));
+  const totalRealizedPnL = symbols.reduce((sum, s) => sum + s.realizedPnL, 0);
+  const totalBuyVolume = symbols.reduce((sum, s) => sum + s.totalBought, 0);
+  const totalSellVolume = symbols.reduce((sum, s) => sum + s.totalSold, 0);
+
+  return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
+}
 
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
-  const { portfolio, order_book, market_data, timestamp } = snapshot;
+  const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
   const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
-  const openOrderIds = new Set(openOrders.map(o => o.order_id));
-  const historicalOrders = order_book
-    .filter(o => !openOrderIds.has(o.order_id) && !OPEN_ORDER_STATES.has(o.state.toLowerCase()))
+  const historicalOrders = (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const recentPnL = computeRecentOrdersPnL(recent_orders || []);
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
@@ -675,10 +874,39 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           {historicalOrders.length > 0 && (
             <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
               <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <Clock className="w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Historical Orders</h3>
                 <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOrders.length}</span>
               </div>
+
+              {recentPnL.filledCount > 0 && (
+                <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+                    <span className="text-gray-500 dark:text-gray-400">7d P&L</span>
+                    <span className={`font-medium ${getGainColor(recentPnL.totalRealizedPnL)}`}>
+                      {formatCurrency(recentPnL.totalRealizedPnL)}
+                    </span>
+                    <span>
+                      <span className="text-gray-400 dark:text-gray-500">Buy Vol </span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalBuyVolume)}</span>
+                    </span>
+                    <span>
+                      <span className="text-gray-400 dark:text-gray-500">Sell Vol </span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalSellVolume)}</span>
+                    </span>
+                    <span>
+                      <span className="text-gray-400 dark:text-gray-500">Fills </span>
+                      <span className="font-medium text-gray-900 dark:text-white">{recentPnL.filledCount}</span>
+                    </span>
+                    {recentPnL.symbols.length > 0 && (
+                      <span className="text-gray-400 dark:text-gray-500 ml-auto text-xs">
+                        {recentPnL.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="max-h-[400px] overflow-y-auto">
                 <div className="divide-y divide-gray-100 dark:divide-zinc-900">
                   {historicalOrders.map((order) => (
@@ -700,18 +928,20 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                             </span>
                             <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
                             <span className={`px-2 py-0.5 text-xs rounded ${
-                              order.state.toLowerCase() === 'filled'
+                              order.state === 'filled'
                                 ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400'
-                                : order.state.toLowerCase() === 'cancelled'
+                                : order.state === 'cancelled'
                                   ? 'bg-gray-100 dark:bg-zinc-900 text-gray-500 dark:text-gray-400'
-                                  : 'bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400'
+                                  : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
                             }`}>
                               {order.state}
                             </span>
                           </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {order.quantity} @ {formatCurrency(order.limit_price)}
-                            {order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}
+                            {order.filled_quantity ?? order.quantity} @ {formatCurrency(order.average_price ?? order.limit_price)}
+                            {order.average_price && order.filled_quantity
+                              ? ` = ${formatCurrency(order.average_price * order.filled_quantity)}`
+                              : ''}
                           </p>
                           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                             {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}
@@ -726,6 +956,12 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           )}
         </div>
       </div>
+
+      {portfolio.options && portfolio.options.length > 0 && (
+        <div className="mt-6">
+          <OptionsPositions options={portfolio.options} />
+        </div>
+      )}
     </div>
   );
 }
