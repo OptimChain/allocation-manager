@@ -653,7 +653,10 @@ function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
 
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
-  const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
+  const allOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
+  const OPEN_STATES = new Set(['confirmed', 'queued', 'unconfirmed', 'partially_filled']);
+  const openOrders = allOrders.filter(o => OPEN_STATES.has(o.state));
+  const filledOrders = allOrders.filter(o => o.state === 'filled');
   const historicalOrders = (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const recentPnL = computeRecentOrdersPnL(recent_orders || []);
@@ -822,14 +825,14 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
             <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
               <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Open Orders</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Pending Orders</h3>
               <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length}</span>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
               {openOrders.length === 0 ? (
                 <div className="p-6 text-center text-gray-500 dark:text-gray-400">
                   <Receipt className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                  <p className="text-sm">No open orders</p>
+                  <p className="text-sm">No pending orders</p>
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100 dark:divide-zinc-900">
@@ -851,12 +854,16 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                               {order.side}
                             </span>
                             <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
-                            <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">
+                            <span className={`px-2 py-0.5 text-xs rounded ${
+                              order.state === 'partially_filled'
+                                ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400'
+                                : 'bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400'
+                            }`}>
                               {order.state}
                             </span>
                           </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {order.quantity} @ {formatCurrency(order.limit_price)}
+                            {order.filled_quantity ? `${order.filled_quantity}/${order.quantity}` : order.quantity} @ {formatCurrency(order.limit_price)}
                             {order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}
                           </p>
                           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -870,6 +877,55 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
               )}
             </div>
           </div>
+
+          {filledOrders.length > 0 && (
+            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-blue-500 dark:text-blue-400" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filled Orders</h3>
+                <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{filledOrders.length}</span>
+              </div>
+              <div className="max-h-[400px] overflow-y-auto">
+                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
+                  {filledOrders.map((order) => (
+                    <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                      <div className="flex items-start gap-3">
+                        {order.side === 'BUY' ? (
+                          <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
+                        ) : (
+                          <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                              order.side === 'BUY'
+                                ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                            }`}>
+                              {order.side}
+                            </span>
+                            <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
+                            <span className="px-2 py-0.5 text-xs rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400">
+                              filled
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {order.filled_quantity ?? order.quantity} @ {formatCurrency(order.average_price ?? order.limit_price)}
+                            {order.average_price && order.filled_quantity
+                              ? ` = ${formatCurrency(order.average_price * order.filled_quantity)}`
+                              : ''}
+                          </p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {historicalOrders.length > 0 && (
             <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
@@ -1022,7 +1078,7 @@ function RealizedPnLSummary({ pnl, periodLabel, openOrders }: { pnl: OrderPnL; p
         <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
             <Receipt className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-            Open Orders
+            Pending Orders
           </div>
           <div className="text-2xl font-bold text-gray-900 dark:text-white">
             {openOrders.length}
