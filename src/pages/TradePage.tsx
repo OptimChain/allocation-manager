@@ -606,11 +606,10 @@ function OptionsPositions({ options }: { options: OptionPosition[] }) {
 const OPEN_ORDER_STATES = new Set(['queued', 'confirmed', 'unconfirmed', 'partially_filled']);
 
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
-  const { portfolio, order_book, market_data, timestamp } = snapshot;
+  const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
   const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
-  const openOrderIds = new Set(openOrders.map(o => o.order_id));
-  const historicalOrders = order_book
-    .filter(o => !openOrderIds.has(o.order_id) && !OPEN_ORDER_STATES.has(o.state.toLowerCase()))
+  const historicalOrders = (recent_orders || [])
+    .filter(o => !OPEN_ORDER_STATES.has(o.state.toLowerCase()))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
@@ -864,8 +863,10 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                             </span>
                           </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {order.quantity} @ {formatCurrency(order.limit_price)}
-                            {order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}
+                            {order.filled_quantity ?? order.quantity} @ {formatCurrency(order.average_price ?? order.limit_price)}
+                            {order.average_price && order.filled_quantity
+                              ? ` = ${formatCurrency(order.average_price * order.filled_quantity)}`
+                              : ''}
                           </p>
                           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                             {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}

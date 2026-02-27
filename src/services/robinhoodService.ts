@@ -157,6 +157,8 @@ export interface SnapshotOrder {
   quantity: number;
   limit_price: number;
   stop_price: number | null;
+  average_price?: number;
+  filled_quantity?: number;
   created_at: string;
   updated_at: string;
 }
@@ -203,6 +205,7 @@ export interface OrderBookSnapshot {
     open_orders: SnapshotOrder[];
     options?: OptionPosition[];
   };
+  recent_orders?: SnapshotOrder[];
   market_data: MarketData | null;
 }
 
