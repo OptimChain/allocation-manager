@@ -24,7 +24,8 @@
     "react-dom": "^18.2.0",
     "react-plaid-link": "^4.1.1",
     "react-router-dom": "^7.8.0",
-    "recharts": "^2.10.4"
+    "recharts": "^2.10.4",
+    "redis": "^5.11.0"
   },
   "devDependencies": {
     "@netlify/functions": "^5.1.2",
