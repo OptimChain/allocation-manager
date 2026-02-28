@@ -31,6 +31,7 @@ import {
   getAuthStatus,
   getOrderPnL,
   getOrderBookSnapshot,
+  getRedisOrders,
   sendSlackAlert,
   Portfolio,
   BotAction,
@@ -40,6 +41,7 @@ import {
   SymbolPnL,
   FilledOrder,
   OrderBookSnapshot,
+  RedisOrders,
   SnapshotOrder,
   OptionPosition,
   formatCurrency,
@@ -656,13 +658,14 @@ function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
   return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
 }
 
-function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
+function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookSnapshot; redisOrders: RedisOrders | null }) {
   const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
-  const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
-  const openOptionOrders = portfolio.open_option_orders || [];
-  const historicalOrders = (recent_orders || [])
+  const openOrders = redisOrders?.openOrders ?? (portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book);
+  const openOptionOrders = redisOrders?.openOptionOrders ?? (portfolio.open_option_orders || []);
+  const historicalOrders = redisOrders?.historicalOrders ?? (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const recentPnL = computeRecentOrdersPnL(recent_orders || []);
+  const historicalOptionOrders = redisOrders?.historicalOptionOrders ?? [];
+  const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
@@ -1039,6 +1042,77 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
               </div>
             </div>
           )}
+
+          {historicalOptionOrders.length > 0 && (
+            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Historical Option Orders</h3>
+                <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOptionOrders.length}</span>
+              </div>
+              <div className="max-h-[400px] overflow-y-auto">
+                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
+                  {historicalOptionOrders.map((order) => {
+                    const leg = order.legs[0];
+                    const side = leg?.side || 'N/A';
+                    const isBuy = side === 'BUY';
+                    return (
+                      <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                        <div className="flex items-start gap-3">
+                          {isBuy ? (
+                            <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
+                          ) : (
+                            <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                isBuy
+                                  ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                  : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                              }`}>
+                                {side}
+                              </span>
+                              <span className="font-medium text-gray-900 dark:text-white">{leg?.chain_symbol || '?'}</span>
+                              {leg?.option_type && (
+                                <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+                                  leg.option_type === 'call'
+                                    ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                    : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                                }`}>
+                                  {leg.option_type.toUpperCase()}
+                                </span>
+                              )}
+                              <span className={`px-2 py-0.5 text-xs rounded ${
+                                order.state === 'filled'
+                                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400'
+                                  : order.state === 'cancelled'
+                                    ? 'bg-gray-100 dark:bg-zinc-900 text-gray-500 dark:text-gray-400'
+                                    : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                              }`}>
+                                {order.state}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                              {order.quantity}x ${leg?.strike} · {leg?.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
+                            </p>
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                              {order.order_type} / {order.direction} · {order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
+                            </p>
+                            {order.legs.length > 1 && (
+                              <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                                {order.legs.length} legs: {order.legs.map(l => `${l.side} ${l.chain_symbol} $${l.strike} ${l.option_type?.toUpperCase()}`).join(' / ')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1242,6 +1316,7 @@ export default function TradePage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [orderPnL, setOrderPnL] = useState<OrderPnL | null>(null);
   const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
+  const [redisOrders, setRedisOrders] = useState<RedisOrders | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
   const [analysis] = useState<BotAnalysis | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
@@ -1280,6 +1355,12 @@ export default function TradePage() {
           if (err instanceof TypeError) {
             sendSlackAlert('TypeError in order book snapshot', err.message);
           }
+        });
+
+      getRedisOrders()
+        .then(setRedisOrders)
+        .catch((err) => {
+          console.error('Failed to fetch Redis orders:', err);
         });
 
       const isAuthenticated = await fetchAuthStatus();
@@ -1381,7 +1462,7 @@ export default function TradePage() {
         </div>
       </div>
 
-      {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
+      {snapshot && <OrderBookSnapshotView snapshot={snapshot} redisOrders={redisOrders} />}
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
