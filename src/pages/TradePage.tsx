@@ -31,6 +31,7 @@ import {
   getAuthStatus,
   getOrderPnL,
   getOrderBookSnapshot,
+  getRedisOrders,
   sendSlackAlert,
   Portfolio,
   BotAction,
@@ -40,7 +41,9 @@ import {
   SymbolPnL,
   FilledOrder,
   OrderBookSnapshot,
+  RedisOrders,
   SnapshotOrder,
+  SnapshotOptionOrder,
   OptionPosition,
   formatCurrency,
   formatPercent,
@@ -656,13 +659,58 @@ function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
   return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
 }
 
-function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
-  const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
-  const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
-  const openOptionOrders = portfolio.open_option_orders || [];
-  const historicalOrders = (recent_orders || [])
+function computeOptionOrdersPnL(orders: SnapshotOptionOrder[]) {
+  const filled = orders
+    .filter(o => o.state === 'filled')
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  // Group by underlying symbol (chain_symbol) and compute P&L from processed_premium
+  // debit (BUY/open) = cost, credit (SELL/close) = proceeds
+  const symbolMap: Record<string, {
+    symbol: string; realizedPnL: number;
+    totalBought: number; totalSold: number; buyCount: number; sellCount: number;
+  }> = {};
+
+  for (const order of filled) {
+    const leg = order.legs?.[0];
+    const sym = leg?.chain_symbol || 'OPT';
+    const premium = order.processed_premium || (order.premium * (order.quantity || 1));
+    if (!symbolMap[sym]) {
+      symbolMap[sym] = { symbol: sym, realizedPnL: 0, totalBought: 0, totalSold: 0, buyCount: 0, sellCount: 0 };
+    }
+    const s = symbolMap[sym];
+    if (order.direction === 'debit') {
+      s.totalBought += premium;
+      s.buyCount++;
+    } else {
+      s.totalSold += premium;
+      s.sellCount++;
+    }
+  }
+
+  // P&L = total credits received - total debits paid
+  for (const s of Object.values(symbolMap)) {
+    s.realizedPnL = s.totalSold - s.totalBought;
+  }
+
+  const symbols = Object.values(symbolMap).sort((a, b) => Math.abs(b.realizedPnL) - Math.abs(a.realizedPnL));
+  const totalRealizedPnL = symbols.reduce((sum, s) => sum + s.realizedPnL, 0);
+  const totalBuyVolume = symbols.reduce((sum, s) => sum + s.totalBought, 0);
+  const totalSellVolume = symbols.reduce((sum, s) => sum + s.totalSold, 0);
+
+  return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
+}
+
+function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookSnapshot; redisOrders: RedisOrders | null }) {
+  const { portfolio, order_book, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
+  const openOrders = redisOrders?.openOrders ?? (portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book);
+  const openOptionOrders = redisOrders?.openOptionOrders ?? (portfolio.open_option_orders || []);
+  const historicalOrders = redisOrders?.historicalOrders ?? (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const recentPnL = computeRecentOrdersPnL(recent_orders || []);
+  const historicalOptionOrders = redisOrders?.historicalOptionOrders ?? (recent_option_orders || [])
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
+  const optionPnL = computeOptionOrdersPnL(historicalOptionOrders);
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
@@ -964,28 +1012,30 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                 <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOrders.length}</span>
               </div>
 
-              {recentPnL.filledCount > 0 && (
+              {(recentPnL.filledCount > 0 || optionPnL.filledCount > 0) && (
                 <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
                     <span className="text-gray-500 dark:text-gray-400">7d P&L</span>
-                    <span className={`font-medium ${getGainColor(recentPnL.totalRealizedPnL)}`}>
-                      {formatCurrency(recentPnL.totalRealizedPnL)}
+                    <span className={`font-medium ${getGainColor(recentPnL.totalRealizedPnL + optionPnL.totalRealizedPnL)}`}>
+                      {formatCurrency(recentPnL.totalRealizedPnL + optionPnL.totalRealizedPnL)}
                     </span>
                     <span>
                       <span className="text-gray-400 dark:text-gray-500">Buy Vol </span>
-                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalBuyVolume)}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalBuyVolume + optionPnL.totalBuyVolume)}</span>
                     </span>
                     <span>
                       <span className="text-gray-400 dark:text-gray-500">Sell Vol </span>
-                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalSellVolume)}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalSellVolume + optionPnL.totalSellVolume)}</span>
                     </span>
                     <span>
                       <span className="text-gray-400 dark:text-gray-500">Fills </span>
-                      <span className="font-medium text-gray-900 dark:text-white">{recentPnL.filledCount}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{recentPnL.filledCount + optionPnL.filledCount}</span>
                     </span>
-                    {recentPnL.symbols.length > 0 && (
+                    {(recentPnL.symbols.length > 0 || optionPnL.symbols.length > 0) && (
                       <span className="text-gray-400 dark:text-gray-500 ml-auto text-xs">
                         {recentPnL.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
+                        {recentPnL.symbols.length > 0 && optionPnL.symbols.length > 0 && ' · '}
+                        {optionPnL.symbols.map(s => `${s.symbol} OPT: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
                       </span>
                     )}
                   </div>
@@ -1035,6 +1085,77 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {historicalOptionOrders.length > 0 && (
+            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Historical Option Orders</h3>
+                <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOptionOrders.length}</span>
+              </div>
+              <div className="max-h-[400px] overflow-y-auto">
+                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
+                  {historicalOptionOrders.map((order) => {
+                    const leg = order.legs[0];
+                    const side = leg?.side || 'N/A';
+                    const isBuy = side === 'BUY';
+                    return (
+                      <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                        <div className="flex items-start gap-3">
+                          {isBuy ? (
+                            <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
+                          ) : (
+                            <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                isBuy
+                                  ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                  : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                              }`}>
+                                {side}
+                              </span>
+                              <span className="font-medium text-gray-900 dark:text-white">{leg?.chain_symbol || '?'}</span>
+                              {leg?.option_type && (
+                                <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+                                  leg.option_type === 'call'
+                                    ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
+                                    : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                                }`}>
+                                  {leg.option_type.toUpperCase()}
+                                </span>
+                              )}
+                              <span className={`px-2 py-0.5 text-xs rounded ${
+                                order.state === 'filled'
+                                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400'
+                                  : order.state === 'cancelled'
+                                    ? 'bg-gray-100 dark:bg-zinc-900 text-gray-500 dark:text-gray-400'
+                                    : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
+                              }`}>
+                                {order.state}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                              {order.quantity}x ${leg?.strike} · {leg?.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
+                            </p>
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                              {order.order_type} / {order.direction} · {order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
+                            </p>
+                            {order.legs.length > 1 && (
+                              <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                                {order.legs.length} legs: {order.legs.map(l => `${l.side} ${l.chain_symbol} $${l.strike} ${l.option_type?.toUpperCase()}`).join(' / ')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1242,6 +1363,7 @@ export default function TradePage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [orderPnL, setOrderPnL] = useState<OrderPnL | null>(null);
   const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
+  const [redisOrders, setRedisOrders] = useState<RedisOrders | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
   const [analysis] = useState<BotAnalysis | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
@@ -1280,6 +1402,12 @@ export default function TradePage() {
           if (err instanceof TypeError) {
             sendSlackAlert('TypeError in order book snapshot', err.message);
           }
+        });
+
+      getRedisOrders()
+        .then(setRedisOrders)
+        .catch((err) => {
+          console.error('Failed to fetch Redis orders:', err);
         });
 
       const isAuthenticated = await fetchAuthStatus();
@@ -1381,7 +1509,7 @@ export default function TradePage() {
         </div>
       </div>
 
-      {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
+      {snapshot && <OrderBookSnapshotView snapshot={snapshot} redisOrders={redisOrders} />}
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">

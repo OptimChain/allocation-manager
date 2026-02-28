@@ -211,6 +211,7 @@ export interface SnapshotOptionOrder {
   quantity: number;
   price: number;
   premium: number;
+  processed_premium: number;
   direction: string;
   order_type: string;
   trigger: string;
@@ -239,6 +240,7 @@ export interface OrderBookSnapshot {
     options?: OptionPosition[];
   };
   recent_orders?: SnapshotOrder[];
+  recent_option_orders?: SnapshotOptionOrder[];
   market_data: MarketData | null;
 }
 
@@ -322,6 +324,44 @@ export async function getOrderPnL(): Promise<OrderPnL> {
 // Order Book Snapshot
 export async function getOrderBookSnapshot(): Promise<OrderBookSnapshot> {
   return fetchApi<OrderBookSnapshot>('/order-book-snapshot');
+}
+
+// Redis Orders
+export interface RedisOrders {
+  openOrders: SnapshotOrder[];
+  openOptionOrders: SnapshotOptionOrder[];
+  historicalOrders: SnapshotOrder[];
+  historicalOptionOrders: SnapshotOptionOrder[];
+}
+
+const OPEN_STATES = new Set(['queued', 'confirmed', 'pending', 'partially_filled', 'unconfirmed']);
+
+export async function getRedisOrders(): Promise<RedisOrders> {
+  const data = await fetchApi<Record<string, Record<string, unknown>>>('/redis-holdings?store=orders');
+
+  const openOrders: SnapshotOrder[] = [];
+  const openOptionOrders: SnapshotOptionOrder[] = [];
+  const historicalOrders: SnapshotOrder[] = [];
+  const historicalOptionOrders: SnapshotOptionOrder[] = [];
+
+  for (const order of Object.values(data)) {
+    const isOpen = OPEN_STATES.has(order.state as string);
+    if (order._type === 'option') {
+      (isOpen ? openOptionOrders : historicalOptionOrders).push(order as unknown as SnapshotOptionOrder);
+    } else {
+      (isOpen ? openOrders : historicalOrders).push(order as unknown as SnapshotOrder);
+    }
+  }
+
+  const byDateDesc = (a: { created_at: string }, b: { created_at: string }) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+
+  openOrders.sort(byDateDesc);
+  openOptionOrders.sort(byDateDesc);
+  historicalOrders.sort(byDateDesc);
+  historicalOptionOrders.sort(byDateDesc);
+
+  return { openOrders, openOptionOrders, historicalOrders, historicalOptionOrders };
 }
 
 export function sendSlackAlert(message: string, error?: string) {
