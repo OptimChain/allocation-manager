@@ -211,6 +211,7 @@ export interface SnapshotOptionOrder {
   quantity: number;
   price: number;
   premium: number;
+  processed_premium: number;
   direction: string;
   order_type: string;
   trigger: string;
