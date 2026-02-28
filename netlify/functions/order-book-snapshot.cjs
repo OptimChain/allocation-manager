@@ -93,6 +93,7 @@ async function fetchSnapshot() {
     portfolio: latest.portfolio,
     order_book: latest.order_book,
     recent_orders: latest.recent_orders || [],
+    recent_option_orders: latest.recent_option_orders || [],
     market_data: marketData,
   };
 }

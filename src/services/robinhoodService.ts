@@ -239,6 +239,7 @@ export interface OrderBookSnapshot {
     options?: OptionPosition[];
   };
   recent_orders?: SnapshotOrder[];
+  recent_option_orders?: SnapshotOptionOrder[];
   market_data: MarketData | null;
 }
 

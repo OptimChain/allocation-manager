@@ -659,12 +659,13 @@ function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
 }
 
 function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookSnapshot; redisOrders: RedisOrders | null }) {
-  const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
+  const { portfolio, order_book, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
   const openOrders = redisOrders?.openOrders ?? (portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book);
   const openOptionOrders = redisOrders?.openOptionOrders ?? (portfolio.open_option_orders || []);
   const historicalOrders = redisOrders?.historicalOrders ?? (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const historicalOptionOrders = redisOrders?.historicalOptionOrders ?? [];
+  const historicalOptionOrders = redisOrders?.historicalOptionOrders ?? (recent_option_orders || [])
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
