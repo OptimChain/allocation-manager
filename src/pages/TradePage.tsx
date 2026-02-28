@@ -43,6 +43,7 @@ import {
   OrderBookSnapshot,
   RedisOrders,
   SnapshotOrder,
+  SnapshotOptionOrder,
   OptionPosition,
   formatCurrency,
   formatPercent,
@@ -658,14 +659,58 @@ function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
   return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
 }
 
+function computeOptionOrdersPnL(orders: SnapshotOptionOrder[]) {
+  const filled = orders
+    .filter(o => o.state === 'filled')
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  // Group by underlying symbol (chain_symbol) and compute P&L from processed_premium
+  // debit (BUY/open) = cost, credit (SELL/close) = proceeds
+  const symbolMap: Record<string, {
+    symbol: string; realizedPnL: number;
+    totalBought: number; totalSold: number; buyCount: number; sellCount: number;
+  }> = {};
+
+  for (const order of filled) {
+    const leg = order.legs?.[0];
+    const sym = leg?.chain_symbol || 'OPT';
+    const premium = order.processed_premium || (order.premium * (order.quantity || 1));
+    if (!symbolMap[sym]) {
+      symbolMap[sym] = { symbol: sym, realizedPnL: 0, totalBought: 0, totalSold: 0, buyCount: 0, sellCount: 0 };
+    }
+    const s = symbolMap[sym];
+    if (order.direction === 'debit') {
+      s.totalBought += premium;
+      s.buyCount++;
+    } else {
+      s.totalSold += premium;
+      s.sellCount++;
+    }
+  }
+
+  // P&L = total credits received - total debits paid
+  for (const s of Object.values(symbolMap)) {
+    s.realizedPnL = s.totalSold - s.totalBought;
+  }
+
+  const symbols = Object.values(symbolMap).sort((a, b) => Math.abs(b.realizedPnL) - Math.abs(a.realizedPnL));
+  const totalRealizedPnL = symbols.reduce((sum, s) => sum + s.realizedPnL, 0);
+  const totalBuyVolume = symbols.reduce((sum, s) => sum + s.totalBought, 0);
+  const totalSellVolume = symbols.reduce((sum, s) => sum + s.totalSold, 0);
+
+  return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
+}
+
 function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookSnapshot; redisOrders: RedisOrders | null }) {
-  const { portfolio, order_book, market_data, timestamp, recent_orders } = snapshot;
+  const { portfolio, order_book, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
   const openOrders = redisOrders?.openOrders ?? (portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book);
   const openOptionOrders = redisOrders?.openOptionOrders ?? (portfolio.open_option_orders || []);
   const historicalOrders = redisOrders?.historicalOrders ?? (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const historicalOptionOrders = redisOrders?.historicalOptionOrders ?? [];
+  const historicalOptionOrders = redisOrders?.historicalOptionOrders ?? (recent_option_orders || [])
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
+  const optionPnL = computeOptionOrdersPnL(historicalOptionOrders);
   const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
   const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
@@ -967,28 +1012,30 @@ function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookS
                 <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOrders.length}</span>
               </div>
 
-              {recentPnL.filledCount > 0 && (
+              {(recentPnL.filledCount > 0 || optionPnL.filledCount > 0) && (
                 <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
                     <span className="text-gray-500 dark:text-gray-400">7d P&L</span>
-                    <span className={`font-medium ${getGainColor(recentPnL.totalRealizedPnL)}`}>
-                      {formatCurrency(recentPnL.totalRealizedPnL)}
+                    <span className={`font-medium ${getGainColor(recentPnL.totalRealizedPnL + optionPnL.totalRealizedPnL)}`}>
+                      {formatCurrency(recentPnL.totalRealizedPnL + optionPnL.totalRealizedPnL)}
                     </span>
                     <span>
                       <span className="text-gray-400 dark:text-gray-500">Buy Vol </span>
-                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalBuyVolume)}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalBuyVolume + optionPnL.totalBuyVolume)}</span>
                     </span>
                     <span>
                       <span className="text-gray-400 dark:text-gray-500">Sell Vol </span>
-                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalSellVolume)}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalSellVolume + optionPnL.totalSellVolume)}</span>
                     </span>
                     <span>
                       <span className="text-gray-400 dark:text-gray-500">Fills </span>
-                      <span className="font-medium text-gray-900 dark:text-white">{recentPnL.filledCount}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{recentPnL.filledCount + optionPnL.filledCount}</span>
                     </span>
-                    {recentPnL.symbols.length > 0 && (
+                    {(recentPnL.symbols.length > 0 || optionPnL.symbols.length > 0) && (
                       <span className="text-gray-400 dark:text-gray-500 ml-auto text-xs">
                         {recentPnL.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
+                        {recentPnL.symbols.length > 0 && optionPnL.symbols.length > 0 && ' · '}
+                        {optionPnL.symbols.map(s => `${s.symbol} OPT: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
                       </span>
                     )}
                   </div>
