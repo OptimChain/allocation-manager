@@ -24,4 +24,5 @@ jobs:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_BLOB_SITE_ID }}
           REDIS_HOST: ${{ secrets.REDIS_HOST }}
           REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: node scripts/audit-redis-blobs.cjs

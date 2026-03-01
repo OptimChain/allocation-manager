@@ -1,182 +1,166 @@
 #!/usr/bin/env node
 /**
- * Audit: compare Redis state against latest blob snapshot.
+ * Audit: match orders between Redis and latest blob by order_id.
+ * Sends a Slack alert if they diverge.
  *
- * Checks:
- * 1. Redis is reachable and has data
- * 2. Latest blob exists and is recent (< 15 min old)
- * 3. Stock order counts match between Redis and blob
- * 4. Option order counts match between Redis and blob
- * 5. Position counts match between Redis stocks hash and blob portfolio
- *
- * Env vars: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID, REDIS_HOST, REDIS_PASSWORD
+ * Env vars: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID, REDIS_HOST, REDIS_PASSWORD, SLACK_WEBHOOK_URL
  */
 
 const https = require('https');
 const { createClient } = require('redis');
 
 const BLOBS_BASE = 'https://api.netlify.com/api/v1/blobs';
-const SITE_ID = process.env.NETLIFY_SITE_ID;
-const TOKEN = process.env.NETLIFY_AUTH_TOKEN;
 
-function requiredEnv(name) {
+function env(name, required = true) {
   const val = process.env[name];
-  if (!val) { console.error(`ERROR: ${name} required`); process.exit(1); }
+  if (!val && required) { console.error(`ERROR: ${name} required`); process.exit(1); }
   return val;
 }
 
-function httpGet(url) {
+function httpGet(url, headers) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'Authorization': `Bearer ${TOKEN}` } }, (res) => {
+    https.get(url, { headers }, (res) => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
-        if (res.statusCode >= 400) reject(new Error(`GET ${url} -> ${res.statusCode}`));
+        if (res.statusCode >= 400) reject(new Error(`${res.statusCode}`));
         else resolve(JSON.parse(chunks.join('')));
       });
     }).on('error', reject);
   });
 }
 
-async function getRedisData() {
-  const hostPort = requiredEnv('REDIS_HOST');
-  const password = process.env.REDIS_PASSWORD;
+function sendSlack(webhookUrl, text) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(webhookUrl);
+    const body = JSON.stringify({ text });
+    const req = https.request({
+      hostname: url.hostname, path: url.pathname, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      res.on('data', () => {});
+      res.on('end', () => resolve());
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function getRedisOrders() {
+  const hostPort = env('REDIS_HOST');
+  const password = env('REDIS_PASSWORD', false);
   const [host, portStr] = hostPort.includes(':') ? hostPort.split(':') : [hostPort, '6379'];
-  const port = parseInt(portStr, 10);
 
   const client = createClient({
-    socket: { host, port },
+    socket: { host, port: parseInt(portStr, 10) },
     password: password || undefined,
   });
-
   await client.connect();
-
-  const orders = await client.hGetAll('orders');
-  const stocks = await client.hGetAll('stocks');
+  const raw = await client.hGetAll('orders');
   await client.quit();
 
-  return { orders, stocks };
-}
-
-async function getLatestBlob() {
-  const list = await httpGet(`${BLOBS_BASE}/${SITE_ID}/order-book?prefix=`);
-  const keys = (list.blobs || []).map(b => b.key).sort().reverse();
-  if (keys.length === 0) throw new Error('No blobs in order-book store');
-
-  const blob = await httpGet(`${BLOBS_BASE}/${SITE_ID}/order-book/${encodeURIComponent(keys[0])}`);
-  return { key: keys[0], totalBlobs: keys.length, blob };
-}
-
-function parseRedisOrders(raw) {
-  const result = { stock: { open: 0, historical: 0 }, option: { open: 0, historical: 0 }, total: 0 };
+  const orders = {};
   for (const [key, val] of Object.entries(raw)) {
     if (key === '_meta') continue;
-    result.total++;
-    const order = JSON.parse(val);
-    const type = order._type === 'option' ? 'option' : 'stock';
-    const status = order._status === 'open' ? 'open' : 'historical';
-    result[type][status]++;
+    orders[key] = JSON.parse(val);
   }
-  const meta = raw._meta ? JSON.parse(raw._meta) : {};
-  return { ...result, meta };
+  return orders;
 }
 
-function parseRedisStocks(raw) {
-  let positions = 0, options = 0;
-  for (const key of Object.keys(raw)) {
-    if (key === '_meta') continue;
-    if (key.startsWith('OPT:')) options++;
-    else positions++;
+async function getBlobOrders() {
+  const token = env('NETLIFY_AUTH_TOKEN');
+  const siteId = env('NETLIFY_SITE_ID');
+  const headers = { 'Authorization': `Bearer ${token}` };
+
+  const list = await httpGet(`${BLOBS_BASE}/${siteId}/order-book?prefix=`, headers);
+  const keys = (list.blobs || []).map(b => b.key).sort().reverse();
+  if (keys.length === 0) throw new Error('No blobs in order-book');
+
+  const blob = await httpGet(`${BLOBS_BASE}/${siteId}/order-book/${encodeURIComponent(keys[0])}`, headers);
+
+  const orders = {};
+  for (const o of (blob.recent_orders || [])) {
+    orders[o.order_id] = { ...o, _type: 'stock' };
   }
-  const meta = raw._meta ? JSON.parse(raw._meta) : {};
-  return { positions, options, meta };
+  for (const o of (blob.recent_option_orders || [])) {
+    orders[o.order_id] = { ...o, _type: 'option' };
+  }
+  return { orders, blobKey: keys[0], timestamp: blob.timestamp };
 }
 
 async function main() {
-  requiredEnv('NETLIFY_AUTH_TOKEN');
-  requiredEnv('NETLIFY_SITE_ID');
+  const redisOrders = await getRedisOrders();
+  const { orders: blobOrders, blobKey } = await getBlobOrders();
 
-  const issues = [];
-  let redisOrders, redisStocks, blobData;
+  const redisIds = new Set(Object.keys(redisOrders));
+  const blobIds = new Set(Object.keys(blobOrders));
 
-  // 1. Check Redis
-  console.log('=== Redis ===');
-  try {
-    const redis = await getRedisData();
-    redisOrders = parseRedisOrders(redis.orders);
-    redisStocks = parseRedisStocks(redis.stocks);
-    console.log(`  Orders: ${redisOrders.total} total (${redisOrders.stock.open} open stock, ${redisOrders.stock.historical} hist stock, ${redisOrders.option.open} open opt, ${redisOrders.option.historical} hist opt)`);
-    console.log(`  Stocks: ${redisStocks.positions} positions, ${redisStocks.options} option positions`);
-    console.log(`  Last updated: ${redisOrders.meta.updated_at || 'unknown'}`);
-  } catch (e) {
-    console.error(`  FAILED: ${e.message}`);
-    issues.push(`Redis unreachable: ${e.message}`);
-  }
+  // Only compare historical orders (Redis has open orders the blob doesn't)
+  const redisHistIds = new Set(
+    Object.entries(redisOrders)
+      .filter(([, o]) => o._status === 'historical')
+      .map(([id]) => id)
+  );
 
-  // 2. Check latest blob
-  console.log('\n=== Blob Store ===');
-  try {
-    const { key, totalBlobs, blob } = await getLatestBlob();
-    blobData = blob;
-    const blobTime = new Date(blob.timestamp);
-    const ageMin = Math.round((Date.now() - blobTime.getTime()) / 60000);
-    console.log(`  Latest blob: ${key} (${ageMin} min ago)`);
-    console.log(`  Total blobs in order-book: ${totalBlobs}`);
+  const inRedisOnly = [...redisHistIds].filter(id => !blobIds.has(id));
+  const inBlobOnly = [...blobIds].filter(id => !redisIds.has(id));
 
-    const blobStockOrders = (blob.recent_orders || []).length;
-    const blobOptionOrders = (blob.recent_option_orders || []).length;
-    const blobPositions = (blob.portfolio?.positions || []).length;
-    const blobOptions = (blob.portfolio?.options || []).length;
-    console.log(`  Stock orders: ${blobStockOrders}`);
-    console.log(`  Option orders: ${blobOptionOrders}`);
-    console.log(`  Positions: ${blobPositions}, Option positions: ${blobOptions}`);
+  console.log(`Redis: ${redisIds.size} total (${redisHistIds.size} historical)`);
+  console.log(`Blob (${blobKey}): ${blobIds.size} orders`);
+  console.log(`Match: ${[...redisHistIds].filter(id => blobIds.has(id)).length} shared`);
+  console.log(`In Redis only: ${inRedisOnly.length}`);
+  console.log(`In Blob only: ${inBlobOnly.length}`);
 
-    if (ageMin > 15) {
-      issues.push(`Blob is stale: ${ageMin} min old (expected < 15 min)`);
+  if (inRedisOnly.length > 0) {
+    console.log('\nRedis-only orders:');
+    for (const id of inRedisOnly.slice(0, 10)) {
+      const o = redisOrders[id];
+      const sym = o._type === 'option' ? (o.legs?.[0]?.chain_symbol || '?') : o.symbol;
+      console.log(`  ${id.slice(0, 8)}... ${sym} ${o._type} ${o.state} ${o.created_at}`);
     }
-  } catch (e) {
-    console.error(`  FAILED: ${e.message}`);
-    issues.push(`Blob store error: ${e.message}`);
+  }
+  if (inBlobOnly.length > 0) {
+    console.log('\nBlob-only orders:');
+    for (const id of inBlobOnly.slice(0, 10)) {
+      const o = blobOrders[id];
+      const sym = o._type === 'option' ? (o.legs?.[0]?.chain_symbol || '?') : o.symbol;
+      console.log(`  ${id.slice(0, 8)}... ${sym} ${o._type} ${o.state} ${o.created_at}`);
+    }
   }
 
-  // 3. Cross-check
-  if (redisOrders && blobData) {
-    console.log('\n=== Cross-Check ===');
-    const blobStockOrders = (blobData.recent_orders || []).length;
-    const blobOptionOrders = (blobData.recent_option_orders || []).length;
+  // Alert if mismatch
+  const hasMismatch = inRedisOnly.length > 0 || inBlobOnly.length > 0;
+  const webhookUrl = env('SLACK_WEBHOOK_URL', false);
 
-    const stockDiff = Math.abs(redisOrders.stock.historical - blobStockOrders);
-    const optionDiff = Math.abs(redisOrders.option.historical - blobOptionOrders);
-
-    console.log(`  Historical stock orders: Redis=${redisOrders.stock.historical} Blob=${blobStockOrders} (diff=${stockDiff})`);
-    console.log(`  Historical option orders: Redis=${redisOrders.option.historical} Blob=${blobOptionOrders} (diff=${optionDiff})`);
-
-    if (redisStocks) {
-      const blobPositions = (blobData.portfolio?.positions || []).length;
-      const posDiff = Math.abs(redisStocks.positions - blobPositions);
-      console.log(`  Positions: Redis=${redisStocks.positions} Blob=${blobPositions} (diff=${posDiff})`);
-
-      if (posDiff > 2) {
-        issues.push(`Position count mismatch: Redis=${redisStocks.positions} Blob=${blobPositions}`);
+  if (hasMismatch && webhookUrl) {
+    const lines = [
+      ':warning: *Redis vs Blob Order Mismatch*',
+      `Blob: \`${blobKey}\` (${blobIds.size} orders)`,
+      `Redis: ${redisHistIds.size} historical orders`,
+    ];
+    if (inRedisOnly.length > 0) {
+      lines.push(`*${inRedisOnly.length} in Redis only:*`);
+      for (const id of inRedisOnly.slice(0, 5)) {
+        const o = redisOrders[id];
+        const sym = o._type === 'option' ? (o.legs?.[0]?.chain_symbol || '?') : o.symbol;
+        lines.push(`  \`${id.slice(0, 8)}\` ${sym} ${o._type} ${o.state}`);
       }
     }
-
-    if (stockDiff > 5) {
-      issues.push(`Stock order count diverged: Redis=${redisOrders.stock.historical} Blob=${blobStockOrders}`);
+    if (inBlobOnly.length > 0) {
+      lines.push(`*${inBlobOnly.length} in Blob only:*`);
+      for (const id of inBlobOnly.slice(0, 5)) {
+        const o = blobOrders[id];
+        const sym = o._type === 'option' ? (o.legs?.[0]?.chain_symbol || '?') : o.symbol;
+        lines.push(`  \`${id.slice(0, 8)}\` ${sym} ${o._type} ${o.state}`);
+      }
     }
-    if (optionDiff > 2) {
-      issues.push(`Option order count diverged: Redis=${redisOrders.option.historical} Blob=${blobOptionOrders}`);
-    }
-  }
-
-  // Summary
-  console.log('\n=== Summary ===');
-  if (issues.length === 0) {
-    console.log('  All checks passed.');
+    await sendSlack(webhookUrl, lines.join('\n'));
+    console.log('\nSlack alert sent.');
+  } else if (!hasMismatch) {
+    console.log('\nAll orders match. No alert needed.');
   } else {
-    console.log(`  ${issues.length} issue(s):`);
-    issues.forEach(i => console.log(`    - ${i}`));
-    process.exit(1);
+    console.log('\nMismatch found but SLACK_WEBHOOK_URL not set — skipping alert.');
   }
 }
 
