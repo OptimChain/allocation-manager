@@ -1013,7 +1013,7 @@ function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookS
               </div>
 
               {(recentPnL.filledCount > 0 || optionPnL.filledCount > 0) && (
-                <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
+                <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 space-y-2">
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
                     <span className="text-gray-500 dark:text-gray-400">7d P&L</span>
                     <span className={`font-medium ${getGainColor(recentPnL.totalRealizedPnL + optionPnL.totalRealizedPnL)}`}>
@@ -1031,14 +1031,33 @@ function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookS
                       <span className="text-gray-400 dark:text-gray-500">Fills </span>
                       <span className="font-medium text-gray-900 dark:text-white">{recentPnL.filledCount + optionPnL.filledCount}</span>
                     </span>
-                    {(recentPnL.symbols.length > 0 || optionPnL.symbols.length > 0) && (
-                      <span className="text-gray-400 dark:text-gray-500 ml-auto text-xs">
-                        {recentPnL.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
-                        {recentPnL.symbols.length > 0 && optionPnL.symbols.length > 0 && ' · '}
-                        {optionPnL.symbols.map(s => `${s.symbol} OPT: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
-                      </span>
-                    )}
                   </div>
+                  {recentPnL.filledCount > 0 && (
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+                      <span className="text-gray-400 dark:text-gray-500 text-xs w-16">Order P&L</span>
+                      <span className={`font-medium text-xs ${getGainColor(recentPnL.totalRealizedPnL)}`}>
+                        {formatCurrency(recentPnL.totalRealizedPnL)}
+                      </span>
+                      {recentPnL.symbols.length > 0 && (
+                        <span className="text-gray-400 dark:text-gray-500 text-xs">
+                          {recentPnL.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {optionPnL.filledCount > 0 && (
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+                      <span className="text-gray-400 dark:text-gray-500 text-xs w-16">Options P&L</span>
+                      <span className={`font-medium text-xs ${getGainColor(optionPnL.totalRealizedPnL)}`}>
+                        {formatCurrency(optionPnL.totalRealizedPnL)}
+                      </span>
+                      {optionPnL.symbols.length > 0 && (
+                        <span className="text-gray-400 dark:text-gray-500 text-xs">
+                          {optionPnL.symbols.map(s => `${s.symbol} OPT: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
