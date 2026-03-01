@@ -6,6 +6,7 @@ import BitcoinPriceChart from '../components/BitcoinPriceChart';
 import MarketStats from '../components/MarketStats';
 import NewsSummary from '../components/NewsSummary';
 import MarketIndicators from '../components/MarketIndicators';
+import MbtFuturesPrice from '../components/MbtFuturesPrice';
 import {
   getBitcoinQuote,
   BitcoinQuote,
@@ -147,6 +148,11 @@ export default function DashboardPage() {
       {/* Market Indicators */}
       <div className="mb-8">
         <MarketIndicators />
+      </div>
+
+      {/* MBT Futures Price */}
+      <div className="mb-4">
+        <MbtFuturesPrice />
       </div>
 
       {/* News Summary */}
