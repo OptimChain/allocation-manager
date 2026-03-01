@@ -31,7 +31,6 @@ import {
   getAuthStatus,
   getOrderPnL,
   getOrderBookSnapshot,
-  getRedisOrders,
   sendSlackAlert,
   Portfolio,
   BotAction,
@@ -41,7 +40,6 @@ import {
   SymbolPnL,
   FilledOrder,
   OrderBookSnapshot,
-  RedisOrders,
   SnapshotOrder,
   SnapshotOptionOrder,
   OptionPosition,
@@ -701,13 +699,13 @@ function computeOptionOrdersPnL(orders: SnapshotOptionOrder[]) {
   return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
 }
 
-function OrderBookSnapshotView({ snapshot, redisOrders }: { snapshot: OrderBookSnapshot; redisOrders: RedisOrders | null }) {
+function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   const { portfolio, order_book, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
-  const openOrders = redisOrders?.openOrders ?? (portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book);
-  const openOptionOrders = redisOrders?.openOptionOrders ?? (portfolio.open_option_orders || []);
-  const historicalOrders = redisOrders?.historicalOrders ?? (recent_orders || [])
+  const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
+  const openOptionOrders = portfolio.open_option_orders || [];
+  const historicalOrders = (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const historicalOptionOrders = redisOrders?.historicalOptionOrders ?? (recent_option_orders || [])
+  const historicalOptionOrders = (recent_option_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
   const optionPnL = computeOptionOrdersPnL(historicalOptionOrders);
@@ -1390,7 +1388,6 @@ export default function TradePage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [orderPnL, setOrderPnL] = useState<OrderPnL | null>(null);
   const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
-  const [redisOrders, setRedisOrders] = useState<RedisOrders | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
   const [analysis] = useState<BotAnalysis | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
@@ -1429,12 +1426,6 @@ export default function TradePage() {
           if (err instanceof TypeError) {
             sendSlackAlert('TypeError in order book snapshot', err.message);
           }
-        });
-
-      getRedisOrders()
-        .then(setRedisOrders)
-        .catch((err) => {
-          console.error('Failed to fetch Redis orders:', err);
         });
 
       const isAuthenticated = await fetchAuthStatus();
@@ -1536,7 +1527,7 @@ export default function TradePage() {
         </div>
       </div>
 
-      {snapshot && <OrderBookSnapshotView snapshot={snapshot} redisOrders={redisOrders} />}
+      {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
