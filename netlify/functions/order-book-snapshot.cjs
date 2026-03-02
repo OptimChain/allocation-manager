@@ -1,10 +1,12 @@
 // Order Book Snapshot Netlify Function
-// Reads the latest order-book blob from the 5thstreetcapital site
-// Data is written every ~5 minutes by an external trading system
+// Reads the latest order-book blob from the 5thstreetcapital site.
 //
-// Returns portfolio/order_book from latest blob, and market_data from
-// the most recent blob that has complete BTC metrics (walking backwards
-// if the latest snapshot has NO_DATA).
+// Handles two blob formats:
+//   1. New (allocation-engine): portfolio/order_book nested structure
+//   2. Legacy (runtime): flat account/positions/open_orders at top level
+//
+// Returns a normalized OrderBookSnapshot for the frontend, plus
+// market_data from the most recent blob with complete BTC metrics.
 
 // 5thstreetcapital Netlify site ID
 const ORDER_BOOK_SITE_ID = '3d014fc3-e919-4b4d-b374-e8606dee50df';
@@ -21,6 +23,74 @@ function hasCompleteMetrics(snapshot) {
   if (!btc || !btc.metrics) return false;
   const m = btc.metrics;
   return m.current_price != null && m.intraday_high != null && m.intraday_low != null;
+}
+
+// Normalize a blob into the frontend OrderBookSnapshot shape.
+// Handles both the new engine format (portfolio nested) and
+// the legacy flat format (account/positions/open_orders at top level).
+function normalizeSnapshot(blob) {
+  // New format: already has portfolio nested correctly
+  if (blob.portfolio) {
+    return {
+      portfolio: blob.portfolio,
+      order_book: blob.order_book || blob.portfolio.open_orders || [],
+      recent_orders: blob.recent_orders || [],
+      recent_option_orders: blob.recent_option_orders || [],
+    };
+  }
+
+  // Legacy flat format: transform to nested structure
+  if (blob.account || blob.positions || blob.open_orders) {
+    const acct = blob.account || {};
+    const positions = (blob.positions || []).map(p => ({
+      symbol: p.symbol,
+      quantity: p.qty ?? p.quantity ?? 0,
+      avg_buy_price: p.avg_entry ?? p.avg_buy_price ?? 0,
+      current_price: p.qty ? (p.market_value / p.qty) : 0,
+      equity: p.market_value ?? 0,
+      profit_loss: p.unrealized_pl ?? 0,
+      profit_loss_pct: p.unrealized_pl_pct ?? 0,
+    }));
+    const orders = (blob.open_orders || []).map(o => ({
+      order_id: o.id ?? o.order_id ?? '',
+      symbol: o.symbol,
+      side: (o.side || '').toUpperCase(),
+      order_type: o.order_type || 'market',
+      trigger: o.trigger || 'immediate',
+      state: o.status ?? o.state ?? 'unknown',
+      quantity: o.qty ?? o.quantity ?? 0,
+      limit_price: o.limit_price || 0,
+      stop_price: o.stop_price || null,
+      created_at: blob.timestamp,
+      updated_at: blob.timestamp,
+    }));
+
+    return {
+      portfolio: {
+        cash: {
+          cash: acct.cash ?? 0,
+          buying_power: acct.buying_power ?? 0,
+          cash_available_for_withdrawal: acct.cash ?? 0,
+          tradeable_cash: acct.cash ?? 0,
+        },
+        equity: acct.equity ?? 0,
+        market_value: acct.portfolio_value ?? 0,
+        positions,
+        open_orders: orders,
+      },
+      order_book: orders,
+      recent_orders: [],
+      recent_option_orders: [],
+    };
+  }
+
+  // Unknown format — return empty portfolio
+  return {
+    portfolio: null,
+    order_book: [],
+    recent_orders: blob.recent_orders || [],
+    recent_option_orders: blob.recent_option_orders || [],
+  };
 }
 
 async function fetchBlob(token, key) {
@@ -60,6 +130,7 @@ async function fetchSnapshot() {
 
   // Fetch the latest blob — always used for portfolio + order_book
   const latest = await fetchBlob(token, sortedKeys[0]);
+  const normalized = normalizeSnapshot(latest);
 
   // Build market_data from the latest blob with complete BTC metrics
   let marketData = null;
@@ -90,10 +161,10 @@ async function fetchSnapshot() {
 
   return {
     timestamp: latest.timestamp,
-    portfolio: latest.portfolio,
-    order_book: latest.order_book,
-    recent_orders: latest.recent_orders || [],
-    recent_option_orders: latest.recent_option_orders || [],
+    portfolio: normalized.portfolio,
+    order_book: normalized.order_book,
+    recent_orders: normalized.recent_orders,
+    recent_option_orders: normalized.recent_option_orders,
     market_data: marketData,
   };
 }
