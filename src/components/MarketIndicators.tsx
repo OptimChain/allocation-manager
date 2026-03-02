@@ -21,10 +21,6 @@ import {
 } from '../services/marketIndicatorService';
 import { formatLargeNumber } from '../utils/formatters';
 import { useTheme } from '../contexts/ThemeContext';
-import {
-  getOptionPriceHistory,
-  OptionPriceHistoryData,
-} from '../services/optionPriceHistoryService';
 
 const RANGES = [
   { label: '7D', days: 7 },
@@ -85,9 +81,6 @@ export default function MarketIndicators() {
   const [selectedRange, setSelectedRange] = useState(1095);
   const [expanded, setExpanded] = useState(false);
   const [fetched, setFetched] = useState(false);
-  const [optionData, setOptionData] = useState<OptionPriceHistoryData | null>(null);
-  const [optionLoading, setOptionLoading] = useState(false);
-  const [optionError, setOptionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!expanded || fetched) return;
@@ -114,29 +107,6 @@ export default function MarketIndicators() {
     fetchData();
     return () => { cancelled = true; };
   }, [expanded, fetched]);
-
-  useEffect(() => {
-    if (!expanded) return;
-
-    let cancelled = false;
-    async function fetchOptions() {
-      setOptionLoading(true);
-      setOptionError(null);
-      try {
-        const result = await getOptionPriceHistory(selectedRange);
-        if (!cancelled) setOptionData(result);
-      } catch (err) {
-        if (!cancelled) {
-          setOptionError(err instanceof Error ? err.message : 'Failed to fetch options');
-        }
-      } finally {
-        if (!cancelled) setOptionLoading(false);
-      }
-    }
-
-    fetchOptions();
-    return () => { cancelled = true; };
-  }, [expanded, selectedRange]);
 
   const chartHeight = 250;
   const axisColor = isDark ? '#a1a1aa' : '#a1a1aa';
@@ -479,104 +449,6 @@ export default function MarketIndicators() {
                   )}
                 </div>
               </div>
-
-              {/* Options Price History */}
-              {optionLoading && (
-                <div className="px-6 pb-6 text-center">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading options price history...</p>
-                </div>
-              )}
-
-              {optionError && (
-                <div className="px-6 pb-6 text-center">
-                  <p className="text-sm text-red-500">{optionError}</p>
-                </div>
-              )}
-
-              {optionData && optionData.series.length > 0 && (
-                <div className="px-6 pb-6">
-                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4 mt-2">
-                    Options Price History
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {optionData.series.map((series) => (
-                      <div
-                        key={series.key}
-                        className="border border-gray-100 dark:border-zinc-900 rounded-lg p-4"
-                      >
-                        <div className="flex items-center gap-2 mb-3">
-                          <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                            {series.label}
-                          </h5>
-                          <span
-                            className={`px-2 py-0.5 text-xs font-medium rounded ${
-                              series.option_type === 'call'
-                                ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                                : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                            }`}
-                          >
-                            {series.option_type.toUpperCase()}
-                          </span>
-                          <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
-                            {series.quantity} x {series.position_type}
-                          </span>
-                        </div>
-                        {series.data.length > 1 ? (
-                          <ResponsiveContainer width="100%" height={chartHeight}>
-                            <LineChart data={series.data}>
-                              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                              <XAxis
-                                dataKey="timestamp"
-                                tickFormatter={(ts) => formatAxis(ts, selectedRange)}
-                                tick={{ fontSize: 11, fill: axisColor }}
-                                axisLine={{ stroke: gridColor }}
-                              />
-                              <YAxis
-                                tickFormatter={(v: number) => `$${v.toFixed(2)}`}
-                                tick={{ fontSize: 11, fill: axisColor }}
-                                axisLine={{ stroke: gridColor }}
-                                width={60}
-                                domain={['auto', 'auto']}
-                              />
-                              <Tooltip
-                                contentStyle={{
-                                  backgroundColor: isDark ? '#09090b' : '#ffffff',
-                                  border: `1px solid ${isDark ? '#27272a' : '#e5e7eb'}`,
-                                  borderRadius: '0.5rem',
-                                  color: isDark ? '#ffffff' : '#111827',
-                                }}
-                                labelFormatter={(ts) =>
-                                  new Date(ts as number).toLocaleString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                  })
-                                }
-                                formatter={(value: number) => [`$${value.toFixed(2)}`, 'Price']}
-                              />
-                              <Line
-                                type="monotone"
-                                dataKey="mark_price"
-                                stroke={series.option_type === 'call' ? '#22c55e' : '#ef4444'}
-                                strokeWidth={1.5}
-                                dot={false}
-                              />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        ) : (
-                          <div
-                            className="flex items-center justify-center text-sm text-gray-400 dark:text-gray-500"
-                            style={{ height: chartHeight }}
-                          >
-                            Insufficient data points
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
           ) : null}
         </>
