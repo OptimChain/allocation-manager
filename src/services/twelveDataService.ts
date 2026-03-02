@@ -289,6 +289,51 @@ export async function getBtcPriceAtTime(datetime: string): Promise<number> {
   return parseFloat(data.values[0].close);
 }
 
+// Map days-based ranges to TwelveData config for equities (daily only)
+const STOCK_RANGE_CONFIG: Record<number, { outputsize: number; interval: string }> = {
+  7: { outputsize: 7, interval: '1day' },
+  30: { outputsize: 30, interval: '1day' },
+  90: { outputsize: 90, interval: '1day' },
+  365: { outputsize: 252, interval: '1day' },
+};
+
+export async function getStockPriceHistory(
+  symbol: string,
+  days: number = 90
+): Promise<OHLCVPriceData[]> {
+  const config = STOCK_RANGE_CONFIG[days] || STOCK_RANGE_CONFIG[90];
+  const apiKey = getApiKey();
+
+  const url = new URL(`${TWELVE_DATA_API}/time_series`);
+  url.searchParams.set('symbol', symbol);
+  url.searchParams.set('interval', config.interval);
+  url.searchParams.set('outputsize', config.outputsize.toString());
+  url.searchParams.set('apikey', apiKey);
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${symbol} price history: ${response.status}`);
+  }
+
+  const data: TimeSeriesResponse = await response.json();
+  if (data.status === 'error') {
+    throw new Error(data.message || `API error fetching ${symbol} history`);
+  }
+
+  return data.values
+    .map((item) => ({
+      date: item.datetime,
+      timestamp: new Date(item.datetime).getTime(),
+      price: parseFloat(item.close),
+      open: parseFloat(item.open),
+      high: parseFloat(item.high),
+      low: parseFloat(item.low),
+      close: parseFloat(item.close),
+      volume: parseFloat(item.volume || '0'),
+    }))
+    .reverse();
+}
+
 // Map days-based ranges to TwelveData config (including intraday for short ranges)
 const BTC_RANGE_CONFIG: Record<number, { outputsize: number; interval: string }> = {
   1: { outputsize: 96, interval: '15min' },
