@@ -701,19 +701,20 @@ function computeOptionOrdersPnL(orders: SnapshotOptionOrder[]) {
 
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   const { portfolio, order_book, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
-  const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
-  const openOptionOrders = portfolio.open_option_orders || [];
+  const positions = portfolio?.positions || [];
+  const openOrders = (portfolio?.open_orders || []).length > 0 ? portfolio.open_orders : (order_book || []);
+  const openOptionOrders = portfolio?.open_option_orders || [];
   const historicalOrders = (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const historicalOptionOrders = (recent_option_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
   const optionPnL = computeOptionOrdersPnL(historicalOptionOrders);
-  const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
-  const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
+  const totalPnL = positions.reduce((sum, p) => sum + p.profit_loss, 0);
+  const totalCost = positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
 
-  const sortedPositions = [...portfolio.positions].sort(
+  const sortedPositions = [...positions].sort(
     (a, b) => Math.abs(b.profit_loss) - Math.abs(a.profit_loss)
   );
 
@@ -752,7 +753,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
             Equity
           </div>
           <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(portfolio.equity)}
+            {formatCurrency(portfolio?.equity ?? 0)}
           </div>
         </div>
 
@@ -762,7 +763,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
             Market Value
           </div>
           <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(portfolio.market_value)}
+            {formatCurrency(portfolio?.market_value ?? 0)}
           </div>
         </div>
 
@@ -772,7 +773,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
             Buying Power
           </div>
           <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(portfolio.cash.buying_power)}
+            {formatCurrency(portfolio?.cash?.buying_power ?? 0)}
           </div>
         </div>
 
@@ -833,7 +834,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Positions</h3>
-            <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{portfolio.positions.length} holdings</span>
+            <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{positions.length} holdings</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1188,7 +1189,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
         </div>
       </div>
 
-      {portfolio.options && portfolio.options.length > 0 && (
+      {portfolio?.options && portfolio.options.length > 0 && (
         <div className="mt-6">
           <OptionsPositions options={portfolio.options} />
         </div>
@@ -1603,7 +1604,7 @@ export default function TradePage() {
               <RealizedPnLSummary
                 pnl={filteredPnL}
                 periodLabel={getPeriodLabel(pnlPeriod)}
-                openOrders={snapshot ? (snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book) : []}
+                openOrders={snapshot ? ((snapshot.portfolio?.open_orders || []).length > 0 ? snapshot.portfolio.open_orders : (snapshot.order_book || [])) : []}
               />
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
