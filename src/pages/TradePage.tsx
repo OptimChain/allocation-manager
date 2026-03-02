@@ -701,7 +701,16 @@ function computeOptionOrdersPnL(orders: SnapshotOptionOrder[]) {
 
 function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
   const { portfolio, order_book, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
-  const openOrders = portfolio.open_orders.length > 0 ? portfolio.open_orders : order_book;
+
+  if (!portfolio) {
+    return (
+      <div className="mb-6 p-4 bg-yellow-50 dark:bg-yellow-950 rounded-lg border border-yellow-200 dark:border-yellow-800">
+        <p className="text-sm text-yellow-800 dark:text-yellow-400">Order book snapshot has no portfolio data.</p>
+      </div>
+    );
+  }
+
+  const openOrders = portfolio.open_orders?.length > 0 ? portfolio.open_orders : order_book;
   const openOptionOrders = portfolio.open_option_orders || [];
   const historicalOrders = (recent_orders || [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -709,11 +718,11 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
   const optionPnL = computeOptionOrdersPnL(historicalOptionOrders);
-  const totalPnL = portfolio.positions.reduce((sum, p) => sum + p.profit_loss, 0);
-  const totalCost = portfolio.positions.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
+  const totalPnL = portfolio.positions?.reduce((sum, p) => sum + p.profit_loss, 0) ?? 0;
+  const totalCost = portfolio.positions?.reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0) ?? 0;
   const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
 
-  const sortedPositions = [...portfolio.positions].sort(
+  const sortedPositions = [...(portfolio.positions || [])].sort(
     (a, b) => Math.abs(b.profit_loss) - Math.abs(a.profit_loss)
   );
 
@@ -1603,7 +1612,7 @@ export default function TradePage() {
               <RealizedPnLSummary
                 pnl={filteredPnL}
                 periodLabel={getPeriodLabel(pnlPeriod)}
-                openOrders={snapshot ? (snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book) : []}
+                openOrders={snapshot?.portfolio ? (snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book) : []}
               />
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
