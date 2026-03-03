@@ -1,5 +1,6 @@
 // Order Book Snapshot Netlify Function
-// Reads the latest state-logs blob from the 5thstreetcapital site
+// Reads the latest blob from the 5thstreetcapital site
+// Tries order-book first (live data), falls back to state-logs (archive)
 // Data is written every ~5 minutes by an external trading system
 //
 // Returns portfolio/order_book from latest blob, and market_data from
@@ -9,7 +10,8 @@
 // 5thstreetcapital Netlify site ID
 const ORDER_BOOK_SITE_ID = '3d014fc3-e919-4b4d-b374-e8606dee50df';
 const BLOBS_API_BASE = 'https://api.netlify.com/api/v1/blobs';
-const STORE_NAME = 'state-logs';
+const PRIMARY_STORE = 'order-book';
+const FALLBACK_STORE = 'state-logs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,23 +26,23 @@ function hasCompleteMetrics(snapshot) {
   return m.current_price != null && m.intraday_high != null && m.intraday_low != null;
 }
 
-async function fetchBlob(token, key) {
+async function fetchBlob(token, storeName, key) {
   const res = await fetch(
-    `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${STORE_NAME}/${encodeURIComponent(key)}`,
+    `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${storeName}/${encodeURIComponent(key)}`,
     { headers: { 'Authorization': `Bearer ${token}` } }
   );
   if (!res.ok) {
-    throw new Error(`Failed to fetch snapshot ${key}: ${res.status}`);
+    throw new Error(`Failed to fetch snapshot ${key} from ${storeName}: ${res.status}`);
   }
   return res.json();
 }
 
-async function listAllBlobKeys(token) {
+async function listAllBlobKeys(token, storeName) {
   const allKeys = [];
   let cursor = null;
 
   while (true) {
-    let url = `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${STORE_NAME}`;
+    let url = `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${storeName}`;
     if (cursor) {
       url += `?cursor=${encodeURIComponent(cursor)}`;
     }
@@ -49,7 +51,7 @@ async function listAllBlobKeys(token) {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (!res.ok) {
-      throw new Error(`Failed to list ${STORE_NAME} blobs: ${res.status}`);
+      throw new Error(`Failed to list ${storeName} blobs: ${res.status}`);
     }
 
     const data = await res.json();
@@ -71,16 +73,24 @@ async function fetchSnapshot() {
     throw new Error('NETLIFY_AUTH_TOKEN not configured');
   }
 
-  const allKeys = await listAllBlobKeys(token);
+  // Try order-book first (live data), fall back to state-logs (archive)
+  let storeName = PRIMARY_STORE;
+  let allKeys = await listAllBlobKeys(token, PRIMARY_STORE);
+
   if (allKeys.length === 0) {
-    throw new Error('No state-logs snapshots found');
+    storeName = FALLBACK_STORE;
+    allKeys = await listAllBlobKeys(token, FALLBACK_STORE);
+  }
+
+  if (allKeys.length === 0) {
+    throw new Error('No snapshots found in order-book or state-logs');
   }
 
   // Keys are timestamps (e.g. "2026-02-15T02-07-07"), sort descending (newest first)
   const sortedKeys = allKeys.sort().reverse();
 
   // Fetch the latest blob — always used for portfolio + order_book
-  const latest = await fetchBlob(token, sortedKeys[0]);
+  const latest = await fetchBlob(token, storeName, sortedKeys[0]);
 
   // Build market_data from the latest blob with complete BTC metrics
   let marketData = null;
@@ -95,7 +105,7 @@ async function fetchSnapshot() {
     const maxLookback = Math.min(sortedKeys.length, 6); // skip index 0 (already checked)
     for (let i = 1; i < maxLookback; i++) {
       try {
-        const older = await fetchBlob(token, sortedKeys[i]);
+        const older = await fetchBlob(token, storeName, sortedKeys[i]);
         if (hasCompleteMetrics(older)) {
           marketData = {
             timestamp: older.timestamp,
