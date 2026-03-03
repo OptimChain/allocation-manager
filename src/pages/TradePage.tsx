@@ -48,6 +48,7 @@ import {
   getGainColor,
 } from '../services/robinhoodService';
 import UnderlyingPriceChart from '../components/UnderlyingPriceChart';
+import OptionsPriceChart from '../components/OptionsPriceChart';
 
 const USERS = [
   { id: 'jasonzipb', label: 'jasonzipb' },
@@ -1193,6 +1194,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
         <div className="mt-6 space-y-6">
           <OptionsPositions options={portfolio.options} />
           <UnderlyingPriceChart options={portfolio.options} />
+          <OptionsPriceChart options={portfolio.options} />
         </div>
       )}
     </div>
