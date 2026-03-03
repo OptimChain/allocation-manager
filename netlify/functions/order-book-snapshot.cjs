@@ -3,6 +3,10 @@
 // Tries order-book first (live data), falls back to state-logs (archive)
 // Data is written every ~5 minutes by an external trading system
 //
+// Handles two blob schemas:
+//   Old: { portfolio: { positions, open_orders, options, ... }, order_book, state, ... }
+//   New: { account, positions, open_orders, num_positions, ... }
+//
 // Returns portfolio/order_book from latest blob, and market_data from
 // the most recent blob that has complete BTC metrics (walking backwards
 // if the latest snapshot has NO_DATA).
@@ -18,6 +22,74 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
+
+// Detect whether a blob uses the new flat schema (account/positions at top level)
+function isNewFormat(blob) {
+  return blob.account != null && !blob.portfolio;
+}
+
+// Normalize a new-format blob into the old portfolio/order_book shape
+function normalizeNewFormat(blob) {
+  const acct = blob.account || {};
+  return {
+    timestamp: blob.timestamp,
+    portfolio: {
+      cash: {
+        cash: acct.cash || 0,
+        cash_available_for_withdrawal: acct.buying_power || 0,
+        buying_power: acct.buying_power || 0,
+        tradeable_cash: acct.cash || 0,
+      },
+      equity: acct.equity || 0,
+      market_value: acct.portfolio_value || 0,
+      positions: (blob.positions || []).map((p) => ({
+        symbol: p.symbol,
+        name: p.symbol,
+        type: 'stock',
+        quantity: p.qty,
+        avg_buy_price: p.avg_entry,
+        current_price: p.market_value / (p.qty || 1),
+        equity: p.market_value,
+        profit_loss: p.unrealized_pl,
+        profit_loss_pct: (p.unrealized_pl_pct || 0) * 100,
+        percent_change: (p.unrealized_pl_pct || 0) * 100,
+        equity_change: p.unrealized_pl,
+        pe_ratio: null,
+        percentage: 0,
+      })),
+      open_orders: (blob.open_orders || []).map((o) => ({
+        order_id: o.id,
+        symbol: o.symbol,
+        side: o.side,
+        order_type: o.type,
+        trigger: 'immediate',
+        state: o.status,
+        quantity: o.qty,
+        limit_price: o.limit_price,
+        stop_price: o.stop_price,
+        created_at: blob.timestamp,
+        updated_at: blob.timestamp,
+      })),
+      open_option_orders: [],
+      options: [],
+    },
+    order_book: (blob.open_orders || []).map((o) => ({
+      order_id: o.id,
+      symbol: o.symbol,
+      side: o.side,
+      order_type: o.type,
+      trigger: 'immediate',
+      state: o.status,
+      quantity: o.qty,
+      limit_price: o.limit_price,
+      stop_price: o.stop_price,
+      created_at: blob.timestamp,
+      updated_at: blob.timestamp,
+    })),
+    recent_orders: [],
+    recent_option_orders: [],
+  };
+}
 
 function hasCompleteMetrics(snapshot) {
   const btc = snapshot?.state?.symbols?.BTC;
@@ -86,23 +158,62 @@ async function fetchSnapshot() {
     throw new Error('No snapshots found in order-book or state-logs');
   }
 
-  // Keys are timestamps (e.g. "2026-02-15T02-07-07"), sort descending (newest first)
-  const sortedKeys = allKeys.sort().reverse();
+  // Filter to timestamp-formatted keys only (skip "latest" etc.)
+  const timestampKeys = allKeys.filter((k) => /^\d{4}-\d{2}-\d{2}T/.test(k));
+  if (timestampKeys.length === 0) {
+    throw new Error('No timestamp-formatted snapshots found');
+  }
+
+  // Sort descending (newest first)
+  const sortedKeys = timestampKeys.sort().reverse();
 
   // Fetch the latest blob — always used for portfolio + order_book
-  const latest = await fetchBlob(token, storeName, sortedKeys[0]);
+  let latestRaw = await fetchBlob(token, storeName, sortedKeys[0]);
+  let latest;
+
+  if (isNewFormat(latestRaw)) {
+    latest = normalizeNewFormat(latestRaw);
+
+    // New-format blobs lack options, recent_orders, market_data.
+    // Walk backwards to find an old-format blob and merge those fields.
+    const maxLookback = Math.min(sortedKeys.length, 10);
+    for (let i = 1; i < maxLookback; i++) {
+      try {
+        const older = await fetchBlob(token, storeName, sortedKeys[i]);
+        if (!isNewFormat(older) && older.portfolio) {
+          if (older.portfolio.options && older.portfolio.options.length > 0) {
+            latest.portfolio.options = older.portfolio.options;
+          }
+          if (older.portfolio.open_option_orders && older.portfolio.open_option_orders.length > 0) {
+            latest.portfolio.open_option_orders = older.portfolio.open_option_orders;
+          }
+          if (older.recent_orders) {
+            latest.recent_orders = older.recent_orders;
+          }
+          if (older.recent_option_orders) {
+            latest.recent_option_orders = older.recent_option_orders;
+          }
+          break;
+        }
+      } catch (e) {
+        console.error(`Failed to fetch older blob ${sortedKeys[i]}:`, e.message);
+      }
+    }
+  } else {
+    latest = latestRaw;
+  }
 
   // Build market_data from the latest blob with complete BTC metrics
   let marketData = null;
 
-  if (hasCompleteMetrics(latest)) {
+  if (hasCompleteMetrics(latestRaw)) {
     marketData = {
-      timestamp: latest.timestamp,
-      symbols: latest.state.symbols,
+      timestamp: latestRaw.timestamp,
+      symbols: latestRaw.state.symbols,
     };
   } else {
     // Walk backwards through recent blobs (check up to 5) to find complete metrics
-    const maxLookback = Math.min(sortedKeys.length, 6); // skip index 0 (already checked)
+    const maxLookback = Math.min(sortedKeys.length, 6);
     for (let i = 1; i < maxLookback; i++) {
       try {
         const older = await fetchBlob(token, storeName, sortedKeys[i]);
@@ -122,7 +233,7 @@ async function fetchSnapshot() {
   return {
     timestamp: latest.timestamp,
     portfolio: latest.portfolio,
-    order_book: latest.order_book,
+    order_book: latest.order_book || [],
     recent_orders: latest.recent_orders || [],
     recent_option_orders: latest.recent_option_orders || [],
     market_data: marketData,
