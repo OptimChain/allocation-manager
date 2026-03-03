@@ -1,0 +1,101 @@
+name: Load Remote Config
+description: >
+  Fetches a .cfg file from another GitHub repository and exports its
+  key-value pairs as environment variables and step outputs.
+
+inputs:
+  repo:
+    description: 'Owner/repo of the config repository (e.g. "org/config-repo")'
+    required: true
+  path:
+    description: 'Path to the .cfg file inside the repo (e.g. "services/allocation-manager/deploy.cfg")'
+    required: true
+  ref:
+    description: 'Git ref to fetch from (branch, tag, or SHA). Defaults to "main".'
+    required: false
+    default: main
+  environment:
+    description: 'Config section to resolve (e.g. "gamma" or "prod"). Merged with [common].'
+    required: true
+  token:
+    description: 'GitHub token with read access to the config repo. Use a PAT for private repos.'
+    required: true
+  output_file:
+    description: 'Write resolved config to this file path (optional, useful for local caching).'
+    required: false
+    default: ''
+
+outputs:
+  config_json:
+    description: 'Resolved config as a JSON string'
+    value: ${{ steps.resolve.outputs.config_json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch config file from remote repo
+      id: fetch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        echo "Fetching config from ${{ inputs.repo }}@${{ inputs.ref }} / ${{ inputs.path }}"
+
+        HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/remote-deploy.cfg \
+          -H "Authorization: token ${GH_TOKEN}" \
+          -H "Accept: application/vnd.github.v3.raw" \
+          "https://api.github.com/repos/${{ inputs.repo }}/contents/${{ inputs.path }}?ref=${{ inputs.ref }}")
+
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "::error::Failed to fetch config (HTTP $HTTP_CODE) from ${{ inputs.repo }}/${{ inputs.path }}@${{ inputs.ref }}"
+          cat /tmp/remote-deploy.cfg
+          exit 1
+        fi
+
+        echo "Config fetched successfully"
+
+    - name: Resolve config for environment
+      id: resolve
+      shell: bash
+      run: |
+        node -e "
+          const { parseConfig, resolveConfig } = require('${{ github.workspace }}/scripts/parse-config.cjs');
+          const sections = parseConfig('/tmp/remote-deploy.cfg');
+          const config = resolveConfig(sections, '${{ inputs.environment }}');
+
+          // Write each key to GITHUB_ENV so subsequent steps see them
+          const fs = require('fs');
+          const envFile = process.env.GITHUB_ENV;
+          const lines = Object.entries(config)
+            .map(([k, v]) => k + '=' + v)
+            .join('\n');
+          fs.appendFileSync(envFile, lines + '\n');
+
+          // Also emit as a JSON output for downstream jobs
+          const json = JSON.stringify(config);
+          const outputFile = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(outputFile, 'config_json=' + json + '\n');
+
+          console.log('Resolved config (' + '${{ inputs.environment }}' + '):');
+          for (const [k, v] of Object.entries(config)) {
+            // Mask values that look like secrets
+            const display = (k.includes('SECRET') || k.includes('TOKEN') || k.includes('PASSWORD'))
+              ? '***' : v;
+            console.log('  ' + k + '=' + display);
+          }
+        "
+
+    - name: Write config to output file
+      if: inputs.output_file != ''
+      shell: bash
+      run: |
+        node -e "
+          const { parseConfig, resolveConfig } = require('${{ github.workspace }}/scripts/parse-config.cjs');
+          const fs = require('fs');
+          const sections = parseConfig('/tmp/remote-deploy.cfg');
+          const config = resolveConfig(sections, '${{ inputs.environment }}');
+          const lines = Object.entries(config).map(([k, v]) => k + '=' + v).join('\n');
+          fs.mkdirSync(require('path').dirname('${{ inputs.output_file }}'), { recursive: true });
+          fs.writeFileSync('${{ inputs.output_file }}', lines + '\n');
+          console.log('Config written to ${{ inputs.output_file }}');
+        "

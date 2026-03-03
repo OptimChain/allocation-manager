@@ -12,6 +12,20 @@ on:
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: gamma
+        type: choice
+        options:
+          - gamma
+          - prod
+      config_ref:
+        description: 'Config repo branch/tag to use'
+        required: false
+        default: main
+        type: string
 
 jobs:
   deploy:
@@ -25,23 +39,70 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> "$GITHUB_OUTPUT"
+            echo "config_ref=${{ github.event.inputs.config_ref || 'main' }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "environment=prod" >> "$GITHUB_OUTPUT"
+            echo "config_ref=main" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=gamma" >> "$GITHUB_OUTPUT"
+            echo "config_ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Load remote deploy config
+        uses: ./.github/actions/load-remote-config
+        with:
+          repo: ${{ vars.CONFIG_REPO }}
+          path: ${{ vars.CONFIG_PATH }}
+          ref: ${{ steps.env.outputs.config_ref }}
+          environment: ${{ steps.env.outputs.environment }}
+          token: ${{ secrets.CONFIG_REPO_TOKEN }}
+          output_file: config/.env.deploy
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build
-        run: npm run build
+        run: |
+          echo "Building with config for ${{ steps.env.outputs.environment }}"
+          npm run build
+        env:
+          VITE_DEPLOY_ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          VITE_DEPLOY_DEPLOY_URL: ${{ env.DEPLOY_URL }}
+          VITE_DEPLOY_LOG_LEVEL: ${{ env.LOG_LEVEL }}
 
       - name: Install Netlify CLI
         run: npm install -g netlify-cli
 
       - name: Deploy preview
         if: github.event_name == 'pull_request'
-        run: netlify deploy --dir=dist --site ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          netlify deploy \
+            --dir=${{ env.PUBLISH_DIR || 'dist' }} \
+            --site ${{ env.NETLIFY_SITE_ID || secrets.NETLIFY_SITE_ID }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
 
       - name: Deploy to production
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: netlify deploy --dir=dist --prod --site ${{ secrets.NETLIFY_SITE_ID }}
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && steps.env.outputs.environment == 'prod')
+        run: |
+          netlify deploy \
+            --dir=${{ env.PUBLISH_DIR || 'dist' }} \
+            --prod \
+            --site ${{ env.NETLIFY_SITE_ID || secrets.NETLIFY_SITE_ID }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+
+      - name: Deploy to gamma
+        if: github.event_name == 'workflow_dispatch' && steps.env.outputs.environment == 'gamma'
+        run: |
+          netlify deploy \
+            --dir=${{ env.PUBLISH_DIR || 'dist' }} \
+            --alias=${{ env.DEPLOY_ALIAS || 'gamma' }} \
+            --site ${{ env.NETLIFY_SITE_ID || secrets.NETLIFY_SITE_ID }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

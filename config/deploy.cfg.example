@@ -1,0 +1,31 @@
+# ============================================================================
+# Remote Deployment Configuration
+# ============================================================================
+# This file is fetched from a remote GitHub repository at build/deploy time.
+# It provides environment-specific deployment parameters.
+#
+# Format: INI-style with [section] headers and KEY=VALUE pairs.
+# Lines starting with # are comments. Blank lines are ignored.
+# Inline comments are NOT supported (values are taken as-is after '=').
+# ============================================================================
+
+[common]
+NODE_VERSION=20
+BUILD_COMMAND=npm run build
+PUBLISH_DIR=dist
+FUNCTIONS_DIR=netlify/functions
+NODE_BUNDLER=esbuild
+
+[gamma]
+NETLIFY_SITE_ID=your-gamma-site-id
+DEPLOY_URL=https://route-manager-gamma.netlify.app
+DEPLOY_ALIAS=gamma
+ENABLE_PREVIEW=true
+LOG_LEVEL=debug
+
+[prod]
+NETLIFY_SITE_ID=your-prod-site-id
+DEPLOY_URL=https://route-manager-prod.netlify.app
+DEPLOY_ALIAS=prod
+ENABLE_PREVIEW=false
+LOG_LEVEL=warn

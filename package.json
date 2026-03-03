@@ -14,7 +14,11 @@
     "test:watch": "jest --watch",
     "deploy": "netlify deploy --prod",
     "test:rh": "./scripts/test-robinhood.sh",
-    "functions": "node scripts/local-functions.cjs"
+    "functions": "node scripts/local-functions.cjs",
+    "config:load": "node scripts/load-remote-config.cjs",
+    "config:load:gamma": "node scripts/load-remote-config.cjs --env gamma",
+    "config:load:prod": "node scripts/load-remote-config.cjs --env prod",
+    "config:load:local": "node scripts/load-remote-config.cjs --local config/deploy.cfg"
   },
   "dependencies": {
     "@netlify/blobs": "^10.5.0",
