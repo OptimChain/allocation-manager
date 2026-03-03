@@ -22,6 +22,14 @@ interface PricePoint {
   volume: number;
 }
 
+const RANGES = [
+  { label: '1W', days: 7, timespan: 'hour', multiplier: '1' },
+  { label: '1M', days: 30, timespan: 'day', multiplier: '1' },
+  { label: '3M', days: 90, timespan: 'day', multiplier: '1' },
+  { label: '6M', days: 180, timespan: 'day', multiplier: '1' },
+  { label: '1Y', days: 365, timespan: 'day', multiplier: '1' },
+];
+
 function optionLabel(opt: OptionPosition): string {
   return `${opt.chain_symbol} $${opt.strike} ${opt.option_type.toUpperCase()} ${opt.expiration}`;
 }
@@ -30,12 +38,33 @@ function optionKey(opt: OptionPosition): string {
   return `${opt.chain_symbol}-${opt.strike}-${opt.option_type}-${opt.expiration}`;
 }
 
-async function fetchOptionPriceHistory(opt: OptionPosition): Promise<PricePoint[]> {
+function formatAxisLabel(timestamp: number, days: number): string {
+  const date = new Date(timestamp);
+  if (days <= 7) {
+    return date.toLocaleDateString('en-US', { weekday: 'short', hour: 'numeric' });
+  }
+  if (days <= 30) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
+async function fetchOptionPriceHistory(
+  opt: OptionPosition,
+  range: typeof RANGES[number],
+): Promise<PricePoint[]> {
+  const to = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - range.days * 86400000).toISOString().slice(0, 10);
+
   const params = new URLSearchParams({
     symbol: opt.chain_symbol,
     strike: String(opt.strike),
     expiration: opt.expiration,
     optionType: opt.option_type,
+    timespan: range.timespan,
+    multiplier: range.multiplier,
+    from,
+    to,
   });
 
   const res = await fetch(`/.netlify/functions/options-price-history?${params}`);
@@ -62,12 +91,14 @@ async function fetchOptionPriceHistory(opt: OptionPosition): Promise<PricePoint[
 export default function OptionsPriceChart({ options }: { options: OptionPosition[] }) {
   const { isDark } = useTheme();
   const [expanded, setExpanded] = useState(false);
+  const [selectedRangeIdx, setSelectedRangeIdx] = useState(2); // default 3M
   const [priceData, setPriceData] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const selectedOpt = options[selectedIdx] || options[0];
+  const selectedRange = RANGES[selectedRangeIdx];
 
   useEffect(() => {
     if (!expanded || !selectedOpt) return;
@@ -77,7 +108,7 @@ export default function OptionsPriceChart({ options }: { options: OptionPosition
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchOptionPriceHistory(selectedOpt);
+        const data = await fetchOptionPriceHistory(selectedOpt, selectedRange);
         if (!cancelled) setPriceData(data);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to fetch');
@@ -88,7 +119,7 @@ export default function OptionsPriceChart({ options }: { options: OptionPosition
 
     load();
     return () => { cancelled = true; };
-  }, [expanded, selectedIdx, selectedOpt?.chain_symbol, selectedOpt?.strike, selectedOpt?.expiration]);
+  }, [expanded, selectedIdx, selectedRangeIdx, selectedOpt?.chain_symbol, selectedOpt?.strike, selectedOpt?.expiration]);
 
   const yDomain = useMemo(() => {
     if (priceData.length === 0) return [0, 10];
@@ -120,21 +151,41 @@ export default function OptionsPriceChart({ options }: { options: OptionPosition
           )}
         </button>
 
-        {expanded && options.length > 1 && (
-          <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg overflow-x-auto">
-            {options.map((opt, i) => (
-              <button
-                key={optionKey(opt)}
-                onClick={() => setSelectedIdx(i)}
-                className={`px-2 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                  selectedIdx === i
-                    ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                {opt.chain_symbol} ${opt.strike} {opt.option_type.charAt(0).toUpperCase()}
-              </button>
-            ))}
+        {expanded && (
+          <div className="flex items-center gap-3">
+            {options.length > 1 && (
+              <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg overflow-x-auto">
+                {options.map((opt, i) => (
+                  <button
+                    key={optionKey(opt)}
+                    onClick={() => setSelectedIdx(i)}
+                    className={`px-2 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                      selectedIdx === i
+                        ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    {opt.chain_symbol} ${opt.strike} {opt.option_type.charAt(0).toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-1 bg-gray-100 dark:bg-zinc-900 p-1 rounded-lg overflow-x-auto">
+              {RANGES.map((range, i) => (
+                <button
+                  key={range.label}
+                  onClick={() => setSelectedRangeIdx(i)}
+                  className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+                    selectedRangeIdx === i
+                      ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                  }`}
+                >
+                  {range.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -195,9 +246,7 @@ export default function OptionsPriceChart({ options }: { options: OptionPosition
                     <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                     <XAxis
                       dataKey="timestamp"
-                      tickFormatter={(ts) =>
-                        new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                      }
+                      tickFormatter={(ts) => formatAxisLabel(ts, selectedRange.days)}
                       tick={{ fontSize: 11, fill: axisColor }}
                       axisLine={{ stroke: gridColor }}
                     />
