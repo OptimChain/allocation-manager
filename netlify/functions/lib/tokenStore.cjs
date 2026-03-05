@@ -5,7 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
+const { getConfig } = require('../../../common/config.cjs');
+const ROBINHOOD_API_BASE = getConfig().apis.robinhood;
 const STORE_NAME = 'robinhood-auth';
 const TOKEN_KEY = 'session';
 

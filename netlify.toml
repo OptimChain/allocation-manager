@@ -4,6 +4,7 @@
 
 [functions]
   node_bundler = "esbuild"
+  included_files = ["endpoints.cfg"]
 
 [dev]
   command = "npm run dev:vite"

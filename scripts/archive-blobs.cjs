@@ -3,19 +3,22 @@
  * Archive old blobs to historical stores.
  *
  * Moves blobs older than RETENTION_DAYS:
- *   order-book  → order-book-historical
- *   state-logs  → state-logs-historical
+ *   order-book       → order-book-historical
+ *   state-logs       → state-logs-historical
+ *   order-book-prod  → order-book-prod-historical
+ *   order-book-gamma → order-book-gamma-historical
  *
  * Env vars: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID, RETENTION_DAYS (default 7)
  */
 
 const https = require('https');
+const { getConfig } = require('../common/config.cjs');
 
-const BLOBS_BASE = 'https://api.netlify.com/api/v1/blobs';
-const STORE_PAIRS = [
-  { src: 'order-book', dst: 'order-book-historical' },
-  { src: 'state-logs', dst: 'state-logs-historical' },
-];
+const config = getConfig();
+const BLOBS_BASE = config.netlify.blobs_api_base;
+const STORE_PAIRS = Object.entries(config.blob_store_archive_pairs).map(
+  ([src, dst]) => ({ src, dst })
+);
 const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS || '7', 10);
 
 const TOKEN = process.env.NETLIFY_AUTH_TOKEN;

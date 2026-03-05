@@ -16,8 +16,9 @@ exports.handler = async (event) => {
   const now = Date.now();
   const startTs = now - days * 86400000;
 
+  const { getConfig } = require('../../common/config.cjs');
   const url =
-    'https://www.deribit.com/api/v2/public/get_volatility_index_data' +
+    getConfig().apis.deribit +
     `?currency=BTC&start_timestamp=${startTs}&end_timestamp=${now}&resolution=86400`;
 
   try {

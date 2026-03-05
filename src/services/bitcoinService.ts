@@ -1,7 +1,9 @@
 // Bitcoin Price Service using CoinGecko API (free, no API key needed)
 // Documentation: https://www.coingecko.com/en/api/documentation
 
-const COINGECKO_API = 'https://api.coingecko.com/api/v3';
+import endpoints from 'virtual:endpoints';
+
+const COINGECKO_API = endpoints.apis.coingecko;
 
 export interface PriceData {
   timestamp: number;

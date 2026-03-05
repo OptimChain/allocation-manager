@@ -2,8 +2,9 @@
 // Frontend service layer for Plaid Link integration
 
 import type { Portfolio } from './robinhoodService';
+import endpoints from 'virtual:endpoints';
 
-const API_BASE = '/.netlify/functions';
+const API_BASE = endpoints.netlify.functions_base;
 
 export interface PlaidAuthStatus {
   connected: boolean;

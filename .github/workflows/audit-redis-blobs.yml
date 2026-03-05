@@ -6,8 +6,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  audit:
+  read-config:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.cfg.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build matrix from endpoints.cfg
+        id: cfg
+        run: |
+          node -e "
+            const { getConfig } = require('./common/config.cjs');
+            const c = getConfig();
+            const matrix = {
+              include: [
+                { env_name: 'gamma', redis_host: c.redis.gamma_host, blob_store: c.blob_stores.order_book_gamma },
+                { env_name: 'prod',  redis_host: c.redis.prod_host,  blob_store: c.blob_stores.order_book_prod },
+              ]
+            };
+            const fs = require('fs');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'matrix=' + JSON.stringify(matrix) + '\n');
+          "
+
+  audit:
+    needs: read-config
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.read-config.outputs.matrix) }}
+    name: Audit ${{ matrix.env_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -18,11 +50,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit Redis vs Blobs
+      - name: Audit Redis vs Blobs (${{ matrix.env_name }})
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_BLOB_SITE_ID }}
-          REDIS_HOST: ${{ secrets.REDIS_HOST }}
-          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          REDIS_HOST: ${{ matrix.redis_host }}
+          REDIS_PASSWORD: ${{ secrets[format('REDIS_PASSWORD_{0}', matrix.env_name)] }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BLOB_STORE: ${{ matrix.blob_store }}
         run: node scripts/audit-redis-blobs.cjs

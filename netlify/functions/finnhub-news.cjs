@@ -3,7 +3,8 @@
 // Supports general market news, company-specific news, and crypto news
 // In-memory cache to avoid rate-limiting (429s)
 
-const FINNHUB_API = 'https://finnhub.io/api/v1';
+const { getConfig } = require('../../common/config.cjs');
+const FINNHUB_API = getConfig().apis.finnhub;
 const API_KEY = process.env.FINNHUB_API_KEY;
 
 // Cache keyed by query params, lives across invocations within the same Lambda container

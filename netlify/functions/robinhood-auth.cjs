@@ -3,8 +3,9 @@
 // Stores tokens in Netlify Blobs for persistence
 
 const tokenStore = require('./lib/tokenStore.cjs');
+const { getConfig } = require('../../common/config.cjs');
 
-const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
+const ROBINHOOD_API_BASE = getConfig().apis.robinhood;
 
 // Store pending verification in memory (per function instance)
 let pendingVerification = null;
