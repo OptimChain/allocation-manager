@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { FileText, Download } from 'lucide-react';
 import WeekendMomentum from '../components/WeekendMomentum';
+import NewsStraddle from '../components/NewsStraddle';
 
 const TABS = [
   { id: 'volatility-puts', label: 'Volatility Puts' },
   { id: 'weekend-momentum', label: 'Weekend Momentum' },
+  { id: 'news-straddle', label: 'News Straddle' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -76,6 +78,7 @@ export default function StrategiesPage() {
         </div>
       )}
       {activeTab === 'weekend-momentum' && <WeekendMomentum />}
+      {activeTab === 'news-straddle' && <NewsStraddle />}
     </div>
   );
 }
