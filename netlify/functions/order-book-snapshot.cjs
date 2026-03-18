@@ -220,9 +220,19 @@ async function fetchSnapshot() {
     open_option_orders: [],
   };
 
+  // Merge top-level options and open_option_orders into portfolio
+  // v1 blobs store these at the top level, not inside portfolio
+  const portfolioData = latest.portfolio || emptyPortfolio;
+  if (!portfolioData.options && latest.options) {
+    portfolioData.options = latest.options;
+  }
+  if ((!portfolioData.open_option_orders || portfolioData.open_option_orders.length === 0) && latest.open_option_orders) {
+    portfolioData.open_option_orders = latest.open_option_orders;
+  }
+
   return {
     timestamp: latest.timestamp,
-    portfolio: latest.portfolio || emptyPortfolio,
+    portfolio: portfolioData,
     order_book: latest.order_book || [],
     recent_orders: latest.recent_orders || [],
     recent_option_orders: latest.recent_option_orders || [],

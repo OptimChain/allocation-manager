@@ -344,7 +344,8 @@ export async function getRedisOrders(): Promise<RedisOrders> {
   const historicalOrders: SnapshotOrder[] = [];
   const historicalOptionOrders: SnapshotOptionOrder[] = [];
 
-  for (const order of Object.values(data)) {
+  for (const [key, order] of Object.entries(data)) {
+    if (key === '_meta') continue;
     const isOpen = OPEN_STATES.has(order.state as string);
     if (order._type === 'option') {
       (isOpen ? openOptionOrders : historicalOptionOrders).push(order as unknown as SnapshotOptionOrder);

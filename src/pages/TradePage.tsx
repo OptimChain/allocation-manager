@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
 import {
   RefreshCw,
   TrendingUp,
@@ -28,14 +27,13 @@ import {
 import {
   getPortfolio,
   getBotActions,
-  getAuthStatus,
   getOrderPnL,
   getOrderBookSnapshot,
+  getRedisOrders,
   sendSlackAlert,
   Portfolio,
   BotAction,
   BotAnalysis,
-  AuthStatus,
   OrderPnL,
   SymbolPnL,
   FilledOrder,
@@ -317,6 +315,110 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
       </div>
     </div>
   );
+}
+
+// Adapt snapshot data to the Portfolio interface so portfolio sections
+// render from blob data when RH API is unavailable.
+function snapshotToPortfolio(snapshot: OrderBookSnapshot): Portfolio {
+  const sp = snapshot.portfolio;
+  if (!sp) {
+    return { accountNumber: '', buyingPower: 0, cash: 0, portfolioValue: 0, extendedHoursValue: 0, totalGain: 0, positions: [] };
+  }
+  const positions = (sp.positions || []).map((p) => ({
+    symbol: p.symbol,
+    name: p.name || p.symbol,
+    quantity: p.quantity,
+    averageCost: p.avg_buy_price,
+    currentPrice: p.current_price,
+    totalCost: p.quantity * p.avg_buy_price,
+    currentValue: p.equity,
+    gain: p.profit_loss,
+    gainPercent: p.profit_loss_pct,
+  }));
+  return {
+    accountNumber: 'snapshot',
+    buyingPower: sp.cash?.buying_power ?? 0,
+    cash: sp.cash?.cash ?? 0,
+    portfolioValue: sp.equity ?? 0,
+    extendedHoursValue: 0,
+    totalGain: positions.reduce((sum, p) => sum + p.gain, 0),
+    positions,
+  };
+}
+
+// Convert snapshot recent_orders into OrderPnL for the P&L section.
+function snapshotToOrderPnL(snapshot: OrderBookSnapshot): OrderPnL {
+  const filled = (snapshot.recent_orders || []).filter(o => o.state === 'filled' && o.average_price != null);
+  const sorted = [...filled].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const symbolMap: Record<string, {
+    symbol: string; realizedPnL: number;
+    totalBought: number; totalSold: number; buyCount: number; sellCount: number;
+    sharesHeld: number; costBasis: number;
+  }> = {};
+
+  for (const order of sorted) {
+    if (!symbolMap[order.symbol]) {
+      symbolMap[order.symbol] = {
+        symbol: order.symbol, realizedPnL: 0,
+        totalBought: 0, totalSold: 0, buyCount: 0, sellCount: 0,
+        sharesHeld: 0, costBasis: 0,
+      };
+    }
+    const s = symbolMap[order.symbol];
+    const qty = order.filled_quantity ?? order.quantity;
+    const price = order.average_price!;
+    const total = qty * price;
+
+    if (order.side === 'BUY') {
+      s.sharesHeld += qty;
+      s.costBasis += total;
+      s.totalBought += total;
+      s.buyCount++;
+    } else {
+      const avgCost = s.sharesHeld > 0 ? s.costBasis / s.sharesHeld : 0;
+      s.realizedPnL += (price - avgCost) * qty;
+      s.costBasis -= avgCost * qty;
+      s.sharesHeld -= qty;
+      s.totalSold += total;
+      s.sellCount++;
+    }
+  }
+
+  const symbols: SymbolPnL[] = Object.values(symbolMap)
+    .map(s => ({
+      symbol: s.symbol,
+      name: s.symbol,
+      realizedPnL: Math.round(s.realizedPnL * 100) / 100,
+      totalBought: Math.round(s.totalBought * 100) / 100,
+      totalSold: Math.round(s.totalSold * 100) / 100,
+      buyCount: s.buyCount,
+      sellCount: s.sellCount,
+      avgBuyPrice: s.buyCount > 0 ? s.totalBought / s.buyCount : 0,
+      avgSellPrice: s.sellCount > 0 ? s.totalSold / s.sellCount : 0,
+      remainingShares: s.sharesHeld,
+      remainingCostBasis: s.costBasis,
+    }))
+    .sort((a, b) => Math.abs(b.realizedPnL) - Math.abs(a.realizedPnL));
+
+  const orders: FilledOrder[] = sorted.map(o => ({
+    id: o.order_id,
+    symbol: o.symbol,
+    name: o.symbol,
+    side: o.side.toLowerCase() as 'buy' | 'sell',
+    quantity: o.filled_quantity ?? o.quantity,
+    price: o.average_price!,
+    total: (o.filled_quantity ?? o.quantity) * o.average_price!,
+    createdAt: o.created_at,
+  }));
+
+  return {
+    totalRealizedPnL: symbols.reduce((sum, s) => sum + s.realizedPnL, 0),
+    totalBuyVolume: symbols.reduce((sum, s) => sum + s.totalBought, 0),
+    totalSellVolume: symbols.reduce((sum, s) => sum + s.totalSold, 0),
+    symbols,
+    orders,
+  };
 }
 
 function formatExpiration(dateStr: string): string {
@@ -1393,28 +1495,29 @@ export default function TradePage() {
   const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
   const [analysis] = useState<BotAnalysis | null>(null);
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [pnlPeriod, setPnlPeriod] = useState<PnLPeriod>('1Y');
   const [selectedUser, setSelectedUser] = useState(USERS[0].id);
 
-  const filteredPnL = useMemo(() => {
-    if (!orderPnL) return null;
-    return filterAndRecalcPnL(orderPnL, pnlPeriod);
-  }, [orderPnL, pnlPeriod]);
+  // Use RH data if available, otherwise fall back to snapshot-derived data
+  const effectivePortfolio = useMemo(() => {
+    if (portfolio) return portfolio;
+    if (snapshot) return snapshotToPortfolio(snapshot);
+    return null;
+  }, [portfolio, snapshot]);
 
-  const fetchAuthStatus = useCallback(async () => {
-    try {
-      const status = await getAuthStatus();
-      setAuthStatus(status);
-      return status.authenticated;
-    } catch (err) {
-      console.error('Failed to fetch auth status:', err);
-      return false;
-    }
-  }, []);
+  const effectivePnL = useMemo(() => {
+    if (orderPnL) return orderPnL;
+    if (snapshot) return snapshotToOrderPnL(snapshot);
+    return null;
+  }, [orderPnL, snapshot]);
+
+  const filteredPnL = useMemo(() => {
+    if (!effectivePnL) return null;
+    return filterAndRecalcPnL(effectivePnL, pnlPeriod);
+  }, [effectivePnL, pnlPeriod]);
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -1422,31 +1525,51 @@ export default function TradePage() {
     setError(null);
 
     try {
-      getOrderBookSnapshot()
-        .then(setSnapshot)
+      // Always fetch snapshot + Redis (no auth required)
+      const snapshotPromise = getOrderBookSnapshot()
+        .then((snap) => {
+          // Supplement snapshot with Redis order data
+          return getRedisOrders()
+            .then((redis) => {
+              if (redis.openOrders.length > 0 || redis.openOptionOrders.length > 0) {
+                snap.portfolio = {
+                  ...snap.portfolio,
+                  open_orders: redis.openOrders.length > 0 ? redis.openOrders : (snap.portfolio?.open_orders || []),
+                  open_option_orders: redis.openOptionOrders.length > 0 ? redis.openOptionOrders : (snap.portfolio?.open_option_orders || []),
+                };
+                snap.order_book = redis.openOrders.length > 0 ? redis.openOrders : snap.order_book;
+              }
+              if (redis.historicalOrders.length > 0) snap.recent_orders = redis.historicalOrders;
+              if (redis.historicalOptionOrders.length > 0) snap.recent_option_orders = redis.historicalOptionOrders;
+              return snap;
+            })
+            .catch(() => snap);
+        })
         .catch((err) => {
           console.error('Failed to fetch order book snapshot:', err);
           if (err instanceof TypeError) {
             sendSlackAlert('TypeError in order book snapshot', err.message);
           }
+          return null;
         });
 
-      const isAuthenticated = await fetchAuthStatus();
+      snapshotPromise.then((snap) => { if (snap) setSnapshot(snap); });
 
-      if (!isAuthenticated) {
-        setLoading(false);
-        setRefreshing(false);
-        return;
+      // Try RH API — if it fails, snapshot data will be used as fallback
+      try {
+        const [portfolioData, actionsData, pnlData] = await Promise.all([
+          getPortfolio(),
+          getBotActions(50),
+          getOrderPnL(),
+        ]);
+        setPortfolio(portfolioData);
+        setBotActions(actionsData.actions);
+        setOrderPnL(pnlData);
+      } catch (rhErr) {
+        console.log('RH API unavailable, using snapshot data');
       }
 
-      const [portfolioData, actionsData, pnlData] = await Promise.all([
-        getPortfolio(),
-        getBotActions(50),
-        getOrderPnL(),
-      ]);
-      setPortfolio(portfolioData);
-      setBotActions(actionsData.actions);
-      setOrderPnL(pnlData);
+      await snapshotPromise;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch data';
       if (!errorMsg.includes('Not authenticated') && !errorMsg.includes('expired')) {
@@ -1480,7 +1603,7 @@ export default function TradePage() {
     );
   }
 
-  if (error && !portfolio) {
+  if (error && !portfolio && !snapshot) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12">
@@ -1538,35 +1661,24 @@ export default function TradePage() {
         </div>
       )}
 
-      {!authStatus?.authenticated && !loading && (
-        <div className="text-center py-12 mb-6 bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-          <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-          <p className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No agents configured</p>
-          <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            <RouterLink to="/configure" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
-              Configure your own agent
-            </RouterLink>{' '}
-            in the configure page.
-          </p>
-        </div>
-      )}
-
-      {portfolio && (
+      {effectivePortfolio && (
         <>
-          <PortfolioSummary portfolio={portfolio} />
+          <PortfolioSummary portfolio={effectivePortfolio} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <PortfolioAllocation portfolio={portfolio} />
+            <PortfolioAllocation portfolio={effectivePortfolio} />
             <AnalysisSuggestions analysis={analysis} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <PositionsTable portfolio={portfolio} />
+          <div className={`grid grid-cols-1 ${botActions.length > 0 ? 'lg:grid-cols-3' : ''} gap-6`}>
+            <div className={botActions.length > 0 ? 'lg:col-span-2' : ''}>
+              <PositionsTable portfolio={effectivePortfolio} />
             </div>
-            <div>
-              <BotActionsLog actions={botActions} />
-            </div>
+            {botActions.length > 0 && (
+              <div>
+                <BotActionsLog actions={botActions} />
+              </div>
+            )}
           </div>
 
           {filteredPnL && (
