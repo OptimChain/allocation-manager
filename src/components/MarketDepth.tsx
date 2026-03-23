@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  LineChart,
   Line,
   AreaChart,
   Area,
@@ -17,7 +16,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { Activity, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import {
   listOptionSymbols,
