@@ -3,6 +3,11 @@
 //   GET /.netlify/functions/vend-blobs?store=news-articles&action=list
 //   GET /.netlify/functions/vend-blobs?store=news-articles&action=list&prefix=index:
 //   GET /.netlify/functions/vend-blobs?store=news-articles&action=get&key=index:coindesk
+//   Stores on the allocation-engine site (options-chain, market-quotes) are
+//   routed automatically via the ALLOC_ENGINE_SITE_ID env var.
+
+// Stores that live on the allocation-engine Netlify site
+const ALLOC_ENGINE_STORES = new Set(['options-chain', 'market-quotes']);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,7 +35,9 @@ exports.handler = async (event) => {
     const { getStore } = await import('@netlify/blobs');
     const store = getStore({
       name: storeName,
-      siteID: process.env.NETLIFY_SITE_ID,
+      siteID: params.siteId
+        || (ALLOC_ENGINE_STORES.has(storeName) && process.env.ALLOC_ENGINE_SITE_ID)
+        || process.env.NETLIFY_SITE_ID,
       token: process.env.NETLIFY_AUTH_TOKEN,
     });
 
