@@ -45,7 +45,10 @@ async function restListBlobs(siteId, storeName, token, prefix) {
 }
 
 async function restGetBlob(siteId, storeName, key, token) {
-  const url = `${NETLIFY_API}/blobs/${siteId}/${storeName}/${encodeURIComponent(key)}`;
+  // Key may contain slashes (e.g. "CRWD/2026-03-02T20-45-27") that must stay
+  // as literal path separators — only encode each segment individually.
+  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  const url = `${NETLIFY_API}/blobs/${siteId}/${storeName}/${encodedKey}`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
