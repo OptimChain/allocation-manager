@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { FileText, Download } from 'lucide-react';
 import WeekendMomentum from '../components/WeekendMomentum';
 import NewsStraddle from '../components/NewsStraddle';
+import MarketDepth from '../components/MarketDepth';
 
 const TABS = [
+  { id: 'market-depth', label: 'Market Depth' },
   { id: 'volatility-puts', label: 'Volatility Puts' },
   { id: 'weekend-momentum', label: 'Weekend Momentum' },
   { id: 'news-straddle', label: 'News Straddle' },
@@ -15,7 +17,7 @@ const WHITEPAPER_URL =
   'https://raw.githubusercontent.com/IamJasonBian/allocation-gym/IamJasonBian/audit-redis-proto/docs/7/iwn_vol_analysis.pdf';
 
 export default function StrategiesPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('volatility-puts');
+  const [activeTab, setActiveTab] = useState<TabId>('market-depth');
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -44,6 +46,7 @@ export default function StrategiesPage() {
       </div>
 
       {/* Tab content */}
+      {activeTab === 'market-depth' && <MarketDepth />}
       {activeTab === 'volatility-puts' && (
         <div className="space-y-6">
           <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg p-6">
