@@ -22,6 +22,9 @@ import {
   listOptionSymbols,
   getLatestOptionsChain,
   getLatestMarketQuotes,
+  listOptionsChainDates,
+  getOptionsChainByDate,
+  getMarketQuotesByDate,
   type OptionsChainBlob,
   type MarketQuotesBlob,
   type OptionSnapshot,
@@ -341,6 +344,8 @@ export default function MarketDepth() {
   const [optionsBlob, setOptionsBlob] = useState<OptionsChainBlob | null>(null);
   const [quotesBlob, setQuotesBlob] = useState<MarketQuotesBlob | null>(null);
   const [greeksExpanded, setGreeksExpanded] = useState(false);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>('latest');
 
   const chartHeight = 280;
   const axisColor = isDark ? '#a1a1aa' : '#a1a1aa';
@@ -364,7 +369,26 @@ export default function MarketDepth() {
     return () => { cancelled = true; };
   }, []);
 
-  // Load data when symbol changes
+  // Load available dates when symbol changes
+  useEffect(() => {
+    if (!selectedSymbol) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const dates = await listOptionsChainDates(selectedSymbol);
+        if (!cancelled) {
+          setAvailableDates(dates);
+          setSelectedDate('latest');
+        }
+      } catch {
+        // Dates might not be available
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [selectedSymbol]);
+
+  // Load data when symbol or date changes
   useEffect(() => {
     if (!selectedSymbol) return;
     let cancelled = false;
@@ -373,10 +397,20 @@ export default function MarketDepth() {
       setLoading(true);
       setError(null);
       try {
-        const [options, quotes] = await Promise.all([
-          getLatestOptionsChain(selectedSymbol),
-          getLatestMarketQuotes(),
-        ]);
+        let options: OptionsChainBlob | null;
+        let quotes: MarketQuotesBlob | null;
+
+        if (selectedDate === 'latest') {
+          [options, quotes] = await Promise.all([
+            getLatestOptionsChain(selectedSymbol),
+            getLatestMarketQuotes(),
+          ]);
+        } else {
+          [options, quotes] = await Promise.all([
+            getOptionsChainByDate(selectedSymbol, selectedDate),
+            getMarketQuotesByDate(selectedDate),
+          ]);
+        }
         if (!cancelled) {
           setOptionsBlob(options);
           setQuotesBlob(quotes);
@@ -392,7 +426,7 @@ export default function MarketDepth() {
 
     load();
     return () => { cancelled = true; };
-  }, [selectedSymbol]);
+  }, [selectedSymbol, selectedDate]);
 
   // Derived chart data
   const quoteTimeSeries = useMemo(() => {
@@ -483,7 +517,7 @@ export default function MarketDepth() {
         </div>
       </div>
 
-      {/* Symbol selector + summary */}
+      {/* Symbol selector + date picker + summary */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Underlying</label>
@@ -494,6 +528,19 @@ export default function MarketDepth() {
           >
             {symbols.map((s) => (
               <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="px-3 py-1.5 bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-700 rounded-md text-sm text-gray-900 dark:text-white"
+          >
+            <option value="latest">Latest (end-of-day)</option>
+            {availableDates.map((d) => (
+              <option key={d} value={d}>{d}</option>
             ))}
           </select>
         </div>

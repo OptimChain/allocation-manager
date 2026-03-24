@@ -304,3 +304,45 @@ export async function listOptionSymbols(): Promise<string[]> {
   }
   return Array.from(symbols).sort();
 }
+
+// ── Historical data access ────────────────────────────────
+
+/** Extract date from a blob key like "CRWD/2026-03-20T23-20-00" or "2026-03-20T23-20-00". */
+function dateFromKey(key: string): string {
+  const tsStart = key.includes('/') ? key.lastIndexOf('/') + 1 : 0;
+  return key.slice(tsStart, tsStart + 10);
+}
+
+/** List available dates for a symbol's options-chain blobs (newest first). */
+export async function listOptionsChainDates(symbol: string): Promise<string[]> {
+  const keys = await listBlobKeys('options-chain', `${symbol}/`);
+  const dates = new Set<string>();
+  for (const key of keys) dates.add(dateFromKey(key));
+  return Array.from(dates).sort().reverse();
+}
+
+/** List available dates for market-quotes blobs (newest first). */
+export async function listMarketQuotesDates(): Promise<string[]> {
+  const keys = await listBlobKeys('market-quotes');
+  const dates = new Set<string>();
+  for (const key of keys) dates.add(dateFromKey(key));
+  return Array.from(dates).sort().reverse();
+}
+
+/** Fetch the end-of-day options-chain blob for a specific date.
+ *  Picks the last (richest) blob key for that date. */
+export async function getOptionsChainByDate(symbol: string, date: string): Promise<OptionsChainBlob | null> {
+  const keys = await listBlobKeys('options-chain', `${symbol}/${date}`);
+  if (keys.length === 0) return null;
+  const raw = await getBlob<unknown>('options-chain', keys[keys.length - 1]);
+  return mapOptionsChainBlob(raw);
+}
+
+/** Fetch the end-of-day market-quotes blob for a specific date.
+ *  Picks the last (richest) blob key for that date. */
+export async function getMarketQuotesByDate(date: string): Promise<MarketQuotesBlob | null> {
+  const keys = await listBlobKeys('market-quotes', date);
+  if (keys.length === 0) return null;
+  const raw = await getBlob<unknown>('market-quotes', keys[keys.length - 1]);
+  return mapMarketQuotesBlob(raw);
+}
