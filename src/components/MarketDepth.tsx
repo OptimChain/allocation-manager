@@ -624,8 +624,8 @@ export default function MarketDepth() {
         </div>
       </div>
 
-      {/* Row 2: Spread over time + VWAP bars */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Row 2: Spread + Delta + Imbalance */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Spread (bps) over time */}
         <div className="bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg p-4">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
@@ -677,10 +677,6 @@ export default function MarketDepth() {
           )}
         </div>
 
-      </div>
-
-      {/* Row 3: Delta exposure + Bid-Ask size imbalance */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Delta by strike */}
         <div className="bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg p-4">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
