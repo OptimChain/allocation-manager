@@ -29,7 +29,6 @@ import {
   type MarketQuotesBlob,
   type OptionSnapshot,
   type MarketQuote,
-  type OptionBar,
 } from '../services/blobDataService';
 
 // ── Parsed types for chart data ───────────────────────────
@@ -70,17 +69,9 @@ interface GreeksRow {
   ask: number;
 }
 
-interface VWAPBar {
-  ts: number;
-  label: string;
-  vwap: number;
-  close: number;
-  volume: number;
-}
 
 interface FairPriceSummary {
   midPrice: number | null;
-  vwap: number | null;
   ivAtm: number | null;
   bidAskSpread: number | null;
   bidAskSpreadBps: number | null;
@@ -212,62 +203,15 @@ function extractGreeksTable(blob: OptionsChainBlob): GreeksRow[] {
   return rows;
 }
 
-function extractVWAPBars(blob: OptionsChainBlob): VWAPBar[] {
-  const bars: VWAPBar[] = [];
-  const allBars = blob.latest_bars || {};
-
-  // Aggregate across contracts to get underlying-level VWAP
-  const byTimestamp = new Map<string, { totalVWAP: number; totalVolume: number; close: number }>();
-
-  for (const [key, val] of Object.entries(allBars)) {
-    if (key === '_meta') continue;
-    const barArr = val as OptionBar[];
-    if (!Array.isArray(barArr)) continue;
-    for (const bar of barArr) {
-      const existing = byTimestamp.get(bar.timestamp);
-      if (existing) {
-        existing.totalVWAP += bar.vwap * bar.volume;
-        existing.totalVolume += bar.volume;
-        existing.close = Math.max(existing.close, bar.close);
-      } else {
-        byTimestamp.set(bar.timestamp, {
-          totalVWAP: bar.vwap * bar.volume,
-          totalVolume: bar.volume,
-          close: bar.close,
-        });
-      }
-    }
-  }
-
-  for (const [ts, agg] of byTimestamp) {
-    const time = new Date(ts).getTime();
-    if (isNaN(time)) continue;
-    bars.push({
-      ts: time,
-      label: new Date(time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      vwap: agg.totalVolume > 0 ? agg.totalVWAP / agg.totalVolume : 0,
-      close: agg.close,
-      volume: agg.totalVolume,
-    });
-  }
-
-  bars.sort((a, b) => a.ts - b.ts);
-  return bars;
-}
-
 function computeFairPriceSummary(
   quotes: QuoteTimePoint[],
   ivSmile: IVSmilePoint[],
-  vwapBars: VWAPBar[],
   greeks: GreeksRow[],
 ): FairPriceSummary {
   const lastQuote = quotes.length > 0 ? quotes[quotes.length - 1] : null;
   const midPrice = lastQuote?.mid ?? null;
   const bidAskSpread = lastQuote?.spread ?? null;
   const bidAskSpreadBps = lastQuote?.spreadBps ?? null;
-
-  // VWAP from bars
-  const vwap = vwapBars.length > 0 ? vwapBars[vwapBars.length - 1].vwap : null;
 
   // ATM IV: find options closest to 0.50 delta
   const atmCalls = ivSmile.filter((p) => p.type === 'call' && Math.abs(Math.abs(p.delta) - 0.5) < 0.15);
@@ -296,19 +240,18 @@ function computeFairPriceSummary(
   }
 
   // Confidence based on data availability
-  const dataPoints = [midPrice, vwap, putCallParityImplied].filter((v) => v !== null).length;
+  const dataPoints = [midPrice, putCallParityImplied].filter((v) => v !== null).length;
   const confidence: 'high' | 'medium' | 'low' = dataPoints >= 2 ? 'high' : dataPoints === 1 ? 'medium' : 'low';
 
   // Fair estimate: weighted average of available prices
   const estimates: { value: number; weight: number }[] = [];
   if (midPrice !== null) estimates.push({ value: midPrice, weight: 3 });
-  if (vwap !== null) estimates.push({ value: vwap, weight: 2 });
-  if (putCallParityImplied !== null) estimates.push({ value: putCallParityImplied, weight: 1 });
+  if (putCallParityImplied !== null) estimates.push({ value: putCallParityImplied, weight: 2 });
   const fairEstimate = estimates.length > 0
     ? estimates.reduce((sum, e) => sum + e.value * e.weight, 0) / estimates.reduce((sum, e) => sum + e.weight, 0)
     : null;
 
-  return { midPrice, vwap, ivAtm, bidAskSpread, bidAskSpreadBps, putCallParityImplied, confidence, fairEstimate };
+  return { midPrice, ivAtm, bidAskSpread, bidAskSpreadBps, putCallParityImplied, confidence, fairEstimate };
 }
 
 // ── Level badge helper ─────────────────────────────────────
@@ -449,14 +392,9 @@ export default function MarketDepth() {
     return extractGreeksTable(optionsBlob);
   }, [optionsBlob]);
 
-  const vwapBars = useMemo(() => {
-    if (!optionsBlob) return [];
-    return extractVWAPBars(optionsBlob);
-  }, [optionsBlob]);
-
   const summary = useMemo(() => {
-    return computeFairPriceSummary(quoteTimeSeries, ivSmile, vwapBars, greeksTable);
-  }, [quoteTimeSeries, ivSmile, vwapBars, greeksTable]);
+    return computeFairPriceSummary(quoteTimeSeries, ivSmile, greeksTable);
+  }, [quoteTimeSeries, ivSmile, greeksTable]);
 
   // Find unique expiries for display
   const expiries = useMemo(() => {
@@ -554,7 +492,7 @@ export default function MarketDepth() {
       </div>
 
       {/* Fair Price Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <SummaryCard
           label="Fair Estimate"
           value={summary.fairEstimate !== null ? `$${summary.fairEstimate.toFixed(2)}` : '—'}
@@ -566,11 +504,6 @@ export default function MarketDepth() {
           label="Mid Price"
           value={summary.midPrice !== null ? `$${summary.midPrice.toFixed(2)}` : '—'}
           sub={summary.bidAskSpread !== null ? `Spread: ${summary.bidAskSpreadBps?.toFixed(1)} bps` : ''}
-        />
-        <SummaryCard
-          label="Options VWAP"
-          value={summary.vwap !== null ? `$${summary.vwap.toFixed(4)}` : '—'}
-          sub="Volume-weighted avg"
         />
         <SummaryCard
           label="ATM IV"
@@ -744,46 +677,6 @@ export default function MarketDepth() {
           )}
         </div>
 
-        {/* Option VWAP Bars */}
-        <div className="bg-white dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 rounded-lg p-4">
-          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
-            <LevelBadge level="L1" />
-            Options Volume Profile
-          </h4>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
-            Aggregate option volume across contracts over time — higher volume = more price discovery
-          </p>
-          {vwapBars.length > 0 ? (
-            <ResponsiveContainer width="100%" height={chartHeight}>
-              <BarChart data={vwapBars}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                <XAxis
-                  dataKey="ts"
-                  tickFormatter={(ts) => new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  tick={{ fontSize: 11, fill: axisColor }}
-                  axisLine={{ stroke: gridColor }}
-                />
-                <YAxis
-                  tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : `${v}`}
-                  tick={{ fontSize: 11, fill: axisColor }}
-                  axisLine={{ stroke: gridColor }}
-                  width={50}
-                />
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  labelFormatter={(ts) => new Date(ts as number).toLocaleString()}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'Volume') return [value.toLocaleString(), name];
-                    return [`$${value.toFixed(4)}`, name];
-                  }}
-                />
-                <Bar dataKey="volume" name="Volume" fill="#6366f1" fillOpacity={0.7} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyChart height={chartHeight} message="No bar data" />
-          )}
-        </div>
       </div>
 
       {/* Row 3: Delta exposure + Bid-Ask size imbalance */}
