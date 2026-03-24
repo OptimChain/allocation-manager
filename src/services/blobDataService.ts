@@ -247,22 +247,50 @@ export async function getBlob<T>(store: string, key: string): Promise<T> {
   return data.value;
 }
 
-/** Fetch the latest options-chain blob for a given symbol. */
+/**
+ * Pick the richest blob key from a sorted list of timestamp keys.
+ *
+ * End-of-day blobs accumulate the most history + greeks. Strategy:
+ *  1. Find the last key from the most recent *completed* date
+ *     (any date before today's UTC date).
+ *  2. If everything is from today (or there's only one date),
+ *     fall back to the absolute latest key.
+ *
+ * Keys look like "CRWD/2026-03-20T23-20-00" or "2026-03-20T23-20-00".
+ */
+function pickRichestKey(keys: string[]): string {
+  if (keys.length <= 1) return keys[keys.length - 1];
+
+  const todayUTC = new Date().toISOString().slice(0, 10); // "2026-03-24"
+
+  // Walk backwards to find the last key from a date before today
+  for (let i = keys.length - 1; i >= 0; i--) {
+    const key = keys[i];
+    // Extract the date portion — handle both "SYM/DATE" and "DATE" formats
+    const tsStart = key.includes('/') ? key.lastIndexOf('/') + 1 : 0;
+    const dateStr = key.slice(tsStart, tsStart + 10); // "2026-03-20"
+    if (dateStr < todayUTC) return key;
+  }
+
+  // All keys are from today — return the latest
+  return keys[keys.length - 1];
+}
+
+/** Fetch the richest options-chain blob for a given symbol (end-of-day preferred). */
 export async function getLatestOptionsChain(symbol: string): Promise<OptionsChainBlob | null> {
   const keys = await listBlobKeys('options-chain', `${symbol}/`);
   if (keys.length === 0) return null;
-  // Keys are timestamp-sorted; last is most recent
-  const latestKey = keys[keys.length - 1];
-  const raw = await getBlob<unknown>('options-chain', latestKey);
+  const bestKey = pickRichestKey(keys);
+  const raw = await getBlob<unknown>('options-chain', bestKey);
   return mapOptionsChainBlob(raw);
 }
 
-/** Fetch the latest market-quotes blob. */
+/** Fetch the richest market-quotes blob (end-of-day preferred). */
 export async function getLatestMarketQuotes(): Promise<MarketQuotesBlob | null> {
   const keys = await listBlobKeys('market-quotes');
   if (keys.length === 0) return null;
-  const latestKey = keys[keys.length - 1];
-  const raw = await getBlob<unknown>('market-quotes', latestKey);
+  const bestKey = pickRichestKey(keys);
+  const raw = await getBlob<unknown>('market-quotes', bestKey);
   return mapMarketQuotesBlob(raw);
 }
 
