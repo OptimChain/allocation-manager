@@ -192,9 +192,18 @@ function mapMarketQuotesBlob(raw: any): MarketQuotesBlob {
 
   const history: MarketQuotesHistoryEntry[] = (raw.history || []).map((h: any) => {
     const quotes: Record<string, MarketQuote> = {};
-    for (const [k, v] of Object.entries(h.quotes || {})) {
-      if (k === '_meta') continue;
-      quotes[k] = mapMarketQuote(v);
+    const rawQuotes = h.quotes || [];
+    if (Array.isArray(rawQuotes)) {
+      // Actual shape: quotes is an array of quote objects with a .symbol field
+      for (const q of rawQuotes) {
+        if (q && q.symbol) quotes[q.symbol] = mapMarketQuote(q);
+      }
+    } else {
+      // Fallback: dict keyed by symbol
+      for (const [k, v] of Object.entries(rawQuotes)) {
+        if (k === '_meta') continue;
+        quotes[k] = mapMarketQuote(v);
+      }
     }
     return { timestamp: h.timestamp, quotes };
   });
