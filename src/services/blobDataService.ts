@@ -1,11 +1,15 @@
 /**
  * Service for fetching market data from Netlify Blob stores
  * (options-chain, market-quotes) via the vend-blobs function.
+ *
+ * The allocation-engine Python scripts write snake_case JSON.
+ * We normalise to camelCase at the service boundary so the rest
+ * of the frontend can work with idiomatic TypeScript types.
  */
 
 const BASE = '/.netlify/functions/vend-blobs';
 
-// ── Types ──────────────────────────────────────────────────
+// ── Public (camelCase) types ────────────────────────────────
 
 export interface OptionGreeks {
   delta?: number;
@@ -33,8 +37,8 @@ export interface OptionSnapshot {
   symbol: string;
   latestTrade?: OptionTrade;
   latestQuote?: OptionQuote;
-  greeks?: OptionGreeks;
-  impliedVolatility?: number;
+  greeks?: OptionGreeks | null;
+  impliedVolatility?: number | null;
 }
 
 export interface OptionBar {
@@ -48,19 +52,21 @@ export interface OptionBar {
   vwap: number;
 }
 
+export interface OptionsHistoryEntry {
+  timestamp: string;
+  underlying: string;
+  numContracts: number;
+  snapshots: OptionSnapshot[];
+}
+
 export interface OptionsChainBlob {
   timestamp: string;
   underlying: string;
   blob_key: string;
-  latest_chain: Record<string, OptionSnapshot | unknown>;
-  latest_bars: Record<string, OptionBar[] | unknown>;
+  latest_chain: Record<string, OptionSnapshot>;
+  latest_bars: Record<string, OptionBar[]>;
   history_count: number;
   history: OptionsHistoryEntry[];
-}
-
-export interface OptionsHistoryEntry {
-  timestamp: string;
-  contracts: Record<string, OptionSnapshot>;
 }
 
 export interface MarketQuote {
@@ -82,7 +88,7 @@ export interface MarketQuote {
 export interface MarketQuotesBlob {
   timestamp: string;
   blob_key: string;
-  latest_quotes: Record<string, MarketQuote | unknown>;
+  latest_quotes: Record<string, MarketQuote>;
   history_count: number;
   history: MarketQuotesHistoryEntry[];
 }
@@ -91,6 +97,118 @@ export interface MarketQuotesHistoryEntry {
   timestamp: string;
   quotes: Record<string, MarketQuote>;
 }
+
+// ── snake_case → camelCase mapping ──────────────────────────
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+function mapOptionSnapshot(raw: any): OptionSnapshot {
+  if (!raw) return raw;
+  return {
+    symbol: raw.symbol,
+    latestTrade: raw.latest_trade ?? raw.latestTrade,
+    latestQuote: raw.latest_quote || raw.latestQuote
+      ? {
+          bid: (raw.latest_quote ?? raw.latestQuote)?.bid,
+          ask: (raw.latest_quote ?? raw.latestQuote)?.ask,
+          bidSize: (raw.latest_quote ?? raw.latestQuote)?.bid_size ?? (raw.latest_quote ?? raw.latestQuote)?.bidSize ?? 0,
+          askSize: (raw.latest_quote ?? raw.latestQuote)?.ask_size ?? (raw.latest_quote ?? raw.latestQuote)?.askSize ?? 0,
+          timestamp: (raw.latest_quote ?? raw.latestQuote)?.timestamp,
+        }
+      : undefined,
+    greeks: raw.greeks ?? null,
+    impliedVolatility: raw.implied_volatility ?? raw.impliedVolatility ?? null,
+  };
+}
+
+function mapMarketQuote(raw: any): MarketQuote {
+  if (!raw) return raw;
+  return {
+    bid: raw.bid,
+    ask: raw.ask,
+    mid: raw.mid,
+    spread: raw.spread,
+    spreadBps: raw.spread_bps ?? raw.spreadBps ?? 0,
+    bidSize: raw.bid_size ?? raw.bidSize,
+    askSize: raw.ask_size ?? raw.askSize,
+    bidExchange: raw.bid_exchange ?? raw.bidExchange,
+    askExchange: raw.ask_exchange ?? raw.askExchange,
+    timestamp: raw.timestamp,
+    source: raw.source,
+    symbol: raw.symbol,
+    assetClass: raw.asset_class ?? raw.assetClass ?? '',
+  };
+}
+
+function mapOptionsChainBlob(raw: any): OptionsChainBlob {
+  // Map latest_chain entries
+  const latest_chain: Record<string, OptionSnapshot> = {};
+  for (const [k, v] of Object.entries(raw.latest_chain || {})) {
+    if (k === '_meta') continue;
+    latest_chain[k] = mapOptionSnapshot(v);
+  }
+
+  // Map latest_bars (already mostly numeric, just normalise tradeCount)
+  const latest_bars: Record<string, OptionBar[]> = {};
+  for (const [k, v] of Object.entries(raw.latest_bars || {})) {
+    if (k === '_meta' || !Array.isArray(v)) continue;
+    latest_bars[k] = (v as any[]).map((b) => ({
+      timestamp: b.timestamp,
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volume,
+      tradeCount: b.trade_count ?? b.tradeCount ?? 0,
+      vwap: b.vwap,
+    }));
+  }
+
+  // Map history — actual shape has { timestamp, underlying, num_contracts, snapshots: [...] }
+  const history: OptionsHistoryEntry[] = (raw.history || []).map((h: any) => ({
+    timestamp: h.timestamp,
+    underlying: h.underlying ?? raw.underlying,
+    numContracts: h.num_contracts ?? h.numContracts ?? 0,
+    snapshots: (h.snapshots || []).map(mapOptionSnapshot),
+  }));
+
+  return {
+    timestamp: raw.timestamp,
+    underlying: raw.underlying,
+    blob_key: raw.blob_key,
+    latest_chain,
+    latest_bars,
+    history_count: raw.history_count ?? 0,
+    history,
+  };
+}
+
+function mapMarketQuotesBlob(raw: any): MarketQuotesBlob {
+  const latest_quotes: Record<string, MarketQuote> = {};
+  for (const [k, v] of Object.entries(raw.latest_quotes || {})) {
+    if (k === '_meta') continue;
+    latest_quotes[k] = mapMarketQuote(v);
+  }
+
+  const history: MarketQuotesHistoryEntry[] = (raw.history || []).map((h: any) => {
+    const quotes: Record<string, MarketQuote> = {};
+    for (const [k, v] of Object.entries(h.quotes || {})) {
+      if (k === '_meta') continue;
+      quotes[k] = mapMarketQuote(v);
+    }
+    return { timestamp: h.timestamp, quotes };
+  });
+
+  return {
+    timestamp: raw.timestamp,
+    blob_key: raw.blob_key,
+    latest_quotes,
+    history_count: raw.history_count ?? 0,
+    history,
+  };
+}
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -126,7 +244,8 @@ export async function getLatestOptionsChain(symbol: string): Promise<OptionsChai
   if (keys.length === 0) return null;
   // Keys are timestamp-sorted; last is most recent
   const latestKey = keys[keys.length - 1];
-  return getBlob<OptionsChainBlob>('options-chain', latestKey);
+  const raw = await getBlob<unknown>('options-chain', latestKey);
+  return mapOptionsChainBlob(raw);
 }
 
 /** Fetch the latest market-quotes blob. */
@@ -134,7 +253,8 @@ export async function getLatestMarketQuotes(): Promise<MarketQuotesBlob | null> 
   const keys = await listBlobKeys('market-quotes');
   if (keys.length === 0) return null;
   const latestKey = keys[keys.length - 1];
-  return getBlob<MarketQuotesBlob>('market-quotes', latestKey);
+  const raw = await getBlob<unknown>('market-quotes', latestKey);
+  return mapMarketQuotesBlob(raw);
 }
 
 /** List available option symbols (top-level prefixes in options-chain). */
