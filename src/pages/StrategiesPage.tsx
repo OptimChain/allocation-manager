@@ -3,6 +3,7 @@ import { FileText, Download } from 'lucide-react';
 import WeekendMomentum from '../components/WeekendMomentum';
 import NewsStraddle from '../components/NewsStraddle';
 import MarketDepth from '../components/MarketDepth';
+import ConfoundingAnalysis from '../components/ConfoundingAnalysis';
 
 const TABS = [
   { id: 'market-depth', label: 'Market Depth' },
@@ -78,6 +79,9 @@ export default function StrategiesPage() {
               </div>
             </div>
           </div>
+
+          {/* Confounding factor analysis */}
+          <ConfoundingAnalysis />
         </div>
       )}
       {activeTab === 'weekend-momentum' && <WeekendMomentum />}
