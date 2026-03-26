@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import WeekendMomentum from '../components/WeekendMomentum';
+import VolatilityPuts from '../components/VolatilityPuts';
+import NewsStraddle from '../components/NewsStraddle';
 
 const TABS = [
   { id: 'weekend-momentum', label: 'Weekend Momentum' },
+  { id: 'volatility-puts', label: 'Volatility Puts' },
+  { id: 'news-straddle', label: 'News Straddle' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -19,12 +23,12 @@ export default function StrategiesPage() {
 
       {/* Sub-tabs */}
       <div className="border-b border-gray-200 dark:border-zinc-800 mb-8">
-        <nav className="flex gap-6">
+        <nav className="flex gap-6 overflow-x-auto">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
@@ -38,6 +42,8 @@ export default function StrategiesPage() {
 
       {/* Tab content */}
       {activeTab === 'weekend-momentum' && <WeekendMomentum />}
+      {activeTab === 'volatility-puts' && <VolatilityPuts />}
+      {activeTab === 'news-straddle' && <NewsStraddle />}
     </div>
   );
 }
