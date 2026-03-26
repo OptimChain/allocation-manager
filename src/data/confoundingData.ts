@@ -1,0 +1,53 @@
+export const CHART_DATA = [
+  { factor: 'None (Raw)', threeMonth: 0.494, sixMonth: 0.453, twelveMonth: 0.455 },
+  { factor: 'VIX', threeMonth: 0.254, sixMonth: 0.207, twelveMonth: 0.204 },
+  { factor: 'DXY', threeMonth: 0.484, sixMonth: 0.446, twelveMonth: 0.458 },
+  { factor: '10Y Yield', threeMonth: 0.513, sixMonth: 0.457, twelveMonth: 0.452 },
+  { factor: '2Y Yield', threeMonth: 0.493, sixMonth: 0.458, twelveMonth: 0.435 },
+  { factor: '2s10s Spread', threeMonth: 0.503, sixMonth: 0.454, twelveMonth: 0.451 },
+  { factor: 'Oil-Geo Risk', threeMonth: 0.475, sixMonth: 0.438, twelveMonth: 0.442 },
+  { factor: 'All Controls', threeMonth: 0.282, sixMonth: 0.205, twelveMonth: 0.206 },
+];
+
+export const FACTOR_YEARLY_DATA = [
+  {
+    year: '2022',
+    vix: '19.6 - 36.5',
+    dxy: '95.7 - 114.8',
+    ust10y: '1.51% - 4.25%',
+    ust2y: '0.73% - 4.72%',
+    spread2s10s: '-0.84% to +0.89%',
+    wtiCrude: '$71 - $124',
+    btcIwnCorr: '+0.72',
+  },
+  {
+    year: '2023',
+    vix: '12.5 - 26.5',
+    dxy: '99.6 - 107.3',
+    ust10y: '3.30% - 5.00%',
+    ust2y: '3.82% - 5.12%',
+    spread2s10s: '-1.08% to -0.15%',
+    wtiCrude: '$64 - $94',
+    btcIwnCorr: '+0.41',
+  },
+  {
+    year: '2024',
+    vix: '11.9 - 38.6',
+    dxy: '100.4 - 108.5',
+    ust10y: '3.62% - 4.73%',
+    ust2y: '3.55% - 4.97%',
+    spread2s10s: '-0.50% to +0.22%',
+    wtiCrude: '$66 - $87',
+    btcIwnCorr: '+0.45',
+  },
+  {
+    year: '2025 (YTD)',
+    vix: '14.8 - 29.2',
+    dxy: '103.2 - 109.9',
+    ust10y: '4.15% - 4.79%',
+    ust2y: '3.89% - 4.38%',
+    spread2s10s: '+0.12% to +0.50%',
+    wtiCrude: '$65 - $80',
+    btcIwnCorr: '+0.49',
+  },
+];
