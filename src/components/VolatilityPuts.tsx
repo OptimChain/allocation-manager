@@ -8,6 +8,24 @@ const PDF_URL =
 export default function VolatilityPuts() {
   return (
     <div className="space-y-8">
+      {/* White Paper Link */}
+      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
+        <a
+          href={PDF_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          <FileText className="w-5 h-5 shrink-0" />
+          <div>
+            <p className="font-medium">IWN Volatility Analysis &mdash; Full White Paper (PDF)</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Detailed methodology: variance metrics, hedge selection, confounding analysis, and backtest results.
+            </p>
+          </div>
+        </a>
+      </div>
+
       {/* Confounding Analysis Chart */}
       <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
@@ -94,23 +112,6 @@ export default function VolatilityPuts() {
         </div>
       </div>
 
-      {/* White Paper Link */}
-      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-        <a
-          href={PDF_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 text-blue-600 dark:text-blue-400 hover:underline"
-        >
-          <FileText className="w-5 h-5 shrink-0" />
-          <div>
-            <p className="font-medium">IWN Volatility Analysis &mdash; Full White Paper (PDF)</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Detailed methodology: variance metrics, hedge selection, confounding analysis, and backtest results.
-            </p>
-          </div>
-        </a>
-      </div>
     </div>
   );
 }
