@@ -46,29 +46,29 @@ interface TermStructureSnapshot {
   source: 'blob' | 'live';
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-interface RobinhoodChainResponse {
+interface AlpacaChainResponse {
   symbol: string;
   timestamp: string;
-  expirationDates: string[];
-  expiries: Array<{
+  contractCount: number;
+  contracts: Array<{
+    symbol: string;
+    underlying: string;
     expiry: string;
-    contracts: Array<{
-      strike: number;
-      expiry: string;
-      type: string;
-      iv: number;
-      delta: number | null;
-      mark: number | null;
-      bid: number;
-      ask: number;
-      volume: number;
-      openInterest: number;
-    }>;
+    strike: number;
+    type: string;
+    iv: number | null;
+    delta: number | null;
+    gamma: number | null;
+    theta: number | null;
+    vega: number | null;
+    rho: number | null;
+    bid: number;
+    ask: number;
+    mark: number | null;
+    volume: number;
+    quoteTimestamp: string | null;
   }>;
-  totalContracts: number;
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 type DataSource = 'blob' | 'live';
 
@@ -162,19 +162,25 @@ function extractTermStructure(blob: OptionsChainBlob, snapshotDate: string): Exp
   return result;
 }
 
-/** Extract term structure from live Robinhood chain response. */
-function extractTermStructureLive(data: RobinhoodChainResponse): ExpiryIV[] {
+/** Extract term structure from Alpaca chain response. */
+function extractTermStructureLive(data: AlpacaChainResponse): ExpiryIV[] {
   const today = new Date().toISOString().slice(0, 10);
+
+  // Group contracts by expiry
+  const byExpiry = new Map<string, typeof data.contracts>();
+  for (const c of data.contracts) {
+    if (c.iv == null || c.iv <= 0) continue;
+    const group = byExpiry.get(c.expiry) || [];
+    group.push(c);
+    byExpiry.set(c.expiry, group);
+  }
+
   const result: ExpiryIV[] = [];
-
-  for (const expiryGroup of data.expiries) {
-    const contracts = expiryGroup.contracts;
-    if (contracts.length === 0) continue;
-
-    const dte = daysBetween(today, expiryGroup.expiry);
+  for (const [expiry, contracts] of byExpiry) {
+    const dte = daysBetween(today, expiry);
     if (dte <= 0) continue;
 
-    const ivs = contracts.map((c) => c.iv * 100);
+    const ivs = contracts.map((c) => c.iv! * 100);
     const avgIV = ivs.reduce((a, b) => a + b, 0) / ivs.length;
 
     // Find ATM: contract with delta closest to -0.50
@@ -185,12 +191,12 @@ function extractTermStructureLive(data: RobinhoodChainResponse): ExpiryIV[] {
       const dist = Math.abs(Math.abs(c.delta) - 0.5);
       if (dist < bestDist) {
         bestDist = dist;
-        atmIV = c.iv * 100;
+        atmIV = c.iv! * 100;
       }
     }
 
     result.push({
-      expiry: expiryGroup.expiry,
+      expiry,
       dte,
       avgIV: Math.round(avgIV * 10) / 10,
       atmIV: atmIV !== null ? Math.round(atmIV * 10) / 10 : null,
@@ -210,9 +216,9 @@ function checkInversion(expiries: ExpiryIV[]): boolean {
   return shortIV > longIV;
 }
 
-async function fetchLiveChain(symbol: string): Promise<RobinhoodChainResponse> {
+async function fetchLiveChain(symbol: string): Promise<AlpacaChainResponse> {
   const res = await fetch(
-    `/.netlify/functions/robinhood-portfolio?action=chain&symbol=${encodeURIComponent(symbol)}&type=put`,
+    `/.netlify/functions/alpaca-options?action=chain&symbol=${encodeURIComponent(symbol)}&type=put`,
   );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -431,7 +437,7 @@ export default function IVTermStructure() {
               }`}
             >
               <Radio className="w-3 h-3 inline mr-1" />
-              Live (Robinhood)
+              Live (Alpaca)
             </button>
             <button
               onClick={() => setDataSource('blob')}
@@ -535,9 +541,9 @@ export default function IVTermStructure() {
       {error && (
         <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg p-4">
           <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
-          {error.includes('authenticated') && (
+          {error.includes('ALPACA') && (
             <p className="text-xs text-red-500 mt-1">
-              Connect to Robinhood via the Trade tab first, or switch to Historical Snapshots.
+              Alpaca API credentials may not be configured. Try Historical Snapshots instead.
             </p>
           )}
         </div>
