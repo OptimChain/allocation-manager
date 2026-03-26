@@ -3,6 +3,7 @@ import { FileText, Download } from 'lucide-react';
 import WeekendMomentum from '../components/WeekendMomentum';
 import NewsStraddle from '../components/NewsStraddle';
 import MarketDepth from '../components/MarketDepth';
+import IVTermStructure from '../components/IVTermStructure';
 
 const TABS = [
   { id: 'market-depth', label: 'Market Depth' },
@@ -78,6 +79,7 @@ export default function StrategiesPage() {
               </div>
             </div>
           </div>
+          <IVTermStructure />
         </div>
       )}
       {activeTab === 'weekend-momentum' && <WeekendMomentum />}
