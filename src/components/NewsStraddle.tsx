@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   RefreshCw,
   Zap,
+  Fuel,
+  Globe,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { getTimeSeries, NormalizedPriceData } from '../services/twelveDataService';
@@ -513,6 +515,104 @@ export default function NewsStraddle() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Oil & Geopolitical Risk Events */}
+      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-zinc-900">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Fuel className="w-4 h-4 text-orange-500" />
+            Oil &amp; Geopolitical Risk Events
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Upcoming and recent events that may trigger volatility across BTC, IWN, and energy
+          </p>
+        </div>
+        <div className="divide-y divide-gray-100 dark:divide-zinc-900">
+          {[
+            {
+              category: 'OPEC+',
+              event: 'OPEC+ output unwind — phased 2.2M bpd increase through Q3 2025',
+              impact: 'negative',
+              timing: 'Apr–Sep 2025',
+              detail: 'Bearish for crude; lower energy earnings weigh on IWN small-cap energy names. Risk-off spill to BTC if recession fears rise.',
+            },
+            {
+              category: 'Geopolitical',
+              event: 'Russia-Ukraine ceasefire negotiations — mineral/energy deal contingencies',
+              impact: 'neutral',
+              timing: 'Q2 2025',
+              detail: 'Ceasefire would ease European gas prices and reduce VIX, potentially decoupling BTC-IWN briefly as risk premia compress unevenly.',
+            },
+            {
+              category: 'Middle East',
+              event: 'Iran nuclear deal / sanctions re-escalation risk',
+              impact: 'negative',
+              timing: 'Ongoing',
+              detail: 'Sanctions snap-back removes ~1.5M bpd from market. Brent spike to $90+ would lift IWN energy but hurt small-cap discretionary. BTC typically sells off on geopolitical shocks.',
+            },
+            {
+              category: 'Trade',
+              event: 'US-China tariff escalation — reciprocal tariffs on energy imports',
+              impact: 'negative',
+              timing: 'Apr 2025',
+              detail: 'Supply chain disruption increases oil vol and small-cap uncertainty. BTC correlation to equities tends to spike during tariff announcements (ρ > 0.7).',
+            },
+            {
+              category: 'Supply',
+              event: 'US SPR refill program — 180M barrel buyback at $72 target',
+              impact: 'positive',
+              timing: 'Q2–Q3 2025',
+              detail: 'Floor under WTI prices supports IWN energy sector. Reduced fiscal headwinds modestly positive for risk assets including BTC.',
+            },
+            {
+              category: 'Geopolitical',
+              event: 'Red Sea / Houthi shipping disruptions — insurance premiums elevated',
+              impact: 'negative',
+              timing: 'Ongoing',
+              detail: 'Freight costs add 2-3% to import prices. Small-cap importers in IWN disproportionately affected. BTC largely unaffected directly but correlated via VIX channel.',
+            },
+            {
+              category: 'Climate',
+              event: 'Hurricane season — Gulf of Mexico production risk (Jun–Nov)',
+              impact: 'neutral',
+              timing: 'Jun–Nov 2025',
+              detail: 'Temporary WTI spikes of 5-10% during major storms. IWN energy names benefit short-term. Historically uncorrelated with BTC.',
+            },
+          ].map((item, i) => (
+            <div key={i} className="px-6 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Globe className="w-4 h-4 text-gray-400" />
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      item.category === 'OPEC+' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+                      item.category === 'Geopolitical' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                      item.category === 'Middle East' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                      item.category === 'Trade' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                      item.category === 'Supply' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                      'bg-gray-100 text-gray-600 dark:bg-zinc-800 dark:text-gray-400'
+                    }`}>
+                      {item.category}
+                    </span>
+                    <h4 className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2">
+                      {item.event}
+                    </h4>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">
+                    {item.detail}
+                  </p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                      {item.timing}
+                    </span>
+                    <ImpactBadge impact={item.impact} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
