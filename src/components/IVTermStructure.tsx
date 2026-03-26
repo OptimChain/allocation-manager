@@ -737,8 +737,6 @@ export default function IVTermStructure() {
         <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
           <p><strong>Inverted term structure</strong> = near-term put IV &gt; longer-dated put IV. This is unusual and typically signals near-term fear or event risk (earnings, FOMC, etc.).</p>
           <p><strong>Calendar put spread opportunity:</strong> When the curve is inverted, sell the expensive short-dated puts and buy the cheaper long-dated puts. You profit as short-dated IV mean-reverts down faster than long-dated IV.</p>
-          <p><strong>ATM IV</strong> — Live mode uses the put with delta closest to -0.50. Historical mode uses the put closest to the median traded strike.</p>
-          <p><strong>Data sources:</strong> Live pulls all expiry dates from Robinhood options chain API. Historical uses Alpaca snapshots (2 expiries per blob) via Netlify Blobs.</p>
         </div>
       </div>
     </div>
