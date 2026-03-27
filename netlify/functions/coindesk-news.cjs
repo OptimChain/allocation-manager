@@ -3,8 +3,10 @@
 // Supports filtering for specific keywords like "microstrategy", "strategy"
 // In-memory cache to avoid rate-limiting (429s)
 
-const COINDESK_API = 'https://data-api.coindesk.com/news/v1/article/list';
-const BLOB_STORE = 'news-articles';
+const { getConfig } = require('../../common/config.cjs');
+const _cfg = getConfig();
+const COINDESK_API = _cfg.apis.coindesk;
+const BLOB_STORE = _cfg.blob_stores.news_articles;
 const API_KEY = process.env.COINDESK_API_KEY;
 
 // Cache keyed by query params, lives across invocations within the same Lambda container

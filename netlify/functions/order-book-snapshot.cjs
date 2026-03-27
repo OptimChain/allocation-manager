@@ -6,10 +6,11 @@
 // the most recent blob that has complete BTC metrics (walking backwards
 // if the latest snapshot has NO_DATA).
 
-// 5thstreetcapital Netlify site ID
-const ORDER_BOOK_SITE_ID = '3d014fc3-e919-4b4d-b374-e8606dee50df';
-const BLOBS_API_BASE = 'https://api.netlify.com/api/v1/blobs';
-const STORE_NAME = 'state-logs';
+const { getConfig } = require('../../common/config.cjs');
+const config = getConfig();
+const ORDER_BOOK_SITE_ID = config.netlify.order_book_site_id;
+const BLOBS_API_BASE = config.netlify.blobs_api_base;
+const STORE_NAME = config.blob_stores.state_logs;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

@@ -1,7 +1,9 @@
 // Robinhood API Service
 // Connects to Netlify functions for Robinhood data
 
-const API_BASE = '/.netlify/functions';
+import endpoints from 'virtual:endpoints';
+
+const API_BASE = endpoints.netlify.functions_base;
 
 // Auth types
 export interface AuthStatus {

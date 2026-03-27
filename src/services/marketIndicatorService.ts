@@ -1,7 +1,9 @@
 // Market Indicator Service
 // Fetches and calculates IV z-score, ETF flows, 200-week MA, historical vol
 
-const TWELVE_DATA_API = 'https://api.twelvedata.com';
+import endpoints from 'virtual:endpoints';
+
+const TWELVE_DATA_API = endpoints.apis.twelve_data;
 const BTC_ETFS = ['BTC'];
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ async function fetchOHLCV(
 
 async function fetchDeribitDVOL(days: number): Promise<DVOLDataPoint[]> {
   try {
-    const response = await fetch(`/.netlify/functions/deribit-dvol?days=${days}`);
+    const response = await fetch(`${endpoints.netlify.functions_base}/deribit-dvol?days=${days}`);
     if (!response.ok) return [];
     const json = await response.json();
     if (!json.data) return [];

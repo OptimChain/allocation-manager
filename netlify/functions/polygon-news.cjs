@@ -2,8 +2,10 @@
 // Proxies market news requests to Polygon.io API
 // In-memory cache to avoid rate-limiting (429s)
 
-const POLYGON_API = 'https://api.polygon.io/v2/reference/news';
-const BLOB_STORE = 'news-articles';
+const { getConfig } = require('../../common/config.cjs');
+const _cfg = getConfig();
+const POLYGON_API = _cfg.apis.polygon;
+const BLOB_STORE = _cfg.blob_stores.news_articles;
 const API_KEY = process.env.POLYGON_API_KEY;
 
 // Cache keyed by query params, lives across invocations within the same Lambda container

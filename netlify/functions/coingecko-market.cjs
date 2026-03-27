@@ -13,8 +13,11 @@ const corsHeaders = {
 let cache = { data: null, source: null, timestamp: 0 };
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
+const { getConfig } = require('../../common/config.cjs');
+const _cfg = getConfig();
+
 async function fetchFromCoinCap() {
-  const response = await fetch('https://api.coincap.io/v2/assets/bitcoin');
+  const response = await fetch(_cfg.apis.coincap);
   if (!response.ok) throw new Error(`CoinCap ${response.status}`);
   const { data } = await response.json();
   return {
@@ -25,7 +28,7 @@ async function fetchFromCoinCap() {
 
 async function fetchFromCoinGecko() {
   const response = await fetch(
-    'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true'
+    `${_cfg.apis.coingecko}/simple/price?ids=bitcoin&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true`
   );
   if (!response.ok) throw new Error(`CoinGecko ${response.status}`);
   const data = await response.json();

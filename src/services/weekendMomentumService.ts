@@ -1,7 +1,9 @@
 // Weekend Momentum Strategy Service
 // Fetches BTC/USD daily history and computes weekend metrics
 
-const TWELVE_DATA_API = 'https://api.twelvedata.com';
+import endpoints from 'virtual:endpoints';
+
+const TWELVE_DATA_API = endpoints.apis.twelve_data;
 
 interface DailyBar {
   datetime: string;

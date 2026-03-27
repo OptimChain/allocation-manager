@@ -3,13 +3,17 @@
  * Audit: match orders between Redis and latest blob by order_id.
  * Sends a Slack alert if they diverge.
  *
- * Env vars: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID, REDIS_HOST, REDIS_PASSWORD, SLACK_WEBHOOK_URL
+ * Env vars: NETLIFY_AUTH_TOKEN, NETLIFY_SITE_ID, REDIS_HOST, REDIS_PASSWORD,
+ *           SLACK_WEBHOOK_URL, BLOB_STORE (default: order-book)
  */
 
 const https = require('https');
 const { createClient } = require('redis');
+const { getConfig } = require('../common/config.cjs');
 
-const BLOBS_BASE = 'https://api.netlify.com/api/v1/blobs';
+const config = getConfig();
+const BLOBS_BASE = config.netlify.blobs_api_base;
+const BLOB_STORE = process.env.BLOB_STORE || config.blob_stores.order_book;
 
 function env(name, required = true) {
   const val = process.env[name];
@@ -73,11 +77,11 @@ async function getBlobOrders() {
   const siteId = env('NETLIFY_SITE_ID');
   const headers = { 'Authorization': `Bearer ${token}` };
 
-  const list = await httpGet(`${BLOBS_BASE}/${siteId}/order-book?prefix=`, headers);
+  const list = await httpGet(`${BLOBS_BASE}/${siteId}/${BLOB_STORE}?prefix=`, headers);
   const keys = (list.blobs || []).map(b => b.key).sort().reverse();
-  if (keys.length === 0) throw new Error('No blobs in order-book');
+  if (keys.length === 0) throw new Error(`No blobs in ${BLOB_STORE}`);
 
-  const blob = await httpGet(`${BLOBS_BASE}/${siteId}/order-book/${encodeURIComponent(keys[0])}`, headers);
+  const blob = await httpGet(`${BLOBS_BASE}/${siteId}/${BLOB_STORE}/${encodeURIComponent(keys[0])}`, headers);
 
   const orders = {};
   for (const o of (blob.recent_orders || [])) {
@@ -90,6 +94,7 @@ async function getBlobOrders() {
 }
 
 async function main() {
+  console.log(`Auditing blob store: ${BLOB_STORE}`);
   const redisOrders = await getRedisOrders();
   const { orders: blobOrders, blobKey } = await getBlobOrders();
 
