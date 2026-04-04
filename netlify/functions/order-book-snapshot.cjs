@@ -119,10 +119,19 @@ async function fetchSnapshot() {
     }
   }
 
+  const portfolio = latest.portfolio || {};
   return {
     timestamp: latest.timestamp,
-    portfolio: latest.portfolio,
-    order_book: latest.order_book,
+    portfolio: {
+      cash: portfolio.cash || { cash: 0, cash_available_for_withdrawal: 0, buying_power: 0, tradeable_cash: 0 },
+      equity: portfolio.equity || 0,
+      market_value: portfolio.market_value || 0,
+      positions: portfolio.positions || [],
+      open_orders: portfolio.open_orders || [],
+      open_option_orders: portfolio.open_option_orders || [],
+      options: portfolio.options || [],
+    },
+    order_book: latest.order_book || [],
     recent_orders: latest.recent_orders || [],
     recent_option_orders: latest.recent_option_orders || [],
     market_data: marketData,
