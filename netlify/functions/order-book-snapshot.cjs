@@ -10,6 +10,7 @@
 const ORDER_BOOK_SITE_ID = '3d014fc3-e919-4b4d-b374-e8606dee50df';
 const BLOBS_API_BASE = 'https://api.netlify.com/api/v1/blobs';
 const STORE_NAME = 'state-logs';
+const STORE_NAME_HISTORICAL = 'state-logs-historical';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,9 +25,9 @@ function hasCompleteMetrics(snapshot) {
   return m.current_price != null && m.intraday_high != null && m.intraday_low != null;
 }
 
-async function fetchBlob(token, key) {
+async function fetchBlob(token, key, storeName) {
   const res = await fetch(
-    `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${STORE_NAME}/${encodeURIComponent(key)}`,
+    `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${storeName}/${encodeURIComponent(key)}`,
     { headers: { 'Authorization': `Bearer ${token}` } }
   );
   if (!res.ok) {
@@ -35,12 +36,12 @@ async function fetchBlob(token, key) {
   return res.json();
 }
 
-async function listAllBlobKeys(token) {
+async function listAllBlobKeys(token, storeName) {
   const allKeys = [];
   let cursor = null;
 
   while (true) {
-    let url = `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${STORE_NAME}`;
+    let url = `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${storeName}`;
     if (cursor) {
       url += `?cursor=${encodeURIComponent(cursor)}`;
     }
@@ -49,7 +50,7 @@ async function listAllBlobKeys(token) {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (!res.ok) {
-      throw new Error(`Failed to list ${STORE_NAME} blobs: ${res.status}`);
+      throw new Error(`Failed to list ${storeName} blobs: ${res.status}`);
     }
 
     const data = await res.json();
@@ -71,7 +72,16 @@ async function fetchSnapshot() {
     throw new Error('NETLIFY_AUTH_TOKEN not configured');
   }
 
-  const allKeys = await listAllBlobKeys(token);
+  let allKeys = await listAllBlobKeys(token, STORE_NAME);
+  let activeStore = STORE_NAME;
+
+  // Fall back to historical store if primary is empty
+  if (allKeys.length === 0) {
+    console.log('Primary state-logs store empty, falling back to state-logs-historical');
+    allKeys = await listAllBlobKeys(token, STORE_NAME_HISTORICAL);
+    activeStore = STORE_NAME_HISTORICAL;
+  }
+
   if (allKeys.length === 0) {
     throw new Error('No state-logs snapshots found');
   }
@@ -80,7 +90,7 @@ async function fetchSnapshot() {
   const sortedKeys = allKeys.sort().reverse();
 
   // Fetch the latest blob — always used for portfolio + order_book
-  const latest = await fetchBlob(token, sortedKeys[0]);
+  const latest = await fetchBlob(token, sortedKeys[0], activeStore);
 
   // Build market_data from the latest blob with complete BTC metrics
   let marketData = null;
@@ -95,7 +105,7 @@ async function fetchSnapshot() {
     const maxLookback = Math.min(sortedKeys.length, 6); // skip index 0 (already checked)
     for (let i = 1; i < maxLookback; i++) {
       try {
-        const older = await fetchBlob(token, sortedKeys[i]);
+        const older = await fetchBlob(token, sortedKeys[i], activeStore);
         if (hasCompleteMetrics(older)) {
           marketData = {
             timestamp: older.timestamp,
@@ -109,10 +119,19 @@ async function fetchSnapshot() {
     }
   }
 
+  const portfolio = latest.portfolio || {};
   return {
     timestamp: latest.timestamp,
-    portfolio: latest.portfolio,
-    order_book: latest.order_book,
+    portfolio: {
+      cash: portfolio.cash || { cash: 0, cash_available_for_withdrawal: 0, buying_power: 0, tradeable_cash: 0 },
+      equity: portfolio.equity || 0,
+      market_value: portfolio.market_value || 0,
+      positions: portfolio.positions || [],
+      open_orders: portfolio.open_orders || [],
+      open_option_orders: portfolio.open_option_orders || [],
+      options: portfolio.options || [],
+    },
+    order_book: latest.order_book || [],
     recent_orders: latest.recent_orders || [],
     recent_option_orders: latest.recent_option_orders || [],
     market_data: marketData,
