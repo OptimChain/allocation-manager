@@ -1,4 +1,4 @@
-const { handler } = require('./vend-blobs.cjs');
+const { handler } = require('../../netlify/functions/vend-blobs.cjs');
 
 // ── Mock fetch globally ────────────────────────────────────
 const mockResponses = new Map();

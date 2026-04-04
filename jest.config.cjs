@@ -12,7 +12,7 @@ module.exports = {
     {
       displayName: 'backend',
       testEnvironment: 'node',
-      testMatch: ['<rootDir>/netlify/**/*.test.cjs'],
+      testMatch: ['<rootDir>/tests/backend/**/*.test.cjs'],
     },
   ],
 };
