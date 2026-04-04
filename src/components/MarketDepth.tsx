@@ -20,11 +20,8 @@ import { RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import {
   listOptionSymbols,
-  getLatestOptionsChain,
-  getLatestMarketQuotes,
-  listOptionsChainDates,
-  getOptionsChainByDate,
-  getMarketQuotesByDate,
+  listDates,
+  getMarketData,
   type OptionsChainBlob,
   type MarketQuotesBlob,
   type OptionSnapshot,
@@ -125,7 +122,7 @@ function extractQuoteTimeSeries(blob: MarketQuotesBlob, symbol: string): QuoteTi
   }
 
   // Latest quote
-  const latest = blob.latest_quotes[symbol] as MarketQuote | undefined;
+  const latest = blob.latestQuotes[symbol] as MarketQuote | undefined;
   if (latest && typeof latest.mid === 'number') {
     const time = new Date(latest.timestamp).getTime();
     if (!isNaN(time)) {
@@ -149,7 +146,7 @@ function extractQuoteTimeSeries(blob: MarketQuotesBlob, symbol: string): QuoteTi
 
 function extractIVSmile(blob: OptionsChainBlob): IVSmilePoint[] {
   const points: IVSmilePoint[] = [];
-  const chain = blob.latest_chain || {};
+  const chain = blob.latestChain || {};
 
   for (const [key, val] of Object.entries(chain)) {
     if (key === '_meta') continue;
@@ -174,7 +171,7 @@ function extractIVSmile(blob: OptionsChainBlob): IVSmilePoint[] {
 
 function extractGreeksTable(blob: OptionsChainBlob): GreeksRow[] {
   const rows: GreeksRow[] = [];
-  const chain = blob.latest_chain || {};
+  const chain = blob.latestChain || {};
 
   for (const [key, val] of Object.entries(chain)) {
     if (key === '_meta') continue;
@@ -318,7 +315,7 @@ export default function MarketDepth() {
     let cancelled = false;
     async function load() {
       try {
-        const dates = await listOptionsChainDates(selectedSymbol);
+        const dates = await listDates(selectedSymbol);
         if (!cancelled) {
           setAvailableDates(dates);
           setSelectedDate('latest');
@@ -340,20 +337,10 @@ export default function MarketDepth() {
       setLoading(true);
       setError(null);
       try {
-        let options: OptionsChainBlob | null;
-        let quotes: MarketQuotesBlob | null;
-
-        if (selectedDate === 'latest') {
-          [options, quotes] = await Promise.all([
-            getLatestOptionsChain(selectedSymbol),
-            getLatestMarketQuotes(),
-          ]);
-        } else {
-          [options, quotes] = await Promise.all([
-            getOptionsChainByDate(selectedSymbol, selectedDate),
-            getMarketQuotesByDate(selectedDate),
-          ]);
-        }
+        const { options, quotes } = await getMarketData(
+          selectedSymbol,
+          selectedDate === 'latest' ? undefined : selectedDate,
+        );
         if (!cancelled) {
           setOptionsBlob(options);
           setQuotesBlob(quotes);
@@ -485,8 +472,8 @@ export default function MarketDepth() {
         {optionsBlob && (
           <p className="text-xs text-gray-400 dark:text-gray-500">
             Snapshot: {new Date(optionsBlob.timestamp).toLocaleString()} &middot;{' '}
-            {Object.keys(optionsBlob.latest_chain || {}).filter((k) => k !== '_meta').length} contracts &middot;{' '}
-            {optionsBlob.history_count} history entries
+            {Object.keys(optionsBlob.latestChain || {}).filter((k) => k !== '_meta').length} contracts &middot;{' '}
+            {optionsBlob.historyCount} history entries
           </p>
         )}
       </div>
