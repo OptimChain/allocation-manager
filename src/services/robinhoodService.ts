@@ -358,6 +358,7 @@ export interface OptionsSummary {
 export interface SnapshotOptionOrder {
   order_id: string;
   symbol?: string;
+  chain_symbol?: string;
   direction: string;
   state: string;
   quantity: number;

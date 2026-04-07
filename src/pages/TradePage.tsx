@@ -559,16 +559,18 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                         </div>
                       )}
                       {openOptionOrders.map(order => {
-                        const leg  = order.legs?.[0];
-                        const isBuy = leg?.side === 'BUY';
+                        const leg   = order.legs?.[0];
+                        const side  = (leg?.side || '').toUpperCase();
+                        const isBuy = side === 'BUY';
+                        const ticker = order.chain_symbol || leg?.chain_symbol || '?';
                         return (
                           <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50">
                             <div className="flex items-start gap-3">
                               {isBuy ? <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{leg?.side}</span>
-                                  <span className="font-medium text-gray-900">{leg?.chain_symbol || '?'}</span>
+                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{side}</span>
+                                  <span className="font-medium text-gray-900">{ticker}</span>
                                   {leg?.option_type && (
                                     <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${leg.option_type === 'call' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{leg.option_type.toUpperCase()}</span>
                                   )}
@@ -668,16 +670,18 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
               </div>
               <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
                 {recent_option_orders.map(order => {
-                  const leg   = order.legs?.[0];
-                  const isBuy = leg?.side === 'BUY';
+                  const leg    = order.legs?.[0];
+                  const side   = (leg?.side || '').toUpperCase();
+                  const isBuy  = side === 'BUY';
+                  const ticker = order.chain_symbol || leg?.chain_symbol || '?';
                   return (
                     <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50">
                       <div className="flex items-start gap-3">
                         {isBuy ? <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{leg?.side}</span>
-                            <span className="font-medium text-gray-900">{leg?.chain_symbol || '?'}</span>
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{side}</span>
+                            <span className="font-medium text-gray-900">{ticker}</span>
                             {leg?.option_type && (
                               <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${leg.option_type === 'call' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{leg.option_type.toUpperCase()}</span>
                             )}
