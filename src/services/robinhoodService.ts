@@ -425,9 +425,9 @@ export function formatPercent(value: number): string {
 
 // Get color class based on value
 export function getGainColor(value: number): string {
-  if (value > 0) return 'text-green-600';
-  if (value < 0) return 'text-red-600';
-  return 'text-gray-600';
+  if (value > 0) return 'text-green-600 dark:text-green-400';
+  if (value < 0) return 'text-red-600 dark:text-red-400';
+  return 'text-gray-600 dark:text-gray-400';
 }
 
 // Get background color class based on value

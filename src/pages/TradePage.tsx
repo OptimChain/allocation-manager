@@ -115,7 +115,7 @@ function PortfolioSummary({ portfolio }: { portfolio: EnrichedPortfolio }) {
           {formatCurrency(portfolio.cash.buying_power)}
         </div>
         {portfolio.margin_used > 0 && (
-          <div className="text-xs text-gray-700 mt-1">
+          <div className="text-xs text-gray-700 dark:text-gray-300 mt-1">
             Margin used: {formatCurrency(portfolio.margin_used)}
           </div>
         )}
@@ -166,7 +166,7 @@ function PortfolioAllocation({ portfolio }: { portfolio: EnrichedPortfolio }) {
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Portfolio Allocation</h3>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Portfolio Allocation</h3>
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
           <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value">
@@ -186,7 +186,7 @@ function PositionsTable({ portfolio }: { portfolio: EnrichedPortfolio }) {
   // Positions arrive pre-sorted by abs(profit_loss) from the backend
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Holdings</h3>
       </div>
       <div className="overflow-x-auto">
@@ -207,7 +207,7 @@ function PositionsTable({ portfolio }: { portfolio: EnrichedPortfolio }) {
                 </td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{pos.quantity.toFixed(4)}</td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{formatCurrency(pos.current_price)}</td>
-                <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(pos.avg_buy_price)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
                 <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
                 <td className="px-4 py-3 text-right">
                   <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>{formatCurrency(pos.profit_loss)}</div>
@@ -239,7 +239,7 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
         <Bot className="w-5 h-5 text-gray-500" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Bot Activity</h3>
       </div>
@@ -300,7 +300,7 @@ function OptionsPositions({ options, summary }: {
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
         <Activity className="w-5 h-5 text-gray-500" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Options</h3>
         <span className="text-sm text-gray-400 ml-auto">{summary.count} position{summary.count !== 1 ? 's' : ''}</span>
@@ -316,7 +316,7 @@ function OptionsPositions({ options, summary }: {
         ].map(([label, val, colored]) => (
           <div key={label as string}>
             <div className="text-xs text-gray-500">{label as string}</div>
-            <div className={`font-medium ${colored ? getGainColor(val as number) : 'text-gray-900'}`}>
+            <div className={`font-medium ${colored ? getGainColor(val as number) : 'text-gray-900 dark:text-gray-100'}`}>
               {formatCurrency(val as number)}
             </div>
           </div>
@@ -368,7 +368,7 @@ function OptionsPositions({ options, summary }: {
                   opt.greeks![greek] != null && (
                     <div key={greek} className="bg-gray-50 dark:bg-zinc-800 rounded p-2">
                       <div className="text-[10px] text-gray-400 uppercase">{greek}</div>
-                      <div className={`text-xs font-mono ${greek === 'theta' ? getGainColor(opt.greeks![greek]) : 'text-gray-900'}`}>
+                      <div className={`text-xs font-mono ${greek === 'theta' ? getGainColor(opt.greeks![greek]) : 'text-gray-900 dark:text-gray-100'}`}>
                         {greek === 'iv' ? `${(opt.greeks![greek] * 100).toFixed(1)}%` : opt.greeks![greek].toFixed(greek === 'gamma' || greek === 'rho' ? 4 : 3)}
                       </div>
                     </div>
@@ -478,7 +478,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Positions table — arrives pre-sorted */}
         <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-gray-500" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Positions</h3>
             <span className="text-sm text-gray-400 ml-auto">{portfolio.positions.length} holdings</span>
@@ -506,9 +506,9 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                         ? <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>{pos.percent_change >= 0 ? '+' : ''}{pos.percent_change.toFixed(2)}%</span>
                         : <span className="text-sm text-gray-400">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(pos.avg_buy_price)}</td>
+                    <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
-                    <td className="px-4 py-3 text-right text-sm text-gray-500">
+                    <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">
                       {pos.percentage != null ? `${pos.percentage.toFixed(1)}%` : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -526,7 +526,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
         <div className="space-y-6">
           {/* Open orders */}
           <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
-            <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
               <Receipt className="w-5 h-5 text-gray-500" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Open Orders</h3>
               <span className="text-sm text-gray-400 ml-auto">{openOrders.length + openOptionOrders.length}</span>
@@ -542,7 +542,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                   {openOrders.map(order => (
                     <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                       <div className="flex items-start gap-3">
-                        {order.side === 'BUY' ? <ArrowUpRight className="w-4 h-4 text-gray-700 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 mt-0.5" />}
+                        {order.side === 'BUY' ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className={`px-2 py-0.5 text-xs font-medium rounded ${order.side === 'BUY' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{order.side}</span>
@@ -570,7 +570,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                         return (
                           <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                             <div className="flex items-start gap-3">
-                              {isBuy ? <ArrowUpRight className="w-4 h-4 text-gray-700 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 mt-0.5" />}
+                              {isBuy ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{side}</span>
@@ -601,7 +601,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
           {/* 7d P&L — pre-computed by backend */}
           {(recentPnl.filled_count > 0 || optionPnl.filled_count > 0) && (
             <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
-              <div className="px-4 py-3 border-b border-gray-200">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700">
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
                   <span className="text-gray-500 font-semibold">7d P&amp;L</span>
                   <span className={`text-lg font-bold ${getGainColor(snapshot.combined_7d_pnl)}`}>{formatCurrency(snapshot.combined_7d_pnl)}</span>
@@ -635,7 +635,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
           {/* Historical stock orders */}
           {recent_orders.length > 0 && (
             <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
-              <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-gray-500" />
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Historical Orders</h3>
                 <span className="text-sm text-gray-400 ml-auto">{recent_orders.length}</span>
@@ -644,7 +644,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                 {recent_orders.map(order => (
                   <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                     <div className="flex items-start gap-3">
-                      {order.side === 'BUY' ? <ArrowUpRight className="w-4 h-4 text-gray-700 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 mt-0.5" />}
+                      {order.side === 'BUY' ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`px-2 py-0.5 text-xs font-medium rounded ${order.side === 'BUY' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{order.side}</span>
@@ -667,7 +667,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
           {/* Historical option orders */}
           {recent_option_orders.length > 0 && (
             <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
-              <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-gray-500" />
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Historical Option Orders</h3>
                 <span className="text-sm text-gray-400 ml-auto">{recent_option_orders.length}</span>
@@ -681,7 +681,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                   return (
                     <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                       <div className="flex items-start gap-3">
-                        {isBuy ? <ArrowUpRight className="w-4 h-4 text-gray-700 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 mt-0.5" />}
+                        {isBuy ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{side}</span>
@@ -742,7 +742,7 @@ function RealizedPnLSummary({ stock, option, periodLabel, openOrders }: {
         ].map(({ label, val, sub, colored, icon, currency = true }) => (
           <div key={label} className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
             <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">{icon}{label}</div>
-            <div className={`text-2xl font-bold ${colored ? getGainColor(val as number) : 'text-gray-900'}`}>
+            <div className={`text-2xl font-bold ${colored ? getGainColor(val as number) : 'text-gray-900 dark:text-gray-100'}`}>
               {currency ? `${formatCurrency(val as number)} ${sub ? `(${sub})` : ''}` : val}
             </div>
             {!currency && sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
@@ -763,7 +763,7 @@ function PnLBySymbolTable({ stock, option }: { stock: StockPnLResult; option: Op
 
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
         <Receipt className="w-5 h-5 text-gray-500" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Realized P&amp;L by Symbol</h3>
       </div>
@@ -783,8 +783,8 @@ function PnLBySymbolTable({ stock, option }: { stock: StockPnLResult; option: Op
                 <td className="px-4 py-3 text-xs text-gray-500">Stock</td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.buy_count}</td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.sell_count}</td>
-                <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(s.total_bought)}</td>
-                <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(s.total_sold)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_bought)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_sold)}</td>
                 <td className="px-4 py-3 text-right">
                   <div className={`font-medium ${getGainColor(s.realized_pnl)}`}>{formatCurrency(s.realized_pnl)}</div>
                 </td>
@@ -796,8 +796,8 @@ function PnLBySymbolTable({ stock, option }: { stock: StockPnLResult; option: Op
                 <td className="px-4 py-3 text-xs text-gray-500">Option</td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.buy_count}</td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.sell_count}</td>
-                <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(s.total_bought)}</td>
-                <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(s.total_sold)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_bought)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_sold)}</td>
                 <td className="px-4 py-3 text-right">
                   <div className={`font-medium ${getGainColor(s.realized_pnl)}`}>{formatCurrency(s.realized_pnl)}</div>
                 </td>
@@ -884,7 +884,7 @@ export default function TradePage() {
         <button
           onClick={() => fetchData(true)}
           disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-zinc-600 text-gray-700 rounded hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-50 text-sm"
+          className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-50 text-sm"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           Refresh

@@ -4,9 +4,10 @@ module.exports = {
     {
       displayName: 'frontend',
       testEnvironment: 'jsdom',
-      testMatch: ['<rootDir>/src/**/*.test.ts'],
+      testMatch: ['<rootDir>/src/**/*.test.ts', '<rootDir>/src/**/*.test.tsx'],
       transform: { '^.+\\.tsx?$': 'ts-jest' },
       moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
+      setupFiles: ['<rootDir>/src/test-setup.ts'],
     },
     // Backend (CJS, node)
     {
