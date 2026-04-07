@@ -39,6 +39,16 @@ import {
   getGainColor,
 } from '../services/robinhoodService';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function fmtTime(dateStr: string, timeOnly = false): string {
+  const d = new Date(dateStr);
+  const opts: Intl.DateTimeFormatOptions = timeOnly
+    ? { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' }
+    : { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' };
+  return d.toLocaleString('en-US', opts);
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COLORS = [
@@ -259,7 +269,7 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
                     {(action.message || action.details) && (
                       <p className="text-sm text-gray-600 mt-1">{action.message || action.details}</p>
                     )}
-                    <p className="text-xs text-gray-400 mt-1">{new Date(action.timestamp).toLocaleString()}</p>
+                    <p className="text-xs text-gray-400 mt-1">{fmtTime(action.timestamp)}</p>
                   </div>
                 </div>
               </div>
@@ -409,7 +419,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Order Book Snapshot</h2>
-          <p className="text-xs text-gray-400">Last updated: {new Date(timestamp).toLocaleString()}</p>
+          <p className="text-xs text-gray-400">Last updated: {fmtTime(timestamp)}</p>
         </div>
         {btcState && (
           <div className="flex items-center gap-2">
@@ -455,7 +465,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
               <span><span className="text-gray-400">Vol </span><span className="font-medium text-gray-900">{btcMetrics!.intraday_volatility.toFixed(1)}%</span></span>
             )}
             {marketDataStale && market_data && (
-              <span className="text-gray-400 ml-auto text-xs">as of {new Date(market_data.timestamp).toLocaleTimeString()}</span>
+              <span className="text-gray-400 ml-auto text-xs">as of {fmtTime(market_data.timestamp, true)}</span>
             )}
           </div>
         </div>
@@ -536,7 +546,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                             <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">{order.state}</span>
                           </div>
                           <p className="text-sm text-gray-600 mt-1">{order.quantity} @ {formatCurrency(order.limit_price)}{order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}</p>
-                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}</p>
+                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {fmtTime(order.created_at)}</p>
                         </div>
                       </div>
                     </div>
@@ -568,7 +578,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                                   {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                                 </p>
                                 <p className="text-xs text-gray-400 mt-1">
-                                  {order.order_type} / {order.direction} · {order.opening_strategy && order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
+                                  {order.order_type} / {order.direction} · {order.opening_strategy && order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {fmtTime(order.created_at)}
                                 </p>
                               </div>
                             </div>
@@ -639,7 +649,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                           {order.filled_quantity ?? order.quantity} @ {formatCurrency(order.average_price ?? order.limit_price)}
                           {order.average_price && order.filled_quantity ? ` = ${formatCurrency(order.average_price * order.filled_quantity)}` : ''}
                         </p>
-                        <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}</p>
+                        <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {fmtTime(order.created_at)}</p>
                       </div>
                     </div>
                   </div>
@@ -676,7 +686,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                           <p className="text-sm text-gray-600 mt-1">
                             {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                           </p>
-                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.direction} — {new Date(order.created_at).toLocaleString()}</p>
+                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.direction} — {fmtTime(order.created_at)}</p>
                         </div>
                       </div>
                     </div>
