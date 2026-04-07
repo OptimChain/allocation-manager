@@ -121,7 +121,7 @@ function r2(n) { return Math.round(n * 100) / 100; }
 
 function computeStockPnl(orders, cutoff) {
   const filtered = orders.filter(o =>
-    o.state === 'filled' && new Date(o.created_at) >= cutoff
+    o.state === 'filled' && o.symbol && new Date(o.created_at) >= cutoff
   ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   const book = {};
@@ -133,12 +133,12 @@ function computeStockPnl(orders, cutoff) {
       buy_count: 0, sell_count: 0,
       shares_held: 0, cost_basis: 0,
     };
-    const s   = book[sym];
-    const qty   = o.filled_quantity ?? o.quantity ?? 0;
-    const price = o.average_price   ?? o.limit_price ?? 0;
+    const s     = book[sym];
+    const qty   = parseFloat(o.filled_quantity ?? o.quantity ?? 0) || 0;
+    const price = parseFloat(o.average_price   ?? o.limit_price ?? 0) || 0;
     const total = qty * price;
 
-    if (o.side === 'BUY') {
+    if ((o.side || '').toUpperCase() === 'BUY') {
       s.shares_held  += qty;
       s.cost_basis   += total;
       s.total_bought += total;
@@ -174,7 +174,7 @@ function computeOptionPnl(orders) {
     const leg     = (o.legs ?? [])[0] ?? {};
     const sym     = leg.chain_symbol || 'OPT';
     // prefer processed_premium; fall back to price × quantity × 100 (per-contract)
-    const premium = o.processed_premium || (o.price ?? 0) * (o.quantity ?? 1) * 100;
+    const premium = parseFloat(o.processed_premium) || (parseFloat(o.price ?? 0) * parseFloat(o.quantity ?? 1) * 100) || 0;
 
     if (!book[sym]) book[sym] = {
       symbol: sym, realized_pnl: 0,
@@ -182,8 +182,9 @@ function computeOptionPnl(orders) {
       buy_count: 0, sell_count: 0,
     };
     const s = book[sym];
-    if (o.direction === 'debit') { s.total_bought += premium; s.buy_count++; }
-    else                         { s.total_sold   += premium; s.sell_count++; }
+    const dir = (o.direction || '').toLowerCase();
+    if (dir === 'debit') { s.total_bought += premium; s.buy_count++; }
+    else                 { s.total_sold   += premium; s.sell_count++; }
   }
 
   const symbols = Object.values(book).map(s => ({
