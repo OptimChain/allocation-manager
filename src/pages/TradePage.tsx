@@ -372,8 +372,8 @@ function OptionsPositions({ options, summary }: {
               </div>
             )}
 
-            {opt.recommended_action?.reasons?.length > 0 && (
-              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">{opt.recommended_action.reasons.join(' · ')}</div>
+            {(opt.recommended_action?.reasons?.length ?? 0) > 0 && (
+              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">{opt.recommended_action!.reasons!.join(' · ')}</div>
             )}
           </div>
         ))}
