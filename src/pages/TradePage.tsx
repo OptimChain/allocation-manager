@@ -32,7 +32,6 @@ import {
   OptionPnLResult,
   BotAction,
   SnapshotOrder,
-  SnapshotOptionOrder,
   OptionPosition,
   PnLPeriod,
   formatCurrency,
@@ -312,18 +311,20 @@ function OptionsPositions({ options, summary }: {
 
       <div className="divide-y divide-gray-200 dark:divide-zinc-800">
         {options.map(opt => (
-          <div key={`${opt.chain_symbol}-${opt.option_type}-${opt.strike}-${opt.expiration}`} className="p-4">
+          <div key={`${opt.chain_symbol ?? opt.symbol}-${opt.option_type}-${opt.strike ?? opt.strike_price}-${opt.expiration ?? opt.expiration_date}`} className="p-4">
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="font-semibold text-gray-900 dark:text-white">{opt.chain_symbol}</span>
+              <span className="font-semibold text-gray-900 dark:text-white">{opt.chain_symbol ?? opt.symbol}</span>
               <span className={`px-2 py-0.5 text-xs font-medium rounded ${opt.option_type === 'call' ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400' : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'}`}>
                 {opt.option_type.toUpperCase()}
               </span>
-              <span className="text-sm text-gray-600 dark:text-gray-400">${opt.strike} strike</span>
-              <span className="text-sm text-gray-500 dark:text-gray-400">exp {opt.expiration}</span>
-              <span className={`px-2 py-0.5 text-xs rounded ${opt.dte <= 7 ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400' : opt.dte <= 21 ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400' : 'bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400'}`}>
-                {opt.dte}d
-              </span>
-              <span className="text-xs text-gray-500 dark:text-gray-400">{opt.quantity} × {opt.position_type}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">${opt.strike ?? opt.strike_price} strike</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">exp {opt.expiration ?? opt.expiration_date}</span>
+              {opt.dte != null && (
+                <span className={`px-2 py-0.5 text-xs rounded ${opt.dte <= 7 ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400' : opt.dte <= 21 ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400' : 'bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400'}`}>
+                  {opt.dte}d
+                </span>
+              )}
+              <span className="text-xs text-gray-500 dark:text-gray-400">{opt.quantity} × {opt.position_type ?? opt.option_type}</span>
               {opt.recommended_action && (
                 <span className={`ml-auto px-2 py-0.5 text-xs font-medium rounded ${opt.recommended_action.action === 'CLOSE' || opt.recommended_action.action === 'SELL' ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400' : opt.recommended_action.action === 'HOLD' ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400' : 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'}`}>
                   {opt.recommended_action.action}
@@ -332,32 +333,44 @@ function OptionsPositions({ options, summary }: {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-              <div><div className="text-xs text-gray-400 dark:text-gray-500">Underlying</div><div className="text-sm text-gray-900 dark:text-white">${opt.underlying_price.toFixed(2)}</div></div>
-              <div><div className="text-xs text-gray-400 dark:text-gray-500">Break Even</div><div className="text-sm text-gray-900 dark:text-white">${opt.break_even.toFixed(2)}</div></div>
+              {opt.underlying_price != null && (
+                <div><div className="text-xs text-gray-400 dark:text-gray-500">Underlying</div><div className="text-sm text-gray-900 dark:text-white">${opt.underlying_price.toFixed(2)}</div></div>
+              )}
+              {opt.break_even != null && (
+                <div><div className="text-xs text-gray-400 dark:text-gray-500">Break Even</div><div className="text-sm text-gray-900 dark:text-white">${opt.break_even.toFixed(2)}</div></div>
+              )}
               <div>
                 <div className="text-xs text-gray-400 dark:text-gray-500">P&amp;L</div>
-                <div className={`text-sm font-medium ${getGainColor(opt.unrealized_pl)}`}>{formatCurrency(opt.unrealized_pl)} ({formatPercent(opt.unrealized_pl_pct)})</div>
+                <div className={`text-sm font-medium ${getGainColor(opt.unrealized_pl)}`}>{formatCurrency(opt.unrealized_pl)}{opt.unrealized_pl_pct != null ? ` (${formatPercent(opt.unrealized_pl_pct)})` : ''}</div>
               </div>
-              <div><div className="text-xs text-gray-400 dark:text-gray-500">Prob. of Profit</div><div className="text-sm text-gray-900 dark:text-white">{(opt.chance_of_profit * 100).toFixed(1)}%</div></div>
+              {opt.chance_of_profit != null && (
+                <div><div className="text-xs text-gray-400 dark:text-gray-500">Prob. of Profit</div><div className="text-sm text-gray-900 dark:text-white">{(opt.chance_of_profit * 100).toFixed(1)}%</div></div>
+              )}
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
-              {(['delta','gamma','theta','vega','iv','rho'] as const).map(greek => (
-                <div key={greek} className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
-                  <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">{greek}</div>
-                  <div className={`text-xs font-mono ${greek === 'theta' ? getGainColor(opt.greeks[greek]) : 'text-gray-900 dark:text-white'}`}>
-                    {greek === 'iv' ? `${(opt.greeks[greek] * 100).toFixed(1)}%` : opt.greeks[greek].toFixed(greek === 'gamma' || greek === 'rho' ? 4 : 3)}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {opt.greeks && (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
+                {(['delta','gamma','theta','vega','iv','rho'] as const).map(greek => (
+                  opt.greeks![greek] != null && (
+                    <div key={greek} className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">{greek}</div>
+                      <div className={`text-xs font-mono ${greek === 'theta' ? getGainColor(opt.greeks![greek]) : 'text-gray-900 dark:text-white'}`}>
+                        {greek === 'iv' ? `${(opt.greeks![greek] * 100).toFixed(1)}%` : opt.greeks![greek].toFixed(greek === 'gamma' || greek === 'rho' ? 4 : 3)}
+                      </div>
+                    </div>
+                  )
+                ))}
+              </div>
+            )}
 
-            <div className="flex flex-wrap items-center gap-3 text-xs">
-              <span className="text-gray-400 dark:text-gray-500">Scenario P&amp;L:</span>
-              {Object.entries(opt.expected_pl).filter(([k]) => k !== 'theta_daily').map(([scenario, pl]) => (
-                <span key={scenario} className={`font-mono ${getGainColor(pl)}`}>{scenario}: {formatCurrency(pl)}</span>
-              ))}
-            </div>
+            {opt.expected_pl && (
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <span className="text-gray-400 dark:text-gray-500">Scenario P&amp;L:</span>
+                {Object.entries(opt.expected_pl).filter(([k]) => k !== 'theta_daily').map(([scenario, pl]) => (
+                  <span key={scenario} className={`font-mono ${getGainColor(pl)}`}>{scenario}: {formatCurrency(pl)}</span>
+                ))}
+              </div>
+            )}
 
             {opt.recommended_action?.reasons?.length > 0 && (
               <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">{opt.recommended_action.reasons.join(' · ')}</div>
@@ -401,7 +414,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
         {btcState && (
           <div className="flex items-center gap-2">
             <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-zinc-900 text-gray-800 dark:text-gray-300">
-              BTC Signal: {btcState.last_signal.signal}
+              BTC Signal: {btcState.last_signal?.signal}
             </span>
             {hasBtc && <span className="text-xs text-gray-500 dark:text-gray-400">${btcMetrics!.current_price.toFixed(2)}</span>}
           </div>
@@ -536,7 +549,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                         </div>
                       )}
                       {openOptionOrders.map(order => {
-                        const leg  = order.legs[0];
+                        const leg  = order.legs?.[0];
                         const isBuy = leg?.side === 'BUY';
                         return (
                           <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
@@ -552,10 +565,10 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                                   <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">{order.state}</span>
                                 </div>
                                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                  {order.quantity}x ${leg?.strike} · {leg?.expiration && leg.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
+                                  {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                                 </p>
                                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                  {order.order_type} / {order.direction} · {order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
+                                  {order.order_type} / {order.direction} · {order.opening_strategy && order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
                                 </p>
                               </div>
                             </div>
@@ -645,7 +658,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
               </div>
               <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100 dark:divide-zinc-900">
                 {recent_option_orders.map(order => {
-                  const leg   = order.legs[0];
+                  const leg   = order.legs?.[0];
                   const isBuy = leg?.side === 'BUY';
                   return (
                     <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
@@ -661,7 +674,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                             <span className={`px-2 py-0.5 text-xs rounded ${stateBadge(order.state)}`}>{order.state}</span>
                           </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {order.quantity}x ${leg?.strike} · {leg?.expiration && leg.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
+                            {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                           </p>
                           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{order.order_type} / {order.direction} — {new Date(order.created_at).toLocaleString()}</p>
                         </div>

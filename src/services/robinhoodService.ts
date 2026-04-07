@@ -105,6 +105,10 @@ export interface SnapshotPosition {
   equity: number;
   profit_loss: number;
   profit_loss_pct: number;
+  // Optional enriched fields
+  name?: string;
+  percent_change?: number;
+  percentage?: number;
 }
 
 export interface SnapshotOrder {
@@ -119,6 +123,9 @@ export interface SnapshotOrder {
   stop_price: number | null;
   created_at: string;
   updated_at: string;
+  // Filled order fields
+  filled_quantity?: number;
+  average_price?: number;
 }
 
 export interface OrderBookSnapshot {
@@ -356,30 +363,59 @@ export interface SnapshotOptionOrder {
   quantity: number;
   price?: number;
   processed_premium?: number;
+  order_type?: string;
+  opening_strategy?: string;
   created_at: string;
   updated_at: string;
   legs?: Array<{
     chain_symbol: string;
-    strike_price: string;
-    expiration_date: string;
+    // RH API uses strike_price / expiration_date; blob logger may shorten to strike / expiration
+    strike_price?: string;
+    strike?: string;
+    expiration_date?: string;
+    expiration?: string;
     option_type: string;
     side: string;
+    position_effect?: string;
   }>;
 }
 
 export interface OptionPosition {
   symbol: string;
   option_type: string;
-  strike_price: string;
-  expiration_date: string;
+  // Field names vary: blob may use short or long form
+  strike_price?: string;
+  strike?: string;
+  expiration_date?: string;
+  expiration?: string;
+  chain_symbol?: string;
   quantity: number;
   cost_basis: number;
   current_value: number;
   unrealized_pl: number;
-  delta?: number;
-  theta?: number;
+  unrealized_pl_pct?: number;
+  // Optional enriched analytics
+  dte?: number;
+  position_type?: string;
+  underlying_price?: number;
+  break_even?: number;
+  chance_of_profit?: number;
+  greeks?: {
+    delta: number;
+    gamma: number;
+    theta: number;
+    vega: number;
+    iv: number;
+    rho: number;
+    [key: string]: number;
+  };
   expected_pl?: {
     theta_daily: number;
+    [scenario: string]: number;
+  };
+  recommended_action?: {
+    action: string;
+    reasons?: string[];
   };
 }
 
