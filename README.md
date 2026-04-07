@@ -1,45 +1,41 @@
-# Bitcoin Tracker
+## Systematic Asset Trading Service
 
-A real-time Bitcoin price tracking and cryptocurrency market analysis application built with React and TypeScript.
+**Version - 0.1.0**
+
+[![Netlify Status](https://api.netlify.com/api/v1/badges/3d014fc3-e919-4b4d-b374-e8606dee50df/deploy-status)](https://app.netlify.com/projects/5thstreetcapital/deploys)
+[![Deploy to Netlify](https://github.com/OptimChain/allocation-manager/actions/workflows/deploy-netlify.yml/badge.svg)](https://github.com/OptimChain/allocation-manager/actions/workflows/deploy-netlify.yml)
+
+![5thStreetCapital](docs/captures/5thstreet.gif)
+
+A real-time asset tracking, market analysis, and trading engine system with hosted metrics, local engine deployments, and broker integration. 
 
 ## Features
 
-- Real-time Bitcoin price monitoring
-- Interactive price history charts (24h, 7d, 30d, 90d, 1Y)
-- Market statistics (market cap, volume, ATH, supply)
-- Cryptocurrency comparison (Bitcoin, Ethereum, Solana, etc.)
-- Auto-refresh every 60 seconds
+The trading system is packaged seperately in [allocation-engine](https://github.com/IamJasonBian/allocation-engine/tree/main/trading_system) with the training system packaged in [allocation-gym](https://github.com/IamJasonBian/allocation-gym).  The trading system can be hosted using local and managed compute environments to make calls to the allocation-manager service for broker integration. 
 
-## Tech Stack
+Deployed keys and auth will be managed locally. 
 
-- **Frontend**: React 18, TypeScript, Vite
-- **Styling**: Tailwind CSS
-- **Charts**: Recharts
-- **Icons**: Lucide React
-- **API**: CoinGecko (free, no API key required)
+Site: https://5thstreetcapital.org/
 
-## Getting Started
+## Example Data Sources (Bring Your Own Datasource for Featurization)
 
-```bash
-# Install dependencies
-npm install
+* [CoinGecko API](https://www.coingecko.com/en/api/documentation)
+* Twelve Data
+* Polygon.io
+* TradingView Ecosystem
 
-# Start development server
-npm run dev
+## Supported Assets
 
-# Build for production
-npm run build
+* BTC
+* BTC/USD
 
-# Preview production build
-npm run preview
-```
+## Supported Brokers
 
-## API
+* Alpaca
+* Robinhood
+* Binance.us
 
-This app uses the [CoinGecko API](https://www.coingecko.com/en/api/documentation) which is:
-- Free to use
-- No API key required
-- CORS-enabled for frontend calls
+
 
 ## License
 

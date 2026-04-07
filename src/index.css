@@ -55,5 +55,16 @@
   }
   body {
     @apply bg-white text-gray-900;
+    font-family: 'Consolas', monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html.font-serif body {
+    font-family: ui-serif, 'New York', 'Georgia', serif;
+  }
+
+  html.font-hacker body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   }
 }

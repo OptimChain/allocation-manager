@@ -31,6 +31,17 @@ export interface NormalizedPriceData {
   price: number;
 }
 
+export interface OHLCVPriceData {
+  date: string;
+  timestamp: number;
+  price: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export interface PortfolioAsset {
   symbol: string;
   displayName: string;
@@ -285,11 +296,12 @@ const BTC_RANGE_CONFIG: Record<number, { outputsize: number; interval: string }>
   30: { outputsize: 30, interval: '1day' },
   90: { outputsize: 90, interval: '1day' },
   365: { outputsize: 252, interval: '1day' },
+  1095: { outputsize: 780, interval: '1day' },
 };
 
 export async function getBitcoinPriceHistory(
   days: number = 30
-): Promise<NormalizedPriceData[]> {
+): Promise<OHLCVPriceData[]> {
   const config = BTC_RANGE_CONFIG[days] || BTC_RANGE_CONFIG[30];
   const apiKey = getApiKey();
 
@@ -314,6 +326,11 @@ export async function getBitcoinPriceHistory(
       date: item.datetime,
       timestamp: new Date(item.datetime).getTime(),
       price: parseFloat(item.close),
+      open: parseFloat(item.open),
+      high: parseFloat(item.high),
+      low: parseFloat(item.low),
+      close: parseFloat(item.close),
+      volume: parseFloat(item.volume || '0'),
     }))
     .reverse();
 }

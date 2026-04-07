@@ -8,6 +8,7 @@ const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
 
 // In-memory instrument cache to avoid redundant API calls
 const instrumentCache = {};
+const optionsInstrumentCache = {};
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -157,6 +158,95 @@ async function getInstrument(instrumentUrl) {
   return instrument;
 }
 
+async function getOptionsInstrument(optionUrl) {
+  const key = optionUrl.replace(ROBINHOOD_API_BASE, '');
+  if (optionsInstrumentCache[key]) return optionsInstrumentCache[key];
+  const instrument = await fetchWithAuth(key);
+  optionsInstrumentCache[key] = instrument;
+  return instrument;
+}
+
+async function getOptionsPositions() {
+  const data = await fetchWithAuth('/options/aggregate_positions/?nonzero=true');
+  const positions = data.results || [];
+
+  const enriched = await Promise.all(
+    positions.map(async (pos) => {
+      try {
+        const quantity = parseFloat(pos.quantity);
+        if (quantity === 0) return null;
+
+        const multiplier = parseFloat(pos.trade_value_multiplier) || 100;
+        const avgOpenPrice = parseFloat(pos.average_open_price);
+
+        // Resolve the first leg to get strike/expiration/type
+        const legs = pos.legs || [];
+        let strike = null;
+        let expiration = null;
+        let optionType = null;
+        let optionUrl = null;
+
+        if (legs.length > 0 && legs[0].option) {
+          const optionInstrument = await getOptionsInstrument(legs[0].option);
+          strike = parseFloat(optionInstrument.strike_price);
+          expiration = optionInstrument.expiration_date;
+          optionType = optionInstrument.type;
+          optionUrl = legs[0].option;
+        }
+
+        // Fetch current market data for mark price
+        let markPrice = null;
+        if (optionUrl) {
+          try {
+            const encodedUrl = encodeURIComponent(optionUrl);
+            const marketData = await fetchWithAuth(
+              `/marketdata/options/?instruments=${encodedUrl}`
+            );
+            if (marketData.results && marketData.results.length > 0) {
+              markPrice = parseFloat(marketData.results[0].adjusted_mark_price)
+                || parseFloat(marketData.results[0].mark_price)
+                || null;
+            }
+          } catch (e) {
+            console.warn(`Could not fetch market data for option: ${pos.symbol}`);
+          }
+        }
+
+        const totalCost = avgOpenPrice * quantity * multiplier;
+        const currentValue = markPrice !== null
+          ? markPrice * quantity * multiplier
+          : totalCost;
+        const gain = currentValue - totalCost;
+        const gainPercent = totalCost !== 0 ? (gain / Math.abs(totalCost)) * 100 : 0;
+
+        return {
+          symbol: pos.symbol || pos.chain_symbol,
+          strategy: pos.strategy,
+          direction: pos.direction,
+          optionType: optionType,
+          strike: strike,
+          expiration: expiration,
+          quantity: quantity,
+          avgOpenPrice: avgOpenPrice,
+          markPrice: markPrice,
+          multiplier: multiplier,
+          totalCost: totalCost,
+          currentValue: currentValue,
+          gain: gain,
+          gainPercent: gainPercent,
+        };
+      } catch (e) {
+        console.error('Error processing options position:', e);
+        return null;
+      }
+    })
+  );
+
+  return {
+    positions: enriched.filter(p => p !== null),
+  };
+}
+
 async function getAllFilledOrders() {
   let url = '/orders/?updated_at[gte]=2024-01-01';
   const allOrders = [];
@@ -298,8 +388,12 @@ exports.handler = async (event) => {
         data = await calculateOrderPnL();
         break;
 
+      case 'options':
+        data = await getOptionsPositions();
+        break;
+
       default:
-        throw new Error(`Unknown action: ${action}. Available: status, portfolio, orders, pnl`);
+        throw new Error(`Unknown action: ${action}. Available: status, portfolio, orders, pnl, options`);
     }
 
     return {

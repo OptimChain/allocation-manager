@@ -11,6 +11,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { PortfolioReturnData, mergeReturnsForChart, formatReturnPercent } from '../utils/portfolioCalculations';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface PortfolioChartProps {
   data: PortfolioReturnData[];
@@ -25,14 +26,17 @@ function formatPrice(value: number): string {
 }
 
 export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
+  const { isDark } = useTheme();
   const chartData = useMemo(() => mergeReturnsForChart(data), [data]);
 
-  // Check if any asset has SMA data
   const hasSMA = useMemo(() => {
     return data.some((asset) =>
       asset.returns.some((r) => r.smaReturnPercent !== undefined)
     );
   }, [data]);
+
+  const axisColor = isDark ? '#a1a1aa' : '#6B7280';
+  const gridColor = isDark ? '#27272a' : '#E5E7EB';
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -48,17 +52,15 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
   }) => {
     if (!active || !payload) return null;
 
-    // Filter out SMA and price entries from the payload - we'll show price inline
     const mainEntries = payload.filter(
       (entry) => !entry.dataKey.endsWith('_sma') && !entry.dataKey.endsWith('_price')
     );
 
-    // Get the full data point for prices
     const dataPoint = chartData.find((d) => d.date === label);
 
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
-        <p className="text-sm text-gray-600 mb-2">
+      <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg shadow-lg p-3">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
           {new Date(label || '').toLocaleDateString('en-US', {
             month: 'long',
             day: 'numeric',
@@ -74,9 +76,9 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: entry.color }}
               />
-              <span className="text-gray-700">{entry.name}:</span>
+              <span className="text-gray-700 dark:text-gray-300">{entry.name}:</span>
               {typeof price === 'number' && (
-                <span className="font-medium text-gray-900">
+                <span className="font-medium text-gray-900 dark:text-white">
                   {formatPrice(price)}
                 </span>
               )}
@@ -96,37 +98,37 @@ export function PortfolioChart({ data, height = 400 }: PortfolioChartProps) {
 
   if (chartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-        <p className="text-gray-500">No data available</p>
+      <div className="flex items-center justify-center h-64 bg-gray-50 dark:bg-zinc-900 rounded-lg">
+        <p className="text-gray-500 dark:text-gray-400">No data available</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
           <XAxis
             dataKey="date"
             tickFormatter={formatDate}
-            tick={{ fontSize: 12, fill: '#6B7280' }}
-            tickLine={{ stroke: '#E5E7EB' }}
-            axisLine={{ stroke: '#E5E7EB' }}
+            tick={{ fontSize: 12, fill: axisColor }}
+            tickLine={{ stroke: gridColor }}
+            axisLine={{ stroke: gridColor }}
           />
           <YAxis
             tickFormatter={formatYAxis}
-            tick={{ fontSize: 12, fill: '#6B7280' }}
-            tickLine={{ stroke: '#E5E7EB' }}
-            axisLine={{ stroke: '#E5E7EB' }}
+            tick={{ fontSize: 12, fill: axisColor }}
+            tickLine={{ stroke: gridColor }}
+            axisLine={{ stroke: gridColor }}
             domain={['auto', 'auto']}
           />
           <Tooltip content={<CustomTooltip />} />
           <Legend
             wrapperStyle={{ paddingTop: '20px' }}
-            formatter={(value) => <span className="text-gray-700">{value}</span>}
+            formatter={(value) => <span className="text-gray-700 dark:text-gray-300">{value}</span>}
           />
-          <ReferenceLine y={0} stroke="#9CA3AF" strokeDasharray="3 3" />
+          <ReferenceLine y={0} stroke={isDark ? '#71717a' : '#9CA3AF'} strokeDasharray="3 3" />
           {data.map((asset) => (
             <Line
               key={asset.symbol}

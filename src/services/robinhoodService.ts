@@ -97,18 +97,60 @@ export interface OrderPnL {
 }
 
 // Order Book Snapshot types (from 5thstreetcapital blob store)
+export interface OptionPosition {
+  chain_symbol: string;
+  option_type: string;
+  strike: number;
+  expiration: string;
+  dte: number;
+  quantity: number;
+  position_type: string;
+  avg_price: number;
+  mark_price: number;
+  multiplier: number;
+  cost_basis: number;
+  current_value: number;
+  unrealized_pl: number;
+  unrealized_pl_pct: number;
+  underlying_price: number;
+  break_even: number;
+  greeks: {
+    delta: number;
+    gamma: number;
+    theta: number;
+    vega: number;
+    rho: number;
+    iv: number;
+  };
+  expected_pl: {
+    '-5%': number;
+    '-1%': number;
+    '+1%': number;
+    '+5%': number;
+    theta_daily: number;
+  };
+  chance_of_profit: number;
+  recommended_action: {
+    action: string;
+    reasons: string[];
+  };
+  btc_correlation: number;
+}
+
 export interface SnapshotPosition {
   symbol: string;
+  name?: string;
+  type?: string;
   quantity: number;
   avg_buy_price: number;
   current_price: number;
   equity: number;
   profit_loss: number;
   profit_loss_pct: number;
-  // Optional enriched fields
-  name?: string;
-  percent_change?: number;
-  percentage?: number;
+  percent_change?: number | null;
+  equity_change?: number | null;
+  pe_ratio?: number | null;
+  percentage?: number | null;
 }
 
 export interface SnapshotOrder {
@@ -123,36 +165,65 @@ export interface SnapshotOrder {
   stop_price: number | null;
   created_at: string;
   updated_at: string;
-  // Filled order fields
   filled_quantity?: number;
   average_price?: number;
 }
 
+export interface SymbolMarketData {
+  metrics: {
+    intraday_volatility: number;
+    intraday_high: number;
+    intraday_low: number;
+    current_price: number;
+    '30d_high': number;
+    '30d_low': number;
+  };
+  orders: {
+    active_buy: unknown;
+    active_sell: unknown;
+    order_history: unknown[];
+  };
+  last_signal: {
+    signal: string;
+    timestamp: string;
+  };
+  last_updated: string;
+}
+
+export interface MarketData {
+  timestamp: string;
+  symbols: Record<string, SymbolMarketData>;
+}
+
+export interface SnapshotOptionOrderLeg {
+  side: string;
+  position_effect: string;
+  quantity: number;
+  strike: number;
+  expiration: string;
+  option_type: string;
+  chain_symbol: string;
+}
+
+export interface SnapshotOptionOrder {
+  order_id: string;
+  state: string;
+  quantity: number;
+  price: number;
+  premium: number;
+  processed_premium: number;
+  direction: string;
+  order_type: string;
+  trigger: string;
+  time_in_force: string;
+  opening_strategy: string;
+  created_at: string;
+  updated_at: string;
+  legs: SnapshotOptionOrderLeg[];
+}
+
 export interface OrderBookSnapshot {
   timestamp: string;
-  state: {
-    symbols: Record<string, {
-      metrics: {
-        intraday_volatility: number;
-        intraday_high: number;
-        intraday_low: number;
-        current_price: number;
-        '30d_high': number;
-        '30d_low': number;
-      };
-      orders: {
-        active_buy: unknown;
-        active_sell: unknown;
-        order_history: unknown[];
-      };
-      last_signal: {
-        signal: string;
-        timestamp: string;
-      };
-      last_updated: string;
-    }>;
-    last_updated: string;
-  };
   order_book: SnapshotOrder[];
   portfolio: {
     cash: {
@@ -165,7 +236,12 @@ export interface OrderBookSnapshot {
     market_value: number;
     positions: SnapshotPosition[];
     open_orders: SnapshotOrder[];
+    open_option_orders?: SnapshotOptionOrder[];
+    options?: OptionPosition[];
   };
+  recent_orders?: SnapshotOrder[];
+  recent_option_orders?: SnapshotOptionOrder[];
+  market_data: MarketData | null;
 }
 
 export interface BotAction {
@@ -250,6 +326,52 @@ export async function getOrderBookSnapshot(): Promise<OrderBookSnapshot> {
   return fetchApi<OrderBookSnapshot>('/order-book-snapshot');
 }
 
+// Redis Orders
+export interface RedisOrders {
+  openOrders: SnapshotOrder[];
+  openOptionOrders: SnapshotOptionOrder[];
+  historicalOrders: SnapshotOrder[];
+  historicalOptionOrders: SnapshotOptionOrder[];
+}
+
+const OPEN_STATES = new Set(['queued', 'confirmed', 'pending', 'partially_filled', 'unconfirmed']);
+
+export async function getRedisOrders(): Promise<RedisOrders> {
+  const data = await fetchApi<Record<string, Record<string, unknown>>>('/redis-holdings?store=orders');
+
+  const openOrders: SnapshotOrder[] = [];
+  const openOptionOrders: SnapshotOptionOrder[] = [];
+  const historicalOrders: SnapshotOrder[] = [];
+  const historicalOptionOrders: SnapshotOptionOrder[] = [];
+
+  for (const order of Object.values(data)) {
+    const isOpen = OPEN_STATES.has(order.state as string);
+    if (order._type === 'option') {
+      (isOpen ? openOptionOrders : historicalOptionOrders).push(order as unknown as SnapshotOptionOrder);
+    } else {
+      (isOpen ? openOrders : historicalOrders).push(order as unknown as SnapshotOrder);
+    }
+  }
+
+  const byDateDesc = (a: { created_at: string }, b: { created_at: string }) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+
+  openOrders.sort(byDateDesc);
+  openOptionOrders.sort(byDateDesc);
+  historicalOrders.sort(byDateDesc);
+  historicalOptionOrders.sort(byDateDesc);
+
+  return { openOrders, openOptionOrders, historicalOrders, historicalOptionOrders };
+}
+
+export function sendSlackAlert(message: string, error?: string) {
+  fetch(`${API_BASE}/alert-slack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, error, source: 'Trade Page' }),
+  }).catch(() => {}); // fire-and-forget
+}
+
 // Bot functions
 export async function getBotStatus(): Promise<BotStatus> {
   return fetchApi<BotStatus>('/robinhood-bot?action=status');
@@ -284,6 +406,8 @@ export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
