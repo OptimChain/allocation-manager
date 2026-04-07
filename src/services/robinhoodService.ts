@@ -300,6 +300,151 @@ export function getGainBgColor(value: number): string {
   return 'bg-gray-100';
 }
 
+// ── Enriched snapshot types ───────────────────────────────────────────────────
+
+export type PnLPeriod = '1W' | '1M' | '3M' | '6M' | '1Y' | '5Y';
+
+export interface StockSymbolPnL {
+  symbol: string;
+  realized_pnl: number;
+  total_bought: number;
+  total_sold: number;
+  buy_count: number;
+  sell_count: number;
+  shares_held: number;
+  cost_basis: number;
+}
+
+export interface OptionSymbolPnL {
+  symbol: string;
+  realized_pnl: number;
+  total_bought: number;
+  total_sold: number;
+  buy_count: number;
+  sell_count: number;
+}
+
+export interface StockPnLResult {
+  total_realized_pnl: number;
+  total_buy_volume: number;
+  total_sell_volume: number;
+  filled_count: number;
+  symbols: StockSymbolPnL[];
+}
+
+export interface OptionPnLResult {
+  total_realized_pnl: number;
+  total_buy_volume: number;
+  total_sell_volume: number;
+  filled_count: number;
+  symbols: OptionSymbolPnL[];
+}
+
+export interface OptionsSummary {
+  count: number;
+  total_cost_basis: number;
+  total_current_value: number;
+  total_unrealized_pl: number;
+  total_theta_daily: number;
+}
+
+export interface SnapshotOptionOrder {
+  order_id: string;
+  symbol?: string;
+  direction: string;
+  state: string;
+  quantity: number;
+  price?: number;
+  processed_premium?: number;
+  created_at: string;
+  updated_at: string;
+  legs?: Array<{
+    chain_symbol: string;
+    strike_price: string;
+    expiration_date: string;
+    option_type: string;
+    side: string;
+  }>;
+}
+
+export interface OptionPosition {
+  symbol: string;
+  option_type: string;
+  strike_price: string;
+  expiration_date: string;
+  quantity: number;
+  cost_basis: number;
+  current_value: number;
+  unrealized_pl: number;
+  delta?: number;
+  theta?: number;
+  expected_pl?: {
+    theta_daily: number;
+  };
+}
+
+export interface MarketData {
+  timestamp: string;
+  symbols: Record<string, {
+    metrics: {
+      intraday_volatility: number;
+      intraday_high: number;
+      intraday_low: number;
+      current_price: number;
+      '30d_high': number;
+      '30d_low': number;
+    };
+    last_signal?: {
+      signal: string;
+      timestamp: string;
+    };
+    last_updated: string;
+  }>;
+}
+
+export interface EnrichedPortfolio {
+  cash: {
+    cash: number;
+    cash_available_for_withdrawal: number;
+    buying_power: number;
+    tradeable_cash: number;
+  };
+  equity: number;
+  rh_market_value: number | null;
+  market_value: number;
+  stock_market_value: number;
+  options_market_value: number;
+  margin_used: number;
+  reconciliation: {
+    rh_equity: number;
+    computed_equity: number;
+  };
+  positions: SnapshotPosition[];
+  open_orders: SnapshotOrder[];
+  open_option_orders: SnapshotOptionOrder[];
+  options: OptionPosition[];
+  options_summary: OptionsSummary | null;
+  total_pl: number;
+  total_pl_pct: number;
+}
+
+export interface EnrichedSnapshot {
+  timestamp: string;
+  market_data: MarketData | null;
+  order_book: SnapshotOrder[];
+  recent_orders: SnapshotOrder[];
+  recent_option_orders: SnapshotOptionOrder[];
+  recent_pnl: StockPnLResult;
+  option_pnl: OptionPnLResult;
+  combined_7d_pnl: number;
+  pnl_by_period: Record<PnLPeriod, { stock: StockPnLResult; option: OptionPnLResult }>;
+  portfolio: EnrichedPortfolio;
+}
+
+export async function getEnrichedSnapshot(): Promise<EnrichedSnapshot> {
+  return fetchApi<EnrichedSnapshot>('/enriched-snapshot');
+}
+
 // Auth functions
 export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchApi<AuthStatus>('/robinhood-auth?action=status');
