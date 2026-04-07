@@ -42,7 +42,11 @@ import {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtTime(dateStr: string, timeOnly = false): string {
-  const d = new Date(dateStr);
+  // Treat naive timestamps (no Z / offset) as UTC
+  const normalized = dateStr && !dateStr.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)
+    ? dateStr + 'Z'
+    : dateStr;
+  const d = new Date(normalized);
   const opts: Intl.DateTimeFormatOptions = timeOnly
     ? { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' }
     : { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' };
