@@ -214,12 +214,58 @@ function aggregateOptions(positions) {
   };
 }
 
+// ── Field normalizers (handle both engine-formatted and raw RH API blobs) ─────
+
+function normalizeOpenOrder(o) {
+  return {
+    order_id:        o.order_id  || o.id,
+    symbol:          o.symbol    || null,
+    side:            (o.side     || '').toUpperCase(),
+    order_type:      o.order_type || o.type,
+    trigger:         o.trigger,
+    state:           o.state,
+    quantity:        parseFloat(o.quantity)  || 0,
+    limit_price:     parseFloat(o.limit_price || o.price) || 0,
+    stop_price:      o.stop_price ? parseFloat(o.stop_price) : null,
+    created_at:      o.created_at,
+    updated_at:      o.updated_at,
+    filled_quantity: parseFloat(o.filled_quantity || o.cumulative_quantity) || 0,
+    average_price:   o.average_price ? parseFloat(o.average_price) : null,
+  };
+}
+
+function normalizeOpenOptionOrder(o) {
+  return {
+    order_id:         o.order_id || o.id,
+    chain_symbol:     o.chain_symbol || null,
+    direction:        (o.direction || '').toLowerCase(),
+    state:            o.state,
+    quantity:         parseFloat(o.quantity) || 0,
+    price:            parseFloat(o.price) || 0,
+    processed_premium: o.processed_premium ? parseFloat(o.processed_premium) : null,
+    order_type:       o.order_type || o.type,
+    opening_strategy: o.opening_strategy || null,
+    created_at:       o.created_at,
+    updated_at:       o.updated_at,
+    legs:             (o.legs || []).map(leg => ({
+      chain_symbol:   leg.chain_symbol || o.chain_symbol || null,
+      strike_price:   leg.strike_price,
+      expiration_date: leg.expiration_date,
+      option_type:    leg.option_type,
+      side:           (leg.side || '').toUpperCase(),
+      position_effect: leg.position_effect,
+    })),
+  };
+}
+
 function enrichSnapshot(raw) {
   const portfolio   = raw.portfolio;
-  const positions   = portfolio.positions;
-  const options     = portfolio.options;
-  const recentOrders       = raw.recent_orders;
-  const recentOptionOrders = raw.recent_option_orders;
+  const positions   = portfolio.positions   || [];
+  const options     = portfolio.options     || [];
+  const openOrders       = (portfolio.open_orders        || []).map(normalizeOpenOrder);
+  const openOptionOrders = (portfolio.open_option_orders || []).map(normalizeOpenOptionOrder);
+  const recentOrders       = raw.recent_orders        || [];
+  const recentOptionOrders = raw.recent_option_orders || [];
 
   // ── Market value: stocks + options ──
   const stockMV   = r2(positions.reduce((s, p) => s + (p.equity ?? (p.quantity ?? 0) * (p.current_price ?? 0)), 0));
@@ -265,9 +311,7 @@ function enrichSnapshot(raw) {
     combined_7d_pnl: r2(recentPnl.total_realized_pnl + optionPnl.total_realized_pnl),
     pnl_by_period:   pnlByPeriod,
     portfolio: {
-      ...Object.fromEntries(
-        Object.entries(portfolio).filter(([k]) => !['positions','options','equity','market_value'].includes(k))
-      ),
+      cash: portfolio.cash,
       // RH passthrough
       equity:               rhEquity,
       rh_market_value:      portfolio.market_value ?? null,
@@ -283,6 +327,9 @@ function enrichSnapshot(raw) {
       },
       // Pre-sorted positions (biggest P&L movers first)
       positions: [...positions].sort((a, b) => Math.abs(b.profit_loss ?? 0) - Math.abs(a.profit_loss ?? 0)),
+      // Normalized open orders
+      open_orders:        openOrders,
+      open_option_orders: openOptionOrders,
       options,
       options_summary: aggregateOptions(options),
       total_pl:     totalPl,
