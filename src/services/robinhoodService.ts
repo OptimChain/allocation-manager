@@ -98,43 +98,45 @@ export interface OrderPnL {
 
 // Order Book Snapshot types (from 5thstreetcapital blob store)
 export interface OptionPosition {
-  chain_symbol: string;
+  chain_symbol?: string;
+  symbol?: string;
   option_type: string;
-  strike: number;
-  expiration: string;
-  dte: number;
+  // RH API / blob may use either short or long field names
+  strike?: number | string;
+  strike_price?: string;
+  expiration?: string;
+  expiration_date?: string;
+  dte?: number;
   quantity: number;
-  position_type: string;
-  avg_price: number;
-  mark_price: number;
-  multiplier: number;
+  position_type?: string;
+  avg_price?: number;
+  mark_price?: number;
+  multiplier?: number;
   cost_basis: number;
   current_value: number;
   unrealized_pl: number;
-  unrealized_pl_pct: number;
-  underlying_price: number;
-  break_even: number;
-  greeks: {
+  unrealized_pl_pct?: number;
+  underlying_price?: number;
+  break_even?: number;
+  greeks?: {
     delta: number;
     gamma: number;
     theta: number;
     vega: number;
-    rho: number;
-    iv: number;
+    rho?: number;
+    iv?: number;
+    [key: string]: number | undefined;
   };
-  expected_pl: {
-    '-5%': number;
-    '-1%': number;
-    '+1%': number;
-    '+5%': number;
+  expected_pl?: {
     theta_daily: number;
+    [scenario: string]: number;
   };
-  chance_of_profit: number;
-  recommended_action: {
+  chance_of_profit?: number;
+  recommended_action?: {
     action: string;
-    reasons: string[];
+    reasons?: string[];
   };
-  btc_correlation: number;
+  btc_correlation?: number;
 }
 
 export interface SnapshotPosition {
@@ -178,12 +180,12 @@ export interface SymbolMarketData {
     '30d_high': number;
     '30d_low': number;
   };
-  orders: {
+  orders?: {
     active_buy: unknown;
     active_sell: unknown;
     order_history: unknown[];
   };
-  last_signal: {
+  last_signal?: {
     signal: string;
     timestamp: string;
   };
@@ -197,29 +199,33 @@ export interface MarketData {
 
 export interface SnapshotOptionOrderLeg {
   side: string;
-  position_effect: string;
-  quantity: number;
-  strike: number;
-  expiration: string;
+  position_effect?: string;
+  quantity?: number;
+  // RH API uses strike_price/expiration_date; engine blob may shorten to strike/expiration
+  strike?: number | string;
+  strike_price?: string;
+  expiration?: string;
+  expiration_date?: string;
   option_type: string;
-  chain_symbol: string;
+  chain_symbol?: string;
 }
 
 export interface SnapshotOptionOrder {
   order_id: string;
+  chain_symbol?: string;
   state: string;
   quantity: number;
-  price: number;
-  premium: number;
-  processed_premium: number;
+  price?: number;
+  premium?: number;
+  processed_premium?: number;
   direction: string;
-  order_type: string;
-  trigger: string;
-  time_in_force: string;
-  opening_strategy: string;
+  order_type?: string;
+  trigger?: string;
+  time_in_force?: string;
+  opening_strategy?: string;
   created_at: string;
   updated_at: string;
-  legs: SnapshotOptionOrderLeg[];
+  legs?: SnapshotOptionOrderLeg[];
 }
 
 export interface OrderBookSnapshot {
@@ -479,89 +485,6 @@ export interface OptionsSummary {
   total_theta_daily: number;
 }
 
-export interface SnapshotOptionOrder {
-  order_id: string;
-  symbol?: string;
-  chain_symbol?: string;
-  direction: string;
-  state: string;
-  quantity: number;
-  price?: number;
-  processed_premium?: number;
-  order_type?: string;
-  opening_strategy?: string;
-  created_at: string;
-  updated_at: string;
-  legs?: Array<{
-    chain_symbol: string;
-    // RH API uses strike_price / expiration_date; blob logger may shorten to strike / expiration
-    strike_price?: string;
-    strike?: string;
-    expiration_date?: string;
-    expiration?: string;
-    option_type: string;
-    side: string;
-    position_effect?: string;
-  }>;
-}
-
-export interface OptionPosition {
-  symbol: string;
-  option_type: string;
-  // Field names vary: blob may use short or long form
-  strike_price?: string;
-  strike?: string;
-  expiration_date?: string;
-  expiration?: string;
-  chain_symbol?: string;
-  quantity: number;
-  cost_basis: number;
-  current_value: number;
-  unrealized_pl: number;
-  unrealized_pl_pct?: number;
-  // Optional enriched analytics
-  dte?: number;
-  position_type?: string;
-  underlying_price?: number;
-  break_even?: number;
-  chance_of_profit?: number;
-  greeks?: {
-    delta: number;
-    gamma: number;
-    theta: number;
-    vega: number;
-    iv: number;
-    rho: number;
-    [key: string]: number;
-  };
-  expected_pl?: {
-    theta_daily: number;
-    [scenario: string]: number;
-  };
-  recommended_action?: {
-    action: string;
-    reasons?: string[];
-  };
-}
-
-export interface MarketData {
-  timestamp: string;
-  symbols: Record<string, {
-    metrics: {
-      intraday_volatility: number;
-      intraday_high: number;
-      intraday_low: number;
-      current_price: number;
-      '30d_high': number;
-      '30d_low': number;
-    };
-    last_signal?: {
-      signal: string;
-      timestamp: string;
-    };
-    last_updated: string;
-  }>;
-}
 
 export interface EnrichedPortfolio {
   cash: {
