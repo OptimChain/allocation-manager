@@ -17,11 +17,8 @@
 
 'use strict';
 
-// ── Blob store config (mirrors order-book-snapshot.cjs) ──────────────────────
-const ORDER_BOOK_SITE_ID = '3d014fc3-e919-4b4d-b374-e8606dee50df';
-const BLOBS_API_BASE     = 'https://api.netlify.com/api/v1/blobs';
-const STORE_NAME         = 'state-logs';
-const STORE_NAME_HIST    = 'state-logs-historical';
+// ── Data source: delegate blob-reading to order-book-snapshot ────────────────
+// Netlify sets URL to the current deploy's base URL (e.g. https://xxx--site.netlify.app)
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -29,84 +26,15 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
-// ── Blob helpers ─────────────────────────────────────────────────────────────
+// ── Fetch raw snapshot from order-book-snapshot function ─────────────────────
 
-function hasCompleteMetrics(snapshot) {
-  const m = snapshot?.state?.symbols?.BTC?.metrics;
-  return m && m.current_price != null && m.intraday_high != null && m.intraday_low != null;
-}
+async function fetchRawSnapshot() {
+  const base = (process.env.URL || '').replace(/\/$/, '');
+  if (!base) throw new Error('URL env var not set — cannot resolve order-book-snapshot');
 
-async function fetchBlob(token, key, store) {
-  const res = await fetch(
-    `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${store}/${encodeURIComponent(key)}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!res.ok) throw new Error(`Failed to fetch blob ${key}: ${res.status}`);
+  const res = await fetch(`${base}/.netlify/functions/order-book-snapshot`);
+  if (!res.ok) throw new Error(`order-book-snapshot returned ${res.status}`);
   return res.json();
-}
-
-async function listKeys(token, store) {
-  const keys = [];
-  let cursor = null;
-  while (true) {
-    const url = `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${store}` +
-      (cursor ? `?cursor=${encodeURIComponent(cursor)}` : '');
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) throw new Error(`Failed to list ${store}: ${res.status}`);
-    const data = await res.json();
-    for (const b of data.blobs || []) keys.push(b.key);
-    if (!data.next_cursor || !data.blobs?.length) break;
-    cursor = data.next_cursor;
-  }
-  return keys;
-}
-
-async function fetchRawSnapshot(token) {
-  let keys = await listKeys(token, STORE_NAME);
-  let store = STORE_NAME;
-  if (!keys.length) {
-    keys = await listKeys(token, STORE_NAME_HIST);
-    store = STORE_NAME_HIST;
-  }
-  if (!keys.length) throw new Error('No state-logs snapshots found');
-
-  const sorted  = [...keys].sort().reverse();
-  const latest  = await fetchBlob(token, sorted[0], store);
-
-  let marketData = null;
-  if (hasCompleteMetrics(latest)) {
-    marketData = { timestamp: latest.timestamp, symbols: latest.state.symbols };
-  } else {
-    for (let i = 1; i < Math.min(sorted.length, 6); i++) {
-      try {
-        const older = await fetchBlob(token, sorted[i], store);
-        if (hasCompleteMetrics(older)) {
-          marketData = { timestamp: older.timestamp, symbols: older.state.symbols };
-          break;
-        }
-      } catch (e) {
-        console.error(`Fallback blob ${sorted[i]} failed:`, e.message);
-      }
-    }
-  }
-
-  const p = latest.portfolio || {};
-  return {
-    timestamp:             latest.timestamp,
-    market_data:           marketData,
-    order_book:            latest.order_book            || [],
-    recent_orders:         latest.recent_orders         || [],
-    recent_option_orders:  latest.recent_option_orders  || [],
-    portfolio: {
-      cash:               p.cash  || { cash: 0, buying_power: 0, tradeable_cash: 0 },
-      equity:             p.equity        ?? 0,
-      market_value:       p.market_value  ?? 0,
-      positions:          p.positions          || [],
-      open_orders:        p.open_orders        || [],
-      open_option_orders: p.open_option_orders || [],
-      options:            p.options            || [],
-    },
-  };
 }
 
 // ── Enrichment helpers (ported from app/server.py) ───────────────────────────
@@ -345,17 +273,8 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers: CORS, body: '' };
   }
 
-  const token = process.env.NETLIFY_AUTH_TOKEN;
-  if (!token) {
-    return {
-      statusCode: 500,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'NETLIFY_AUTH_TOKEN not configured' }),
-    };
-  }
-
   try {
-    const raw      = await fetchRawSnapshot(token);
+    const raw      = await fetchRawSnapshot();
     const enriched = enrichSnapshot(raw);
     return {
       statusCode: 200,
