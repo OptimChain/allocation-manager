@@ -408,7 +408,8 @@ export async function placeOrder(
 }
 
 // Format currency
-export function formatCurrency(value: number): string {
+export function formatCurrency(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return '$0.00';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -418,13 +419,15 @@ export function formatCurrency(value: number): string {
 }
 
 // Format percentage
-export function formatPercent(value: number): string {
+export function formatPercent(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return '+0.00%';
   const sign = value >= 0 ? '+' : '';
   return `${sign}${value.toFixed(2)}%`;
 }
 
 // Get color class based on value
-export function getGainColor(value: number): string {
+export function getGainColor(value: number | null | undefined): string {
+  if (value == null) return 'text-gray-600 dark:text-gray-400';
   if (value > 0) return 'text-green-600 dark:text-green-400';
   if (value < 0) return 'text-red-600 dark:text-red-400';
   return 'text-gray-600 dark:text-gray-400';

@@ -41,6 +41,13 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Safe number coercion — returns 0 for null/undefined/NaN. */
+function num(v: number | string | null | undefined): number {
+  if (v == null) return 0;
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return isNaN(n) ? 0 : n;
+}
+
 function fmtTime(dateStr: string, timeOnly = false): string {
   // Treat naive timestamps (no Z / offset) as UTC
   const normalized = dateStr && !dateStr.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)
@@ -159,7 +166,7 @@ function PortfolioAllocation({ portfolio }: { portfolio: EnrichedPortfolio }) {
       <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-lg p-3">
         <p className="font-medium text-gray-900 dark:text-gray-100">{d.name}</p>
         <p className="text-sm text-gray-600 dark:text-gray-400">{formatCurrency(d.value)}</p>
-        <p className="text-sm text-gray-500">{((d.value / total) * 100).toFixed(1)}%</p>
+        <p className="text-sm text-gray-500">{(total > 0 ? (d.value / total) * 100 : 0).toFixed(1)}%</p>
       </div>
     );
   };
@@ -205,7 +212,7 @@ function PositionsTable({ portfolio }: { portfolio: EnrichedPortfolio }) {
                   <div className="font-medium text-gray-900 dark:text-gray-100">{pos.symbol}</div>
                   {pos.name && <div className="text-sm text-gray-500 truncate max-w-[150px]">{pos.name}</div>}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{pos.quantity.toFixed(4)}</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{num(pos.quantity).toFixed(4)}</td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{formatCurrency(pos.current_price)}</td>
                 <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
                 <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
@@ -348,17 +355,17 @@ function OptionsPositions({ options, summary }: {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
               {opt.underlying_price != null && (
-                <div><div className="text-xs text-gray-400">Underlying</div><div className="text-sm text-gray-900 dark:text-gray-100">${opt.underlying_price.toFixed(2)}</div></div>
+                <div><div className="text-xs text-gray-400">Underlying</div><div className="text-sm text-gray-900 dark:text-gray-100">${num(opt.underlying_price).toFixed(2)}</div></div>
               )}
               {opt.break_even != null && (
-                <div><div className="text-xs text-gray-400">Break Even</div><div className="text-sm text-gray-900 dark:text-gray-100">${opt.break_even.toFixed(2)}</div></div>
+                <div><div className="text-xs text-gray-400">Break Even</div><div className="text-sm text-gray-900 dark:text-gray-100">${num(opt.break_even).toFixed(2)}</div></div>
               )}
               <div>
                 <div className="text-xs text-gray-400">P&amp;L</div>
                 <div className={`text-sm font-medium ${getGainColor(opt.unrealized_pl)}`}>{formatCurrency(opt.unrealized_pl)}{opt.unrealized_pl_pct != null ? ` (${formatPercent(opt.unrealized_pl_pct)})` : ''}</div>
               </div>
               {opt.chance_of_profit != null && (
-                <div><div className="text-xs text-gray-400">Prob. of Profit</div><div className="text-sm text-gray-900 dark:text-gray-100">{(opt.chance_of_profit * 100).toFixed(1)}%</div></div>
+                <div><div className="text-xs text-gray-400">Prob. of Profit</div><div className="text-sm text-gray-900 dark:text-gray-100">{(num(opt.chance_of_profit) * 100).toFixed(1)}%</div></div>
               )}
             </div>
 
@@ -369,7 +376,7 @@ function OptionsPositions({ options, summary }: {
                     <div key={greek} className="bg-gray-50 dark:bg-zinc-800 rounded p-2">
                       <div className="text-[10px] text-gray-400 uppercase">{greek}</div>
                       <div className={`text-xs font-mono ${greek === 'theta' ? getGainColor(opt.greeks![greek]) : 'text-gray-900 dark:text-gray-100'}`}>
-                        {greek === 'iv' ? `${(opt.greeks![greek] * 100).toFixed(1)}%` : opt.greeks![greek].toFixed(greek === 'gamma' || greek === 'rho' ? 4 : 3)}
+                        {greek === 'iv' ? `${(num(opt.greeks![greek]) * 100).toFixed(1)}%` : num(opt.greeks![greek]).toFixed(greek === 'gamma' || greek === 'rho' ? 4 : 3)}
                       </div>
                     </div>
                   )
@@ -430,7 +437,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
             <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200">
               BTC Signal: {btcState.last_signal?.signal}
             </span>
-            {hasBtc && <span className="text-xs text-gray-500">${btcMetrics!.current_price.toFixed(2)}</span>}
+            {hasBtc && <span className="text-xs text-gray-500">${num(btcMetrics!.current_price).toFixed(2)}</span>}
           </div>
         )}
       </div>
@@ -463,10 +470,10 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
             <span className="text-gray-500">BTC Intraday</span>
             {[['Low', btcMetrics!.intraday_low], ['High', btcMetrics!.intraday_high]].map(([label, val]) => (
-              val != null && <span key={label as string}><span className="text-gray-400">{label} </span><span className="font-medium text-gray-900 dark:text-gray-100">${(val as number).toFixed(2)}</span></span>
+              val != null && <span key={label as string}><span className="text-gray-400">{label} </span><span className="font-medium text-gray-900 dark:text-gray-100">${num(val as number).toFixed(2)}</span></span>
             ))}
             {btcMetrics!.intraday_volatility != null && (
-              <span><span className="text-gray-400">Vol </span><span className="font-medium text-gray-900 dark:text-gray-100">{btcMetrics!.intraday_volatility.toFixed(1)}%</span></span>
+              <span><span className="text-gray-400">Vol </span><span className="font-medium text-gray-900 dark:text-gray-100">{num(btcMetrics!.intraday_volatility).toFixed(1)}%</span></span>
             )}
             {marketDataStale && market_data && (
               <span className="text-gray-400 ml-auto text-xs">as of {fmtTime(market_data.timestamp, true)}</span>
@@ -499,17 +506,17 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                       <div className="font-medium text-gray-900 dark:text-gray-100">{pos.symbol}</div>
                       {pos.name && <div className="text-xs text-gray-500 truncate max-w-[120px]">{pos.name}</div>}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{pos.quantity.toFixed(4)}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{num(pos.quantity).toFixed(4)}</td>
                     <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{formatCurrency(pos.current_price)}</td>
                     <td className="px-4 py-3 text-right">
                       {pos.percent_change != null
-                        ? <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>{pos.percent_change >= 0 ? '+' : ''}{pos.percent_change.toFixed(2)}%</span>
+                        ? <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>{num(pos.percent_change) >= 0 ? '+' : ''}{num(pos.percent_change).toFixed(2)}%</span>
                         : <span className="text-sm text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
                     <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">
-                      {pos.percentage != null ? `${pos.percentage.toFixed(1)}%` : '—'}
+                      {pos.percentage != null ? `${num(pos.percentage).toFixed(1)}%` : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>{formatCurrency(pos.profit_loss)}</div>
