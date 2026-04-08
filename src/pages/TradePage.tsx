@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   RefreshCw,
@@ -6,7 +6,6 @@ import {
   TrendingDown,
   DollarSign,
   Activity,
-  AlertTriangle,
   CheckCircle,
   XCircle,
   Bot,
@@ -14,7 +13,6 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Receipt,
-  User,
   Clock,
 } from 'lucide-react';
 import {
@@ -26,44 +24,48 @@ import {
   Legend,
 } from 'recharts';
 import {
-  getPortfolio,
+  getEnrichedSnapshot,
   getBotActions,
-  getAuthStatus,
-  getOrderPnL,
-  getOrderBookSnapshot,
-  sendSlackAlert,
-  Portfolio,
+  EnrichedSnapshot,
+  EnrichedPortfolio,
+  StockPnLResult,
+  OptionPnLResult,
   BotAction,
-  BotAnalysis,
-  AuthStatus,
-  OrderPnL,
-  SymbolPnL,
-  FilledOrder,
-  OrderBookSnapshot,
   SnapshotOrder,
-  SnapshotOptionOrder,
   OptionPosition,
+  PnLPeriod,
   formatCurrency,
   formatPercent,
   getGainColor,
 } from '../services/robinhoodService';
 
-const USERS = [
-  { id: 'jasonzipb', label: 'jasonzipb' },
-];
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Safe number coercion — returns 0 for null/undefined/NaN. */
+function num(v: number | string | null | undefined): number {
+  if (v == null) return 0;
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return isNaN(n) ? 0 : n;
+}
+
+function fmtTime(dateStr: string, timeOnly = false): string {
+  // Treat naive timestamps (no Z / offset) as UTC
+  const normalized = dateStr && !dateStr.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)
+    ? dateStr + 'Z'
+    : dateStr;
+  const d = new Date(normalized);
+  const opts: Intl.DateTimeFormatOptions = timeOnly
+    ? { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' }
+    : { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' };
+  return d.toLocaleString('en-US', opts);
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const COLORS = [
-  '#3B82F6',
-  '#10B981',
-  '#F59E0B',
-  '#EF4444',
-  '#8B5CF6',
-  '#EC4899',
-  '#06B6D4',
-  '#F97316',
+  '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
+  '#8B5CF6', '#EC4899', '#06B6D4', '#F97316',
 ];
-
-type PnLPeriod = '1W' | '1M' | '3M' | '6M' | '1Y' | '5Y';
 
 const PNL_PERIODS: { label: string; value: PnLPeriod }[] = [
   { label: '1W', value: '1W' },
@@ -74,195 +76,108 @@ const PNL_PERIODS: { label: string; value: PnLPeriod }[] = [
   { label: '5Y', value: '5Y' },
 ];
 
-function getPeriodCutoff(period: PnLPeriod): Date {
-  const now = new Date();
-  switch (period) {
-    case '1W': return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    case '1M': return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-    case '3M': return new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-    case '6M': return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
-    case '1Y': return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-    case '5Y': return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
-  }
-}
+const PERIOD_LABEL: Record<PnLPeriod, string> = {
+  '1W': 'last week', '1M': 'last month', '3M': 'last 3 months',
+  '6M': 'last 6 months', '1Y': 'last year', '5Y': 'last 5 years',
+};
 
-function getPeriodLabel(period: PnLPeriod): string {
-  switch (period) {
-    case '1W': return 'last week';
-    case '1M': return 'last month';
-    case '3M': return 'last 3 months';
-    case '6M': return 'last 6 months';
-    case '1Y': return 'last year';
-    case '5Y': return 'last 5 years';
-  }
-}
+// ─── PortfolioSummary ─────────────────────────────────────────────────────────
 
-function filterAndRecalcPnL(pnl: OrderPnL, period: PnLPeriod): OrderPnL {
-  const cutoff = getPeriodCutoff(period);
-  const filtered = pnl.orders.filter(o => new Date(o.createdAt) >= cutoff);
-
-  const symbolMap: Record<string, {
-    symbol: string; name: string; realizedPnL: number;
-    totalBought: number; totalSold: number; buyCount: number; sellCount: number;
-    totalBuyShares: number; totalSellShares: number; sharesHeld: number; costBasis: number;
-  }> = {};
-
-  const sorted = [...filtered].sort((a, b) =>
-    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  );
-
-  for (const order of sorted) {
-    if (!symbolMap[order.symbol]) {
-      symbolMap[order.symbol] = {
-        symbol: order.symbol, name: order.name, realizedPnL: 0,
-        totalBought: 0, totalSold: 0, buyCount: 0, sellCount: 0,
-        totalBuyShares: 0, totalSellShares: 0, sharesHeld: 0, costBasis: 0,
-      };
-    }
-    const s = symbolMap[order.symbol];
-    const total = order.quantity * order.price;
-
-    if (order.side === 'buy') {
-      s.sharesHeld += order.quantity;
-      s.costBasis += total;
-      s.totalBought += total;
-      s.totalBuyShares += order.quantity;
-      s.buyCount++;
-    } else {
-      const avgCost = s.sharesHeld > 0 ? s.costBasis / s.sharesHeld : 0;
-      s.realizedPnL += (order.price - avgCost) * order.quantity;
-      s.costBasis -= avgCost * order.quantity;
-      s.sharesHeld -= order.quantity;
-      s.totalSold += total;
-      s.totalSellShares += order.quantity;
-      s.sellCount++;
-    }
-  }
-
-  const symbols: SymbolPnL[] = Object.values(symbolMap)
-    .map(s => ({
-      symbol: s.symbol,
-      name: s.name,
-      realizedPnL: Math.round(s.realizedPnL * 100) / 100,
-      totalBought: Math.round(s.totalBought * 100) / 100,
-      totalSold: Math.round(s.totalSold * 100) / 100,
-      buyCount: s.buyCount,
-      sellCount: s.sellCount,
-      avgBuyPrice: s.totalBuyShares > 0 ? Math.round((s.totalBought / s.totalBuyShares) * 100) / 100 : 0,
-      avgSellPrice: s.totalSellShares > 0 ? Math.round((s.totalSold / s.totalSellShares) * 100) / 100 : 0,
-      remainingShares: Math.round(s.sharesHeld * 10000) / 10000,
-      remainingCostBasis: Math.round(s.costBasis * 100) / 100,
-    }))
-    .sort((a, b) => Math.abs(b.realizedPnL) - Math.abs(a.realizedPnL));
-
-  return {
-    totalRealizedPnL: Math.round(symbols.reduce((sum, s) => sum + s.realizedPnL, 0) * 100) / 100,
-    totalBuyVolume: Math.round(symbols.reduce((sum, s) => sum + s.totalBought, 0) * 100) / 100,
-    totalSellVolume: Math.round(symbols.reduce((sum, s) => sum + s.totalSold, 0) * 100) / 100,
-    symbols,
-    orders: filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-  };
-}
-function PortfolioSummary({ portfolio }: { portfolio: Portfolio }) {
-  const dayGainPercent = portfolio.portfolioValue > 0
-    ? (portfolio.totalGain / (portfolio.portfolioValue - portfolio.totalGain)) * 100
-    : 0;
-
+function PortfolioSummary({ portfolio }: { portfolio: EnrichedPortfolio }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
+      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
           <DollarSign className="w-4 h-4" />
           Portfolio Value
         </div>
-        <div className="text-2xl font-bold text-gray-900 dark:text-white">
-          {formatCurrency(portfolio.portfolioValue)}
+        <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+          {formatCurrency(portfolio.equity)}
+        </div>
+        <div className="text-xs text-gray-400 mt-1">
+          RH {formatCurrency(portfolio.reconciliation.rh_equity)}
+          {' · '}
+          Engine {formatCurrency(portfolio.reconciliation.computed_equity)}
         </div>
       </div>
 
-      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
+      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-          {portfolio.totalGain >= 0 ? (
-            <TrendingUp className="w-4 h-4 text-green-500" />
-          ) : (
-            <TrendingDown className="w-4 h-4 text-red-500" />
-          )}
-          Day's Change
+          {portfolio.total_pl >= 0
+            ? <TrendingUp className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+            : <TrendingDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />}
+          Total P&amp;L
         </div>
-        <div className={`text-2xl font-bold ${getGainColor(portfolio.totalGain)}`}>
-          {formatCurrency(portfolio.totalGain)} ({formatPercent(dayGainPercent)})
+        <div className={`text-2xl font-bold ${getGainColor(portfolio.total_pl)}`}>
+          {formatCurrency(portfolio.total_pl)} ({formatPercent(portfolio.total_pl_pct)})
         </div>
       </div>
 
-      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
+      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
           <Activity className="w-4 h-4" />
           Buying Power
         </div>
-        <div className="text-2xl font-bold text-gray-900 dark:text-white">
-          {formatCurrency(portfolio.buyingPower)}
+        <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+          {formatCurrency(portfolio.cash.buying_power)}
         </div>
+        {portfolio.margin_used > 0 && (
+          <div className="text-xs text-gray-700 dark:text-gray-300 mt-1">
+            Margin used: {formatCurrency(portfolio.margin_used)}
+          </div>
+        )}
       </div>
 
-      <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
+      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
           <BarChart3 className="w-4 h-4" />
           Positions
         </div>
-        <div className="text-2xl font-bold text-gray-900 dark:text-white">
+        <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
           {portfolio.positions.length}
         </div>
+        {portfolio.options.length > 0 && (
+          <div className="text-xs text-gray-400 mt-1">
+            + {portfolio.options.length} option position{portfolio.options.length !== 1 ? 's' : ''}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function PortfolioAllocation({ portfolio }: { portfolio: Portfolio }) {
-  const pieData = portfolio.positions.map((pos, index) => ({
+// ─── PortfolioAllocation ──────────────────────────────────────────────────────
+
+function PortfolioAllocation({ portfolio }: { portfolio: EnrichedPortfolio }) {
+  const pieData = portfolio.positions.map((pos, i) => ({
     name: pos.symbol,
-    value: pos.currentValue,
-    color: COLORS[index % COLORS.length],
+    value: pos.equity,
+    color: COLORS[i % COLORS.length],
   }));
 
-  if (portfolio.buyingPower > 0) {
-    pieData.push({
-      name: 'Cash',
-      value: portfolio.buyingPower,
-      color: '#9CA3AF',
-    });
-  }
+  const bp = portfolio.cash.buying_power;
+  if (bp > 0) pieData.push({ name: 'Cash', value: bp, color: '#9CA3AF' });
 
   const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ name: string; value: number }> }) => {
-    if (!active || !payload || !payload.length) return null;
-    const data = payload[0];
-    const total = pieData.reduce((sum, item) => sum + item.value, 0);
-    const percent = ((data.value / total) * 100).toFixed(1);
+    if (!active || !payload?.length) return null;
+    const d = payload[0];
+    const total = pieData.reduce((s, x) => s + x.value, 0);
     return (
-      <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-lg shadow-lg p-3">
-        <p className="font-medium text-gray-900 dark:text-white">{data.name}</p>
-        <p className="text-sm text-gray-600 dark:text-gray-400">{formatCurrency(data.value)}</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{percent}%</p>
+      <div className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl shadow-lg p-3">
+        <p className="font-medium text-gray-900 dark:text-gray-100">{d.name}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{formatCurrency(d.value)}</p>
+        <p className="text-sm text-gray-500">{(total > 0 ? (d.value / total) * 100 : 0).toFixed(1)}%</p>
       </div>
     );
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Portfolio Allocation</h3>
+    <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Portfolio Allocation</h3>
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
-          <Pie
-            data={pieData}
-            cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={100}
-            paddingAngle={2}
-            dataKey="value"
-          >
-            {pieData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
-            ))}
+          <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value">
+            {pieData.map((entry, i) => <Cell key={`cell-${i}`} fill={entry.color} />)}
           </Pie>
           <Tooltip content={<CustomTooltip />} />
           <Legend />
@@ -272,42 +187,38 @@ function PortfolioAllocation({ portfolio }: { portfolio: Portfolio }) {
   );
 }
 
-function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
+// ─── PositionsTable ───────────────────────────────────────────────────────────
+
+function PositionsTable({ portfolio }: { portfolio: EnrichedPortfolio }) {
+  // Positions arrive pre-sorted by abs(profit_loss) from the backend
   return (
-    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Holdings</h3>
+    <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Holdings</h3>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50 dark:bg-zinc-900">
+          <thead className="bg-gray-50 dark:bg-zinc-800">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Symbol</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Shares</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Price</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avg Cost</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Value</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Gain</th>
+              {['Symbol','Shares','Price','Avg Cost','Value','Total Gain'].map(h => (
+                <th key={h} className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${h === 'Symbol' ? 'text-left' : 'text-right'}`}>{h}</th>
+              ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-zinc-800">
-            {portfolio.positions.map((position, index) => (
-              <tr key={position.symbol} className={index % 2 === 0 ? 'bg-white dark:bg-zinc-950' : 'bg-gray-50 dark:bg-zinc-900'}>
+          <tbody className="divide-y divide-gray-200 dark:divide-zinc-700">
+            {portfolio.positions.map((pos, i) => (
+              <tr key={pos.symbol} className={i % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-800'}>
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900 dark:text-white">{position.symbol}</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[150px]">{position.name}</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">{pos.symbol}</div>
+                  {pos.name && <div className="text-sm text-gray-500 truncate max-w-[150px]">{pos.name}</div>}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{position.quantity.toFixed(4)}</td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(position.currentPrice)}</td>
-                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(position.averageCost)}</td>
-                <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(position.currentValue)}</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{num(pos.quantity).toFixed(4)}</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{formatCurrency(pos.current_price)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
+                <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
                 <td className="px-4 py-3 text-right">
-                  <div className={`font-medium ${getGainColor(position.gain)}`}>
-                    {formatCurrency(position.gain)}
-                  </div>
-                  <div className={`text-sm ${getGainColor(position.gainPercent)}`}>
-                    {formatPercent(position.gainPercent)}
-                  </div>
+                  <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>{formatCurrency(pos.profit_loss)}</div>
+                  <div className={`text-sm ${getGainColor(pos.profit_loss_pct)}`}>{formatPercent(pos.profit_loss_pct)}</div>
                 </td>
               </tr>
             ))}
@@ -318,73 +229,47 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
   );
 }
 
-function formatExpiration(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00');
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-}
+// ─── BotActionsLog ────────────────────────────────────────────────────────────
 
 function BotActionsLog({ actions }: { actions: BotAction[] }) {
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-      case 'submitted':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'failed':
-      case 'error':
-        return <XCircle className="w-4 h-4 text-red-500" />;
-      case 'simulated':
-        return <Bot className="w-4 h-4 text-gray-500 dark:text-gray-400" />;
-      default:
-        return <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400" />;
-    }
+  const statusIcon = (s: string) => {
+    if (s === 'completed' || s === 'submitted') return <CheckCircle className="w-4 h-4 text-gray-700 dark:text-gray-300" />;
+    if (s === 'failed' || s === 'error')        return <XCircle    className="w-4 h-4 text-gray-700 dark:text-gray-300" />;
+    return <Activity className="w-4 h-4 text-gray-500" />;
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'BUY_ORDER':
-        return 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400';
-      case 'SELL_ORDER':
-        return 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400';
-      case 'ANALYSIS':
-        return 'bg-gray-100 dark:bg-zinc-900 text-gray-800 dark:text-gray-300';
-      case 'ERROR':
-        return 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400';
-      default:
-        return 'bg-gray-100 dark:bg-zinc-900 text-gray-800 dark:text-gray-300';
-    }
+  const typeColor = (t: string) => {
+    if (t === 'BUY_ORDER')  return 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300';
+    if (t === 'SELL_ORDER') return 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300';
+    return 'bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200';
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-        <Bot className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bot Activity</h3>
+    <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
+        <Bot className="w-5 h-5 text-gray-500" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Bot Activity</h3>
       </div>
       <div className="max-h-[400px] overflow-y-auto">
         {actions.length === 0 ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            <Bot className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+          <div className="p-8 text-center text-gray-500">
+            <Bot className="w-12 h-12 mx-auto mb-3 text-gray-300" />
             <p>No bot actions yet</p>
-            <p className="text-sm">Run an analysis to get started</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-zinc-900">
-            {actions.map((action) => (
-              <div key={action.id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+          <div className="divide-y divide-gray-100 dark:divide-zinc-700">
+            {actions.map(action => (
+              <div key={action.id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                 <div className="flex items-start gap-3">
-                  {getStatusIcon(action.status)}
+                  {statusIcon(action.status)}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${getTypeColor(action.type)}`}>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${typeColor(action.type)}`}>
                         {action.type.replace('_', ' ')}
                       </span>
-                      {action.symbol && (
-                        <span className="font-medium text-gray-900 dark:text-white">{action.symbol}</span>
-                      )}
+                      {action.symbol && <span className="font-medium text-gray-900 dark:text-gray-100">{action.symbol}</span>}
                       {action.dryRun && (
-                        <span className="px-2 py-0.5 text-xs bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400 rounded">
-                          DRY RUN
-                        </span>
+                        <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300 rounded">DRY RUN</span>
                       )}
                     </div>
                     {action.quantity && action.price && (
@@ -392,15 +277,10 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
                         {action.quantity} shares @ {formatCurrency(action.price)} = {formatCurrency(action.total || 0)}
                       </p>
                     )}
-                    {action.message && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{action.message}</p>
+                    {(action.message || action.details) && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{action.message || action.details}</p>
                     )}
-                    {action.details && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{action.details}</p>
-                    )}
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                      {new Date(action.timestamp).toLocaleString()}
-                    </p>
+                    <p className="text-xs text-gray-400 mt-1">{fmtTime(action.timestamp)}</p>
                   </div>
                 </div>
               </div>
@@ -412,196 +292,109 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
   );
 }
 
-function AnalysisSuggestions({ analysis }: { analysis: BotAnalysis | null }) {
-  if (!analysis) return null;
+// ─── OptionsPositions ─────────────────────────────────────────────────────────
+// Unchanged — receives OptionPosition[] same as before
 
-  return (
-    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-        <AlertTriangle className="w-5 h-5 text-yellow-500" />
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bot Suggestions</h3>
-      </div>
-      {analysis.suggestions.length === 0 ? (
-        <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-          <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-300 dark:text-green-700" />
-          <p>No action needed</p>
-          <p className="text-sm">Your portfolio looks balanced</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-gray-100 dark:divide-zinc-900">
-          {analysis.suggestions.map((suggestion, index) => (
-            <div key={index} className="px-4 py-3">
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                  suggestion.type === 'TAKE_PROFIT' ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400' :
-                  suggestion.type === 'STOP_LOSS' ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400' :
-                  'bg-gray-100 dark:bg-zinc-900 text-gray-800 dark:text-gray-300'
-                }`}>
-                  {suggestion.type.replace('_', ' ')}
-                </span>
-                <span className="font-medium text-gray-900 dark:text-white">{suggestion.symbol}</span>
-                <span className={`ml-auto px-2 py-0.5 text-xs rounded ${
-                  suggestion.priority === 'high' ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400' :
-                  suggestion.priority === 'medium' ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400' :
-                  'bg-gray-100 dark:bg-zinc-900 text-gray-800 dark:text-gray-300'
-                }`}>
-                  {suggestion.priority}
-                </span>
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">{suggestion.reason}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function formatExpiration(dateStr: string): string {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 }
 
-function OptionsPositions({ options }: { options: OptionPosition[] }) {
-  if (options.length === 0) return null;
-
-  const totalCostBasis = options.reduce((sum, o) => sum + o.cost_basis, 0);
-  const totalCurrentValue = options.reduce((sum, o) => sum + o.current_value, 0);
-  const totalPL = options.reduce((sum, o) => sum + o.unrealized_pl, 0);
-  const totalPLPct = totalCostBasis > 0 ? (totalPL / totalCostBasis) * 100 : 0;
-  const totalThetaDaily = options.reduce((sum, o) => sum + o.expected_pl.theta_daily, 0);
+function OptionsPositions({ options, summary }: {
+  options: OptionPosition[];
+  summary: EnrichedPortfolio['options_summary'];
+}) {
+  if (!options.length || !summary) return null;
 
   return (
-    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-        <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Options</h3>
-        <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{options.length} position{options.length !== 1 ? 's' : ''}</span>
+    <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
+        <Activity className="w-5 h-5 text-gray-500" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Options</h3>
+        <span className="text-sm text-gray-400 ml-auto">{summary.count} position{summary.count !== 1 ? 's' : ''}</span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 border-b border-gray-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900">
-        <div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">Cost Basis</div>
-          <div className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalCostBasis)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">Current Value</div>
-          <div className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalCurrentValue)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">Unrealized P&L</div>
-          <div className={`font-medium ${getGainColor(totalPL)}`}>
-            {formatCurrency(totalPL)} ({formatPercent(totalPLPct)})
+      {/* Summary bar — pre-aggregated by backend */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 border-b border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800">
+        {[
+          ['Cost Basis',      summary.total_cost_basis,    false],
+          ['Current Value',   summary.total_current_value, false],
+          ['Unrealized P&L',  summary.total_unrealized_pl, true],
+          ['Theta/Day',       summary.total_theta_daily,   true],
+        ].map(([label, val, colored]) => (
+          <div key={label as string}>
+            <div className="text-xs text-gray-500">{label as string}</div>
+            <div className={`font-medium ${colored ? getGainColor(val as number) : 'text-gray-900 dark:text-gray-100'}`}>
+              {formatCurrency(val as number)}
+            </div>
           </div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">Theta/Day</div>
-          <div className={`font-medium ${getGainColor(totalThetaDaily)}`}>
-            {formatCurrency(totalThetaDaily)}
-          </div>
-        </div>
+        ))}
       </div>
 
-      <div className="divide-y divide-gray-200 dark:divide-zinc-800">
-        {options.map((opt) => (
-          <div key={`${opt.chain_symbol}-${opt.option_type}-${opt.strike}-${opt.expiration}`} className="p-4">
+      <div className="divide-y divide-gray-200 dark:divide-zinc-700">
+        {options.map(opt => (
+          <div key={`${opt.chain_symbol ?? opt.symbol}-${opt.option_type}-${opt.strike ?? opt.strike_price}-${opt.expiration ?? opt.expiration_date}`} className="p-4">
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="font-semibold text-gray-900 dark:text-white">{opt.chain_symbol}</span>
-              <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                opt.option_type === 'call'
-                  ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                  : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-              }`}>
+              <span className="font-semibold text-gray-900 dark:text-gray-100">{opt.chain_symbol ?? opt.symbol}</span>
+              <span className={`px-2 py-0.5 text-xs font-medium rounded ${opt.option_type === 'call' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>
                 {opt.option_type.toUpperCase()}
               </span>
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                ${opt.strike} strike
-              </span>
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                exp {opt.expiration}
-              </span>
-              <span className={`px-2 py-0.5 text-xs rounded ${
-                opt.dte <= 7
-                  ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                  : opt.dte <= 21
-                    ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400'
-                    : 'bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400'
-              }`}>
-                {opt.dte}d
-              </span>
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {opt.quantity} × {opt.position_type}
-              </span>
-
+              <span className="text-sm text-gray-600 dark:text-gray-400">${opt.strike ?? opt.strike_price} strike</span>
+              <span className="text-sm text-gray-500">exp {opt.expiration ?? opt.expiration_date}</span>
+              {opt.dte != null && (
+                <span className={`px-2 py-0.5 text-xs rounded ${opt.dte <= 7 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : opt.dte <= 21 ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 dark:text-gray-400'}`}>
+                  {opt.dte}d
+                </span>
+              )}
+              <span className="text-xs text-gray-500">{opt.quantity} × {opt.position_type ?? opt.option_type}</span>
               {opt.recommended_action && (
-                <span className={`ml-auto px-2 py-0.5 text-xs font-medium rounded ${
-                  opt.recommended_action.action === 'CLOSE' || opt.recommended_action.action === 'SELL'
-                    ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                    : opt.recommended_action.action === 'HOLD'
-                      ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-400'
-                      : 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                }`}>
+                <span className={`ml-auto px-2 py-0.5 text-xs font-medium rounded ${opt.recommended_action.action === 'CLOSE' || opt.recommended_action.action === 'SELL' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : opt.recommended_action.action === 'HOLD' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>
                   {opt.recommended_action.action}
                 </span>
               )}
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+              {opt.underlying_price != null && (
+                <div><div className="text-xs text-gray-400">Underlying</div><div className="text-sm text-gray-900 dark:text-gray-100">${num(opt.underlying_price).toFixed(2)}</div></div>
+              )}
+              {opt.break_even != null && (
+                <div><div className="text-xs text-gray-400">Break Even</div><div className="text-sm text-gray-900 dark:text-gray-100">${num(opt.break_even).toFixed(2)}</div></div>
+              )}
               <div>
-                <div className="text-xs text-gray-400 dark:text-gray-500">Underlying</div>
-                <div className="text-sm text-gray-900 dark:text-white">${opt.underlying_price.toFixed(2)}</div>
+                <div className="text-xs text-gray-400">P&amp;L</div>
+                <div className={`text-sm font-medium ${getGainColor(opt.unrealized_pl)}`}>{formatCurrency(opt.unrealized_pl)}{opt.unrealized_pl_pct != null ? ` (${formatPercent(opt.unrealized_pl_pct)})` : ''}</div>
               </div>
-              <div>
-                <div className="text-xs text-gray-400 dark:text-gray-500">Break Even</div>
-                <div className="text-sm text-gray-900 dark:text-white">${opt.break_even.toFixed(2)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 dark:text-gray-500">P&L</div>
-                <div className={`text-sm font-medium ${getGainColor(opt.unrealized_pl)}`}>
-                  {formatCurrency(opt.unrealized_pl)} ({formatPercent(opt.unrealized_pl_pct)})
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 dark:text-gray-500">Prob. of Profit</div>
-                <div className="text-sm text-gray-900 dark:text-white">{(opt.chance_of_profit * 100).toFixed(1)}%</div>
-              </div>
+              {opt.chance_of_profit != null && (
+                <div><div className="text-xs text-gray-400">Prob. of Profit</div><div className="text-sm text-gray-900 dark:text-gray-100">{(num(opt.chance_of_profit) * 100).toFixed(1)}%</div></div>
+              )}
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
-              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Delta</div>
-                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.delta.toFixed(3)}</div>
+            {opt.greeks && (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
+                {(['delta','gamma','theta','vega','iv','rho'] as const).map(greek => (
+                  opt.greeks![greek] != null && (
+                    <div key={greek} className="bg-gray-50 dark:bg-zinc-800 rounded p-2">
+                      <div className="text-[10px] text-gray-400 uppercase">{greek}</div>
+                      <div className={`text-xs font-mono ${greek === 'theta' ? getGainColor(opt.greeks![greek]) : 'text-gray-900 dark:text-gray-100'}`}>
+                        {greek === 'iv' ? `${(num(opt.greeks![greek]) * 100).toFixed(1)}%` : num(opt.greeks![greek]).toFixed(greek === 'gamma' || greek === 'rho' ? 4 : 3)}
+                      </div>
+                    </div>
+                  )
+                ))}
               </div>
-              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Gamma</div>
-                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.gamma.toFixed(4)}</div>
-              </div>
-              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Theta</div>
-                <div className={`text-xs font-mono ${getGainColor(opt.greeks.theta)}`}>{opt.greeks.theta.toFixed(3)}</div>
-              </div>
-              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Vega</div>
-                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.vega.toFixed(3)}</div>
-              </div>
-              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">IV</div>
-                <div className="text-xs font-mono text-gray-900 dark:text-white">{(opt.greeks.iv * 100).toFixed(1)}%</div>
-              </div>
-              <div className="bg-gray-50 dark:bg-zinc-900 rounded p-2">
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase">Rho</div>
-                <div className="text-xs font-mono text-gray-900 dark:text-white">{opt.greeks.rho.toFixed(4)}</div>
-              </div>
-            </div>
+            )}
 
-            <div className="flex flex-wrap items-center gap-3 text-xs">
-              <span className="text-gray-400 dark:text-gray-500">Scenario P&L:</span>
-              {Object.entries(opt.expected_pl).filter(([k]) => k !== 'theta_daily').map(([scenario, pl]) => (
-                <span key={scenario} className={`font-mono ${getGainColor(pl)}`}>
-                  {scenario}: {formatCurrency(pl)}
-                </span>
-              ))}
-            </div>
-
-            {opt.recommended_action?.reasons?.length > 0 && (
-              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                {opt.recommended_action.reasons.join(' · ')}
+            {opt.expected_pl && (
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <span className="text-gray-400">Scenario P&amp;L:</span>
+                {Object.entries(opt.expected_pl).filter(([k]) => k !== 'theta_daily').map(([scenario, pl]) => (
+                  <span key={scenario} className={`font-mono ${getGainColor(pl)}`}>{scenario}: {formatCurrency(pl)}</span>
+                ))}
               </div>
+            )}
+
+            {(opt.recommended_action?.reasons?.length ?? 0) > 0 && (
+              <div className="mt-2 text-xs text-gray-500">{opt.recommended_action!.reasons!.join(' · ')}</div>
             )}
           </div>
         ))}
@@ -610,277 +403,124 @@ function OptionsPositions({ options }: { options: OptionPosition[] }) {
   );
 }
 
-function computeRecentOrdersPnL(orders: SnapshotOrder[]) {
-  const filled = orders
-    .filter(o => o.state === 'filled' && o.average_price != null)
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+// ─── OrderBookSnapshotView ────────────────────────────────────────────────────
 
-  const symbolMap: Record<string, {
-    symbol: string; realizedPnL: number;
-    totalBought: number; totalSold: number; buyCount: number; sellCount: number;
-    sharesHeld: number; costBasis: number;
-  }> = {};
+function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
+  const { portfolio, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
 
-  for (const order of filled) {
-    if (!symbolMap[order.symbol]) {
-      symbolMap[order.symbol] = {
-        symbol: order.symbol, realizedPnL: 0,
-        totalBought: 0, totalSold: 0, buyCount: 0, sellCount: 0,
-        sharesHeld: 0, costBasis: 0,
-      };
-    }
-    const s = symbolMap[order.symbol];
-    const qty = order.filled_quantity ?? order.quantity;
-    const price = order.average_price!;
-    const total = qty * price;
+  const openOrders       = portfolio.open_orders.length > 0 ? portfolio.open_orders : snapshot.order_book;
+  const openOptionOrders = portfolio.open_option_orders;
 
-    if (order.side === 'BUY') {
-      s.sharesHeld += qty;
-      s.costBasis += total;
-      s.totalBought += total;
-      s.buyCount++;
-    } else {
-      const avgCost = s.sharesHeld > 0 ? s.costBasis / s.sharesHeld : 0;
-      s.realizedPnL += (price - avgCost) * qty;
-      s.costBasis -= avgCost * qty;
-      s.sharesHeld -= qty;
-      s.totalSold += total;
-      s.sellCount++;
-    }
-  }
+  // Pre-computed by backend — no client-side math
+  const recentPnl = snapshot.recent_pnl;
+  const optionPnl = snapshot.option_pnl;
 
-  const symbols = Object.values(symbolMap).sort((a, b) => Math.abs(b.realizedPnL) - Math.abs(a.realizedPnL));
-  const totalRealizedPnL = symbols.reduce((sum, s) => sum + s.realizedPnL, 0);
-  const totalBuyVolume = symbols.reduce((sum, s) => sum + s.totalBought, 0);
-  const totalSellVolume = symbols.reduce((sum, s) => sum + s.totalSold, 0);
-
-  return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
-}
-
-function computeOptionOrdersPnL(orders: SnapshotOptionOrder[]) {
-  const filled = orders
-    .filter(o => o.state === 'filled')
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-  // Group by underlying symbol (chain_symbol) and compute P&L from processed_premium
-  // debit (BUY/open) = cost, credit (SELL/close) = proceeds
-  const symbolMap: Record<string, {
-    symbol: string; realizedPnL: number;
-    totalBought: number; totalSold: number; buyCount: number; sellCount: number;
-  }> = {};
-
-  for (const order of filled) {
-    const leg = order.legs?.[0];
-    const sym = leg?.chain_symbol || 'OPT';
-    const premium = order.processed_premium || (order.premium * (order.quantity || 1));
-    if (!symbolMap[sym]) {
-      symbolMap[sym] = { symbol: sym, realizedPnL: 0, totalBought: 0, totalSold: 0, buyCount: 0, sellCount: 0 };
-    }
-    const s = symbolMap[sym];
-    if (order.direction === 'debit') {
-      s.totalBought += premium;
-      s.buyCount++;
-    } else {
-      s.totalSold += premium;
-      s.sellCount++;
-    }
-  }
-
-  // P&L = total credits received - total debits paid
-  for (const s of Object.values(symbolMap)) {
-    s.realizedPnL = s.totalSold - s.totalBought;
-  }
-
-  const symbols = Object.values(symbolMap).sort((a, b) => Math.abs(b.realizedPnL) - Math.abs(a.realizedPnL));
-  const totalRealizedPnL = symbols.reduce((sum, s) => sum + s.realizedPnL, 0);
-  const totalBuyVolume = symbols.reduce((sum, s) => sum + s.totalBought, 0);
-  const totalSellVolume = symbols.reduce((sum, s) => sum + s.totalSold, 0);
-
-  return { totalRealizedPnL, totalBuyVolume, totalSellVolume, symbols, filledCount: filled.length };
-}
-
-function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
-  const { portfolio, order_book, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
-  const openOrders = (portfolio.open_orders || []).length > 0 ? portfolio.open_orders : order_book;
-  const openOptionOrders = portfolio.open_option_orders || [];
-  const historicalOrders = (recent_orders || [])
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const historicalOptionOrders = (recent_option_orders || [])
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const recentPnL = computeRecentOrdersPnL(historicalOrders.filter(o => o.state === 'filled'));
-  const optionPnL = computeOptionOrdersPnL(historicalOptionOrders);
-  const totalPnL = (portfolio.positions || []).reduce((sum, p) => sum + p.profit_loss, 0);
-  const totalCost = (portfolio.positions || []).reduce((sum, p) => sum + p.avg_buy_price * p.quantity, 0);
-  const pnlPercent = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
-
-  const sortedPositions = [...portfolio.positions].sort(
-    (a, b) => Math.abs(b.profit_loss) - Math.abs(a.profit_loss)
-  );
-
-  const btcState = market_data?.symbols['BTC'];
+  const btcState   = market_data?.symbols['BTC'];
   const btcMetrics = btcState?.metrics;
-  const hasBtcMetrics = btcMetrics && btcMetrics.current_price != null;
+  const hasBtc     = btcMetrics?.current_price != null;
   const marketDataStale = market_data && market_data.timestamp !== timestamp;
+
+  const stateBadge = (state: string) =>
+    state === 'filled'    ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' :
+    state === 'cancelled' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400' :
+                            'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300';
 
   return (
     <div className="mb-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Order Book Snapshot</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500">
-            Last updated: {new Date(timestamp).toLocaleString()}
-          </p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Order Book Snapshot</h2>
+          <p className="text-xs text-gray-400">Last updated: {fmtTime(timestamp)}</p>
         </div>
         {btcState && (
           <div className="flex items-center gap-2">
-            <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-zinc-900 text-gray-800 dark:text-gray-300">
-              BTC Signal: {btcState.last_signal.signal}
+            <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200">
+              BTC Signal: {btcState.last_signal?.signal}
             </span>
-            {hasBtcMetrics && (
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                ${btcMetrics.current_price.toFixed(2)}
-              </span>
-            )}
+            {hasBtc && <span className="text-xs text-gray-500">${num(btcMetrics!.current_price).toFixed(2)}</span>}
           </div>
         )}
       </div>
 
+      {/* Summary cards — all values from backend */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
+        {[
+          { label: 'Equity',        icon: <DollarSign className="w-4 h-4" />, val: portfolio.equity },
+          { label: 'Market Value',  icon: <BarChart3   className="w-4 h-4" />, val: portfolio.market_value },
+          { label: 'Buying Power',  icon: <Activity    className="w-4 h-4" />, val: portfolio.cash.buying_power },
+        ].map(({ label, icon, val }) => (
+          <div key={label} className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">{icon}{label}</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatCurrency(val)}</div>
+          </div>
+        ))}
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            <DollarSign className="w-4 h-4" />
-            Equity
+            {portfolio.total_pl >= 0 ? <TrendingUp className="w-4 h-4 text-gray-700 dark:text-gray-300" /> : <TrendingDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />}
+            Total P&amp;L
           </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(portfolio.equity)}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            <BarChart3 className="w-4 h-4" />
-            Market Value
-          </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(portfolio.market_value)}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            <Activity className="w-4 h-4" />
-            Buying Power
-          </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(portfolio.cash.buying_power)}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            {totalPnL >= 0 ? (
-              <TrendingUp className="w-4 h-4 text-green-500" />
-            ) : (
-              <TrendingDown className="w-4 h-4 text-red-500" />
-            )}
-            Total P&L
-          </div>
-          <div className={`text-2xl font-bold ${getGainColor(totalPnL)}`}>
-            {formatCurrency(totalPnL)} ({formatPercent(pnlPercent)})
+          <div className={`text-2xl font-bold ${getGainColor(portfolio.total_pl)}`}>
+            {formatCurrency(portfolio.total_pl)} ({formatPercent(portfolio.total_pl_pct)})
           </div>
         </div>
       </div>
 
-      {hasBtcMetrics && (
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-3 mb-4">
+      {hasBtc && (
+        <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-3 mb-4">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-            <span className="text-gray-500 dark:text-gray-400">BTC Intraday</span>
-            {btcMetrics.intraday_low != null && (
-              <span>
-                <span className="text-gray-400 dark:text-gray-500">Low </span>
-                <span className="font-medium text-gray-900 dark:text-white">${btcMetrics.intraday_low.toFixed(2)}</span>
-              </span>
-            )}
-            {btcMetrics.intraday_high != null && (
-              <span>
-                <span className="text-gray-400 dark:text-gray-500">High </span>
-                <span className="font-medium text-gray-900 dark:text-white">${btcMetrics.intraday_high.toFixed(2)}</span>
-              </span>
-            )}
-            {btcMetrics.intraday_volatility != null && (
-              <span>
-                <span className="text-gray-400 dark:text-gray-500">Vol </span>
-                <span className="font-medium text-gray-900 dark:text-white">{btcMetrics.intraday_volatility.toFixed(1)}%</span>
-              </span>
-            )}
-            {btcMetrics['30d_low'] != null && btcMetrics['30d_high'] != null && (
-              <span>
-                <span className="text-gray-400 dark:text-gray-500">30d Range </span>
-                <span className="font-medium text-gray-900 dark:text-white">${btcMetrics['30d_low'].toFixed(2)} – ${btcMetrics['30d_high'].toFixed(2)}</span>
-              </span>
+            <span className="text-gray-500">BTC Intraday</span>
+            {[['Low', btcMetrics!.intraday_low], ['High', btcMetrics!.intraday_high]].map(([label, val]) => (
+              val != null && <span key={label as string}><span className="text-gray-400">{label} </span><span className="font-medium text-gray-900 dark:text-gray-100">${num(val as number).toFixed(2)}</span></span>
+            ))}
+            {btcMetrics!.intraday_volatility != null && (
+              <span><span className="text-gray-400">Vol </span><span className="font-medium text-gray-900 dark:text-gray-100">{num(btcMetrics!.intraday_volatility).toFixed(1)}%</span></span>
             )}
             {marketDataStale && market_data && (
-              <span className="text-gray-400 dark:text-gray-500 ml-auto text-xs">
-                as of {new Date(market_data.timestamp).toLocaleTimeString()}
-              </span>
+              <span className="text-gray-400 ml-auto text-xs">as of {fmtTime(market_data.timestamp, true)}</span>
             )}
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Positions</h3>
-            <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{portfolio.positions.length} holdings</span>
+        {/* Positions table — arrives pre-sorted */}
+        <div className="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-gray-500" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Positions</h3>
+            <span className="text-sm text-gray-400 ml-auto">{portfolio.positions.length} holdings</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-zinc-900">
+              <thead className="bg-gray-50 dark:bg-zinc-800">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Symbol</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Qty</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Price</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Day</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avg Cost</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Value</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Alloc</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">P&L</th>
+                  {['Symbol','Qty','Price','Day','Avg Cost','Value','Alloc','P&L'].map(h => (
+                    <th key={h} className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${h === 'Symbol' ? 'text-left' : 'text-right'}`}>{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-zinc-800">
-                {sortedPositions.map((pos, index) => (
-                  <tr key={pos.symbol} className={index % 2 === 0 ? 'bg-white dark:bg-zinc-950' : 'bg-gray-50 dark:bg-zinc-900'}>
+              <tbody className="divide-y divide-gray-200 dark:divide-zinc-700">
+                {portfolio.positions.map((pos, i) => (
+                  <tr key={pos.symbol} className={i % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-800'}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900 dark:text-white">{pos.symbol}</div>
-                      {pos.name && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">{pos.name}</div>
-                      )}
+                      <div className="font-medium text-gray-900 dark:text-gray-100">{pos.symbol}</div>
+                      {pos.name && <div className="text-xs text-gray-500 truncate max-w-[120px]">{pos.name}</div>}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{pos.quantity.toFixed(4)}</td>
-                    <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(pos.current_price)}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{num(pos.quantity).toFixed(4)}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{formatCurrency(pos.current_price)}</td>
                     <td className="px-4 py-3 text-right">
-                      {pos.percent_change != null ? (
-                        <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>
-                          {pos.percent_change >= 0 ? '+' : ''}{pos.percent_change.toFixed(2)}%
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">—</span>
-                      )}
+                      {pos.percent_change != null
+                        ? <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>{num(pos.percent_change) >= 0 ? '+' : ''}{num(pos.percent_change).toFixed(2)}%</span>
+                        : <span className="text-sm text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-white">{formatCurrency(pos.equity)}</td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
                     <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">
-                      {pos.percentage != null ? `${pos.percentage.toFixed(1)}%` : '—'}
+                      {pos.percentage != null ? `${num(pos.percentage).toFixed(1)}%` : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>
-                        {formatCurrency(pos.profit_loss)}
-                      </div>
-                      <div className={`text-sm ${getGainColor(pos.profit_loss_pct)}`}>
-                        {formatPercent(pos.profit_loss_pct)}
-                      </div>
+                      <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>{formatCurrency(pos.profit_loss)}</div>
+                      <div className={`text-sm ${getGainColor(pos.profit_loss_pct)}`}>{formatPercent(pos.profit_loss_pct)}</div>
                     </td>
                   </tr>
                 ))}
@@ -889,50 +529,35 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
           </div>
         </div>
 
+        {/* Right column: open orders + 7d P&L + history */}
         <div className="space-y-6">
-          <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-            <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-              <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Open Orders</h3>
-              <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{openOrders.length + openOptionOrders.length}</span>
+          {/* Open orders */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-gray-500" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Open Orders</h3>
+              <span className="text-sm text-gray-400 ml-auto">{openOrders.length + openOptionOrders.length}</span>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
               {openOrders.length === 0 && openOptionOrders.length === 0 ? (
-                <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                  <Receipt className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                <div className="p-6 text-center text-gray-500">
+                  <Receipt className="w-10 h-10 mx-auto mb-2 text-gray-300" />
                   <p className="text-sm">No open orders</p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
-                  {openOrders.map((order) => (
-                    <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                <div className="divide-y divide-gray-100 dark:divide-zinc-700">
+                  {openOrders.map(order => (
+                    <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                       <div className="flex items-start gap-3">
-                        {order.side === 'BUY' ? (
-                          <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
-                        ) : (
-                          <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
-                        )}
+                        {order.side === 'BUY' ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                              order.side === 'BUY'
-                                ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                                : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                            }`}>
-                              {order.side}
-                            </span>
-                            <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
-                            <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">
-                              {order.state}
-                            </span>
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${order.side === 'BUY' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{order.side}</span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">{order.symbol}</span>
+                            <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 dark:text-gray-400 rounded">{order.state}</span>
                           </div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {order.quantity} @ {formatCurrency(order.limit_price)}
-                            {order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}
-                          </p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                            {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}
-                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{order.quantity} @ {formatCurrency(order.limit_price)}{order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}</p>
+                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {fmtTime(order.created_at)}</p>
                         </div>
                       </div>
                     </div>
@@ -940,56 +565,34 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
                   {openOptionOrders.length > 0 && (
                     <>
                       {openOrders.length > 0 && (
-                        <div className="px-4 py-2 bg-gray-50 dark:bg-zinc-900">
-                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Option Orders</span>
+                        <div className="px-4 py-2 bg-gray-50 dark:bg-zinc-800">
+                          <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Option Orders</span>
                         </div>
                       )}
-                      {openOptionOrders.map((order) => {
-                        const leg = order.legs[0];
-                        const side = leg?.side || 'N/A';
+                      {openOptionOrders.map(order => {
+                        const leg   = order.legs?.[0];
+                        const side  = (leg?.side || '').toUpperCase();
                         const isBuy = side === 'BUY';
+                        const ticker = order.chain_symbol || leg?.chain_symbol || '?';
                         return (
-                          <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+                          <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                             <div className="flex items-start gap-3">
-                              {isBuy ? (
-                                <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
-                              ) : (
-                                <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
-                              )}
+                              {isBuy ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                                    isBuy
-                                      ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                                      : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                                  }`}>
-                                    {side}
-                                  </span>
-                                  <span className="font-medium text-gray-900 dark:text-white">{leg?.chain_symbol || '?'}</span>
+                                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{side}</span>
+                                  <span className="font-medium text-gray-900 dark:text-gray-100">{ticker}</span>
                                   {leg?.option_type && (
-                                    <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                                      leg.option_type === 'call'
-                                        ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                                        : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                                    }`}>
-                                      {leg.option_type.toUpperCase()}
-                                    </span>
+                                    <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${leg.option_type === 'call' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{leg.option_type.toUpperCase()}</span>
                                   )}
-                                  <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-900 text-gray-600 dark:text-gray-400 rounded">
-                                    {order.state}
-                                  </span>
+                                  <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 dark:text-gray-400 rounded">{order.state}</span>
                                 </div>
                                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                  {order.quantity}x ${leg?.strike} · {leg?.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
+                                  {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                                 </p>
-                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                  {order.order_type} / {order.direction} · {order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
+                                <p className="text-xs text-gray-400 mt-1">
+                                  {order.order_type} / {order.direction} · {order.opening_strategy && order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {fmtTime(order.created_at)}
                                 </p>
-                                {order.legs.length > 1 && (
-                                  <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                                    {order.legs.length} legs: {order.legs.map(l => `${l.side} ${l.chain_symbol} $${l.strike} ${l.option_type?.toUpperCase()}`).join(' / ')}
-                                  </div>
-                                )}
                               </div>
                             </div>
                           </div>
@@ -1002,335 +605,211 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: OrderBookSnapshot }) {
             </div>
           </div>
 
-          {(recentPnL.filledCount > 0 || optionPnL.filledCount > 0) && (
-            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800">
+          {/* 7d P&L — pre-computed by backend */}
+          {(recentPnl.filled_count > 0 || optionPnl.filled_count > 0) && (
+            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700">
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-                  <span className="text-gray-500 dark:text-gray-400 font-semibold">7d P&L</span>
-                  <span className={`text-lg font-bold ${getGainColor(recentPnL.totalRealizedPnL + optionPnL.totalRealizedPnL)}`}>
-                    {formatCurrency(recentPnL.totalRealizedPnL + optionPnL.totalRealizedPnL)}
-                  </span>
-                  <span>
-                    <span className="text-gray-400 dark:text-gray-500">Buy Vol </span>
-                    <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalBuyVolume + optionPnL.totalBuyVolume)}</span>
-                  </span>
-                  <span>
-                    <span className="text-gray-400 dark:text-gray-500">Sell Vol </span>
-                    <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(recentPnL.totalSellVolume + optionPnL.totalSellVolume)}</span>
-                  </span>
-                  <span>
-                    <span className="text-gray-400 dark:text-gray-500">Fills </span>
-                    <span className="font-medium text-gray-900 dark:text-white">{recentPnL.filledCount + optionPnL.filledCount}</span>
-                  </span>
+                  <span className="text-gray-500 font-semibold">7d P&amp;L</span>
+                  <span className={`text-lg font-bold ${getGainColor(snapshot.combined_7d_pnl)}`}>{formatCurrency(snapshot.combined_7d_pnl)}</span>
+                  <span><span className="text-gray-400">Buy Vol </span><span className="font-medium text-gray-900 dark:text-gray-100">{formatCurrency(recentPnl.total_buy_volume + optionPnl.total_buy_volume)}</span></span>
+                  <span><span className="text-gray-400">Fills </span><span className="font-medium text-gray-900 dark:text-gray-100">{recentPnl.filled_count + optionPnl.filled_count}</span></span>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200 dark:divide-zinc-800">
-                {recentPnL.filledCount > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200 dark:divide-zinc-700">
+                {recentPnl.filled_count > 0 && (
                   <div className="px-4 py-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Order P&L</span>
-                      <span className={`font-semibold ${getGainColor(recentPnL.totalRealizedPnL)}`}>
-                        {formatCurrency(recentPnL.totalRealizedPnL)}
-                      </span>
+                      <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Orders</span>
+                      <span className={`font-semibold ${getGainColor(recentPnl.total_realized_pnl)}`}>{formatCurrency(recentPnl.total_realized_pnl)}</span>
                     </div>
-                    {recentPnL.symbols.length > 0 && (
-                      <div className="text-gray-400 dark:text-gray-500 text-xs">
-                        {recentPnL.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
-                      </div>
-                    )}
+                    <div className="text-gray-400 text-xs">{recentPnl.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realized_pnl)}`).join(' · ')}</div>
                   </div>
                 )}
-                {optionPnL.filledCount > 0 && (
+                {optionPnl.filled_count > 0 && (
                   <div className="px-4 py-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Options P&L</span>
-                      <span className={`font-semibold ${getGainColor(optionPnL.totalRealizedPnL)}`}>
-                        {formatCurrency(optionPnL.totalRealizedPnL)}
-                      </span>
+                      <span className="text-gray-500 dark:text-gray-400 text-sm font-medium">Options</span>
+                      <span className={`font-semibold ${getGainColor(optionPnl.total_realized_pnl)}`}>{formatCurrency(optionPnl.total_realized_pnl)}</span>
                     </div>
-                    {optionPnL.symbols.length > 0 && (
-                      <div className="text-gray-400 dark:text-gray-500 text-xs">
-                        {optionPnL.symbols.map(s => `${s.symbol} OPT: ${formatCurrency(s.realizedPnL)}`).join(' · ')}
-                      </div>
-                    )}
+                    <div className="text-gray-400 text-xs">{optionPnl.symbols.map(s => `${s.symbol}: ${formatCurrency(s.realized_pnl)}`).join(' · ')}</div>
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {historicalOrders.length > 0 && (
-            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Historical Orders</h3>
-                <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOrders.length}</span>
+          {/* Historical stock orders */}
+          {recent_orders.length > 0 && (
+            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-gray-500" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Historical Orders</h3>
+                <span className="text-sm text-gray-400 ml-auto">{recent_orders.length}</span>
               </div>
+              <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100 dark:divide-zinc-700">
+                {recent_orders.map(order => (
+                  <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
+                    <div className="flex items-start gap-3">
+                      {order.side === 'BUY' ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${order.side === 'BUY' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{order.side}</span>
+                          <span className="font-medium text-gray-900 dark:text-gray-100">{order.symbol}</span>
+                          <span className={`px-2 py-0.5 text-xs rounded ${stateBadge(order.state)}`}>{order.state}</span>
+                        </div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                          {order.filled_quantity ?? order.quantity} @ {formatCurrency(order.average_price ?? order.limit_price)}
+                          {order.average_price && order.filled_quantity ? ` = ${formatCurrency(order.average_price * order.filled_quantity)}` : ''}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {fmtTime(order.created_at)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-              <div className="max-h-[400px] overflow-y-auto">
-                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
-                  {historicalOrders.map((order) => (
-                    <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
+          {/* Historical option orders */}
+          {recent_option_orders.length > 0 && (
+            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-gray-500" />
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Historical Option Orders</h3>
+                <span className="text-sm text-gray-400 ml-auto">{recent_option_orders.length}</span>
+              </div>
+              <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100 dark:divide-zinc-700">
+                {recent_option_orders.map(order => {
+                  const leg    = order.legs?.[0];
+                  const side   = (leg?.side || '').toUpperCase();
+                  const isBuy  = side === 'BUY';
+                  const ticker = order.chain_symbol || leg?.chain_symbol || '?';
+                  return (
+                    <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-800">
                       <div className="flex items-start gap-3">
-                        {order.side === 'BUY' ? (
-                          <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
-                        ) : (
-                          <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
-                        )}
+                        {isBuy ? <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" /> : <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300 mt-0.5" />}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                              order.side === 'BUY'
-                                ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                                : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                            }`}>
-                              {order.side}
-                            </span>
-                            <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
-                            <span className={`px-2 py-0.5 text-xs rounded ${
-                              order.state === 'filled'
-                                ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400'
-                                : order.state === 'cancelled'
-                                  ? 'bg-gray-100 dark:bg-zinc-900 text-gray-500 dark:text-gray-400'
-                                  : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                            }`}>
-                              {order.state}
-                            </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${isBuy ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{side}</span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">{ticker}</span>
+                            {leg?.option_type && (
+                              <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${leg.option_type === 'call' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{leg.option_type.toUpperCase()}</span>
+                            )}
+                            <span className={`px-2 py-0.5 text-xs rounded ${stateBadge(order.state)}`}>{order.state}</span>
                           </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {order.filled_quantity ?? order.quantity} @ {formatCurrency(order.average_price ?? order.limit_price)}
-                            {order.average_price && order.filled_quantity
-                              ? ` = ${formatCurrency(order.average_price * order.filled_quantity)}`
-                              : ''}
+                            {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                           </p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                            {order.order_type} / {order.trigger} — {new Date(order.created_at).toLocaleString()}
-                          </p>
+                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.direction} — {fmtTime(order.created_at)}</p>
                         </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {historicalOptionOrders.length > 0 && (
-            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Historical Option Orders</h3>
-                <span className="text-sm text-gray-400 dark:text-gray-500 ml-auto">{historicalOptionOrders.length}</span>
-              </div>
-              <div className="max-h-[400px] overflow-y-auto">
-                <div className="divide-y divide-gray-100 dark:divide-zinc-900">
-                  {historicalOptionOrders.map((order) => {
-                    const leg = order.legs[0];
-                    const side = leg?.side || 'N/A';
-                    const isBuy = side === 'BUY';
-                    return (
-                      <div key={order.order_id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
-                        <div className="flex items-start gap-3">
-                          {isBuy ? (
-                            <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
-                          ) : (
-                            <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                                isBuy
-                                  ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                                  : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                              }`}>
-                                {side}
-                              </span>
-                              <span className="font-medium text-gray-900 dark:text-white">{leg?.chain_symbol || '?'}</span>
-                              {leg?.option_type && (
-                                <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                                  leg.option_type === 'call'
-                                    ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                                    : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                                }`}>
-                                  {leg.option_type.toUpperCase()}
-                                </span>
-                              )}
-                              <span className={`px-2 py-0.5 text-xs rounded ${
-                                order.state === 'filled'
-                                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-400'
-                                  : order.state === 'cancelled'
-                                    ? 'bg-gray-100 dark:bg-zinc-900 text-gray-500 dark:text-gray-400'
-                                    : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                              }`}>
-                                {order.state}
-                              </span>
-                            </div>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                              {order.quantity}x ${leg?.strike} · {leg?.expiration !== 'N/A' ? formatExpiration(leg.expiration) : 'N/A'} @ {formatCurrency(order.price)}
-                            </p>
-                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                              {order.order_type} / {order.direction} · {order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {new Date(order.created_at).toLocaleString()}
-                            </p>
-                            {order.legs.length > 1 && (
-                              <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                                {order.legs.length} legs: {order.legs.map(l => `${l.side} ${l.chain_symbol} $${l.strike} ${l.option_type?.toUpperCase()}`).join(' / ')}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                  );
+                })}
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {portfolio.options && portfolio.options.length > 0 && (
+      {portfolio.options.length > 0 && (
         <div className="mt-6">
-          <OptionsPositions options={portfolio.options} />
+          <OptionsPositions options={portfolio.options} summary={portfolio.options_summary} />
         </div>
       )}
     </div>
   );
 }
 
-function RealizedPnLSummary({ pnl, periodLabel, openOrders }: { pnl: OrderPnL; periodLabel: string; openOrders: SnapshotOrder[] }) {
-  const totalTrades = pnl.symbols.reduce((sum, s) => sum + s.buyCount + s.sellCount, 0);
-  const pnlPercent = pnl.totalBuyVolume > 0
-    ? (pnl.totalRealizedPnL / pnl.totalBuyVolume) * 100
-    : 0;
+// ─── RealizedPnLSummary ───────────────────────────────────────────────────────
+
+function RealizedPnLSummary({ stock, option, periodLabel, openOrders }: {
+  stock: StockPnLResult;
+  option: OptionPnLResult;
+  periodLabel: string;
+  openOrders: SnapshotOrder[];
+}) {
+  const totalPnl    = stock.total_realized_pnl + option.total_realized_pnl;
+  const totalBuyVol = stock.total_buy_volume   + option.total_buy_volume;
+  const totalFills  = stock.filled_count        + option.filled_count;
+  const totalTrades = stock.symbols.reduce((s, x) => s + x.buy_count + x.sell_count, 0);
+  const pnlPct      = totalBuyVol > 0 ? (totalPnl / totalBuyVol) * 100 : 0;
+  const openNotional = openOrders.reduce((s, o) => s + o.quantity * o.limit_price, 0);
 
   return (
     <div className="mb-6">
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            {pnl.totalRealizedPnL >= 0 ? (
-              <TrendingUp className="w-4 h-4 text-green-500" />
-            ) : (
-              <TrendingDown className="w-4 h-4 text-red-500" />
-            )}
-            Realized P&L
+        {[
+          { label: 'Realized P&L', val: totalPnl,              sub: formatPercent(pnlPct), colored: true, icon: totalPnl >= 0 ? <TrendingUp className="w-4 h-4 text-gray-700 dark:text-gray-300" /> : <TrendingDown className="w-4 h-4 text-gray-700 dark:text-gray-300" /> },
+          { label: 'Buy Volume',   val: totalBuyVol,           sub: null, colored: false, icon: <ArrowUpRight className="w-4 h-4 text-gray-700 dark:text-gray-300" /> },
+          { label: 'Sell Volume',  val: stock.total_sell_volume + option.total_sell_volume, sub: null, colored: false, icon: <ArrowDownRight className="w-4 h-4 text-gray-700 dark:text-gray-300" /> },
+          { label: 'Filled Trades',val: totalTrades,           sub: `${totalFills} fills`, colored: false, icon: <Receipt className="w-4 h-4" />, currency: false },
+          { label: 'Open Orders',  val: openOrders.length,     sub: `${formatCurrency(openNotional)} notional`, colored: false, icon: <Receipt className="w-4 h-4 text-gray-400" />, currency: false },
+        ].map(({ label, val, sub, colored, icon, currency = true }) => (
+          <div key={label} className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">{icon}{label}</div>
+            <div className={`text-2xl font-bold ${colored ? getGainColor(val as number) : 'text-gray-900 dark:text-gray-100'}`}>
+              {currency ? `${formatCurrency(val as number)} ${sub ? `(${sub})` : ''}` : val}
+            </div>
+            {!currency && sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
           </div>
-          <div className={`text-2xl font-bold ${getGainColor(pnl.totalRealizedPnL)}`}>
-            {formatCurrency(pnl.totalRealizedPnL)} ({formatPercent(pnlPercent)})
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            <ArrowUpRight className="w-4 h-4 text-green-500" />
-            Buy Volume
-          </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(pnl.totalBuyVolume)}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            <ArrowDownRight className="w-4 h-4 text-red-500" />
-            Sell Volume
-          </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatCurrency(pnl.totalSellVolume)}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            <Receipt className="w-4 h-4" />
-            Filled Trades
-          </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {totalTrades}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-4">
-          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            <Receipt className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-            Open Orders
-          </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {openOrders.length}
-          </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {formatCurrency(openOrders.reduce((sum, o) => sum + o.quantity * o.limit_price, 0))} notional
-          </div>
-        </div>
+        ))}
       </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">Based on filled orders from the {periodLabel}. Positions held before this window may show incomplete cost basis.</p>
+      <p className="text-xs text-gray-400 mt-2">
+        Based on filled orders from the {periodLabel}. Positions held before this window may show incomplete cost basis.
+      </p>
     </div>
   );
 }
 
-function PnLBySymbolTable({ symbols }: { symbols: SymbolPnL[] }) {
-  if (symbols.length === 0) return null;
+// ─── PnLBySymbolTable ─────────────────────────────────────────────────────────
+
+function PnLBySymbolTable({ stock, option }: { stock: StockPnLResult; option: OptionPnLResult }) {
+  if (!stock.symbols.length && !option.symbols.length) return null;
 
   return (
-    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-        <Receipt className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Realized P&L by Symbol</h3>
+    <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
+        <Receipt className="w-5 h-5 text-gray-500" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Realized P&amp;L by Symbol</h3>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50 dark:bg-zinc-900">
+          <thead className="bg-gray-50 dark:bg-zinc-800">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Symbol</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Buys</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sells</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avg Buy</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avg Sell</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Realized P&L</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Remaining</th>
+              {['Symbol','Type','Buys','Sells','Buy Vol','Sell Vol','Realized P&L'].map(h => (
+                <th key={h} className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${h === 'Symbol' || h === 'Type' ? 'text-left' : 'text-right'}`}>{h}</th>
+              ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-zinc-800">
-            {symbols.map((sym, index) => {
-              const pnlPercent = sym.totalBought > 0
-                ? (sym.realizedPnL / sym.totalBought) * 100
-                : 0;
-              return (
-                <tr key={sym.symbol} className={index % 2 === 0 ? 'bg-white dark:bg-zinc-950' : 'bg-gray-50 dark:bg-zinc-900'}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 dark:text-white">{sym.symbol}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[150px]">{sym.name}</div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="text-gray-900 dark:text-white">{sym.buyCount}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">{formatCurrency(sym.totalBought)}</div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="text-gray-900 dark:text-white">{sym.sellCount}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">{formatCurrency(sym.totalSold)}</div>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{formatCurrency(sym.avgBuyPrice)}</td>
-                  <td className="px-4 py-3 text-right text-gray-900 dark:text-white">
-                    {sym.sellCount > 0 ? formatCurrency(sym.avgSellPrice) : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className={`font-medium ${getGainColor(sym.realizedPnL)}`}>
-                      {formatCurrency(sym.realizedPnL)}
-                    </div>
-                    {sym.sellCount > 0 && (
-                      <div className={`text-sm ${getGainColor(pnlPercent)}`}>
-                        {formatPercent(pnlPercent)}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-900 dark:text-white">
-                    {sym.remainingShares > 0
-                      ? `${sym.remainingShares.toFixed(4)} shares`
-                      : '—'}
-                  </td>
-                </tr>
-              );
-            })}
+          <tbody className="divide-y divide-gray-200 dark:divide-zinc-700">
+            {stock.symbols.map((s, i) => (
+              <tr key={s.symbol} className={i % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-800'}>
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{s.symbol}</td>
+                <td className="px-4 py-3 text-xs text-gray-500">Stock</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.buy_count}</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.sell_count}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_bought)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_sold)}</td>
+                <td className="px-4 py-3 text-right">
+                  <div className={`font-medium ${getGainColor(s.realized_pnl)}`}>{formatCurrency(s.realized_pnl)}</div>
+                </td>
+              </tr>
+            ))}
+            {option.symbols.map((s, i) => (
+              <tr key={`opt-${s.symbol}`} className={(stock.symbols.length + i) % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-800'}>
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{s.symbol}</td>
+                <td className="px-4 py-3 text-xs text-gray-500">Option</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.buy_count}</td>
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{s.sell_count}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_bought)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(s.total_sold)}</td>
+                <td className="px-4 py-3 text-right">
+                  <div className={`font-medium ${getGainColor(s.realized_pnl)}`}>{formatCurrency(s.realized_pnl)}</div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1338,155 +817,63 @@ function PnLBySymbolTable({ symbols }: { symbols: SymbolPnL[] }) {
   );
 }
 
-function OrderHistoryList({ orders }: { orders: FilledOrder[] }) {
-  if (orders.length === 0) return null;
-
-  return (
-    <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-800 flex items-center gap-2">
-        <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filled Orders</h3>
-      </div>
-      <div className="max-h-[400px] overflow-y-auto">
-        <div className="divide-y divide-gray-100 dark:divide-zinc-900">
-          {orders.map((order) => (
-            <div key={order.id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
-              <div className="flex items-start gap-3">
-                {order.side === 'buy' ? (
-                  <ArrowUpRight className="w-4 h-4 text-green-500 mt-0.5" />
-                ) : (
-                  <ArrowDownRight className="w-4 h-4 text-red-500 mt-0.5" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                      order.side === 'buy'
-                        ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-400'
-                        : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400'
-                    }`}>
-                      {order.side.toUpperCase()}
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">{order.symbol}</span>
-                  </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {order.quantity.toFixed(4)} shares @ {formatCurrency(order.price)} = {formatCurrency(order.total)}
-                  </p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                    {new Date(order.createdAt).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+// ─── TradePage ────────────────────────────────────────────────────────────────
 
 export default function TradePage() {
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [orderPnL, setOrderPnL] = useState<OrderPnL | null>(null);
-  const [snapshot, setSnapshot] = useState<OrderBookSnapshot | null>(null);
+  const [snapshot,   setSnapshot]   = useState<EnrichedSnapshot | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
-  const [analysis] = useState<BotAnalysis | null>(null);
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [pnlPeriod, setPnlPeriod] = useState<PnLPeriod>('1Y');
-  const [selectedUser, setSelectedUser] = useState(USERS[0].id);
+  const [pnlPeriod,  setPnlPeriod]  = useState<PnLPeriod>('1Y');
 
-  const filteredPnL = useMemo(() => {
-    if (!orderPnL) return null;
-    return filterAndRecalcPnL(orderPnL, pnlPeriod);
-  }, [orderPnL, pnlPeriod]);
+  // Period switch is a key lookup — no recomputation
+  const pnl = snapshot?.pnl_by_period[pnlPeriod] ?? null;
 
-  const fetchAuthStatus = useCallback(async () => {
-    try {
-      const status = await getAuthStatus();
-      setAuthStatus(status);
-      return status.authenticated;
-    } catch (err) {
-      console.error('Failed to fetch auth status:', err);
-      return false;
-    }
-  }, []);
-
-  const fetchData = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     setError(null);
 
-    try {
-      getOrderBookSnapshot()
-        .then(setSnapshot)
-        .catch((err) => {
-          console.error('Failed to fetch order book snapshot:', err);
-          if (err instanceof TypeError) {
-            sendSlackAlert('TypeError in order book snapshot', err.message);
-          }
-        });
+    const [snapshotResult, actionsResult] = await Promise.allSettled([
+      getEnrichedSnapshot(),
+      getBotActions(50),
+    ]);
 
-      const isAuthenticated = await fetchAuthStatus();
+    if (snapshotResult.status === 'fulfilled') setSnapshot(snapshotResult.value);
+    if (actionsResult.status  === 'fulfilled') setBotActions(actionsResult.value.actions);
 
-      if (!isAuthenticated) {
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      const [portfolioData, actionsData, pnlData] = await Promise.all([
-        getPortfolio(),
-        getBotActions(50),
-        getOrderPnL(),
-      ]);
-      setPortfolio(portfolioData);
-      setBotActions(actionsData.actions);
-      setOrderPnL(pnlData);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch data';
-      if (!errorMsg.includes('Not authenticated') && !errorMsg.includes('expired')) {
-        setError(errorMsg);
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    if (snapshotResult.status === 'rejected') {
+      setError(snapshotResult.reason instanceof Error ? snapshotResult.reason.message : 'Failed to fetch snapshot');
     }
-  };
 
-
-  useEffect(() => {
-    fetchData();
+    setLoading(false);
+    setRefreshing(false);
   }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 dark:bg-zinc-800 rounded w-64 mb-4"></div>
-          <div className="h-4 bg-gray-200 dark:bg-zinc-800 rounded w-96 mb-8"></div>
+          <div className="h-8 bg-gray-200 rounded w-64 mb-4" />
+          <div className="h-4 bg-gray-200 rounded w-96 mb-8" />
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-24 bg-gray-200 dark:bg-zinc-800 rounded-xl"></div>
-            ))}
+            {[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-200 rounded-xl" />)}
           </div>
-          <div className="h-96 bg-gray-200 dark:bg-zinc-800 rounded-xl"></div>
+          <div className="h-96 bg-gray-200 rounded-xl" />
         </div>
       </div>
     );
   }
 
-  if (error && !portfolio) {
+  if (error && !snapshot) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12">
           <XCircle className="w-16 h-16 mx-auto mb-4 text-red-300" />
           <p className="text-lg font-medium text-red-600 mb-2">{error}</p>
-          <button
-            onClick={() => fetchData()}
-            className="px-4 py-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-800 dark:hover:bg-gray-200 text-sm"
-          >
+          <button onClick={() => fetchData()} className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm">
             Try Again
           </button>
         </div>
@@ -1498,120 +885,87 @@ export default function TradePage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Trade</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Configured agents</p>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Trade</h1>
+          <p className="text-gray-500 mt-1">Configured agents</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <select
-              value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
-              className="px-3 py-2 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              {USERS.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            onClick={() => fetchData(true)}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-zinc-900 disabled:opacity-50 text-sm"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
+        <button
+          onClick={() => fetchData(true)}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-50 text-sm"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
       </div>
 
-      {snapshot && <OrderBookSnapshotView snapshot={snapshot} />}
-
       {error && (
-        <div className="mb-6 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
+        <div className="mb-6 p-4 bg-red-50 border border-gray-200 rounded-xl text-gray-700 dark:text-gray-300">
           {error}
         </div>
       )}
 
-      {!authStatus?.authenticated && !loading && (
-        <div className="text-center py-12 mb-6 bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
-          <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-          <p className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No agents configured</p>
-          <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            <RouterLink to="/configure" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
-              Configure your own agent
-            </RouterLink>{' '}
-            in the configure page.
+      {!snapshot && (
+        <div className="text-center py-12 mb-6 bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700">
+          <Bot className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+          <p className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">No snapshot available</p>
+          <p className="text-gray-500 max-w-md mx-auto">
+            <RouterLink to="/configure" className="text-gray-600 dark:text-gray-400 hover:underline font-medium">Configure your agent</RouterLink>{' '}to start publishing snapshots.
           </p>
         </div>
       )}
 
-      {portfolio && (
+      {snapshot && (
         <>
-          <PortfolioSummary portfolio={portfolio} />
+          <OrderBookSnapshotView snapshot={snapshot} />
+
+          <PortfolioSummary portfolio={snapshot.portfolio} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <PortfolioAllocation portfolio={portfolio} />
-            <AnalysisSuggestions analysis={analysis} />
+            <PortfolioAllocation portfolio={snapshot.portfolio} />
+            <BotActionsLog actions={botActions} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <PositionsTable portfolio={portfolio} />
-            </div>
+          <PositionsTable portfolio={snapshot.portfolio} />
+
+          {/* Realized P&L with period selector */}
+          <div className="mt-8 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <BotActionsLog actions={botActions} />
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Order P&amp;L</h2>
+              <p className="text-gray-500 mt-1">Realized profit &amp; loss from filled orders</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => fetchData(true)} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-zinc-700 rounded-xl hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-50">
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+              <div className="flex bg-gray-100 dark:bg-zinc-800 rounded-xl p-1 overflow-x-auto">
+                {PNL_PERIODS.map(({ label, value }) => (
+                  <button
+                    key={value}
+                    onClick={() => setPnlPeriod(value)}
+                    className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${pnlPeriod === value ? 'bg-white dark:bg-zinc-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {filteredPnL && (
+          {pnl && (
             <>
-              <div className="mt-8 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Order P&L</h2>
-                  <p className="text-gray-500 dark:text-gray-400 mt-1">Realized profit & loss from filled orders</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => fetchData(true)}
-                    disabled={refreshing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-zinc-800 rounded-lg hover:bg-gray-50 dark:hover:bg-zinc-900 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-                    Refresh
-                  </button>
-                  <div className="flex bg-gray-100 dark:bg-zinc-900 rounded-lg p-1 overflow-x-auto">
-                    {PNL_PERIODS.map(({ label, value }) => (
-                      <button
-                        key={value}
-                        onClick={() => setPnlPeriod(value)}
-                        className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
-                          pnlPeriod === value
-                            ? 'bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm'
-                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
               <RealizedPnLSummary
-                pnl={filteredPnL}
-                periodLabel={getPeriodLabel(pnlPeriod)}
-                openOrders={snapshot ? ((snapshot.portfolio?.open_orders || []).length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book) : []}
+                stock={pnl.stock}
+                option={pnl.option}
+                periodLabel={PERIOD_LABEL[pnlPeriod]}
+                openOrders={snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book}
               />
-
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                  <PnLBySymbolTable symbols={filteredPnL.symbols} />
+                  <PnLBySymbolTable stock={pnl.stock} option={pnl.option} />
                 </div>
                 <div>
-                  <OrderHistoryList orders={filteredPnL.orders} />
+                  {/* Historical orders shown inline in OrderBookSnapshotView above */}
                 </div>
               </div>
             </>

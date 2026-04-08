@@ -98,43 +98,45 @@ export interface OrderPnL {
 
 // Order Book Snapshot types (from 5thstreetcapital blob store)
 export interface OptionPosition {
-  chain_symbol: string;
+  chain_symbol?: string;
+  symbol?: string;
   option_type: string;
-  strike: number;
-  expiration: string;
-  dte: number;
+  // RH API / blob may use either short or long field names
+  strike?: number | string;
+  strike_price?: string;
+  expiration?: string;
+  expiration_date?: string;
+  dte?: number;
   quantity: number;
-  position_type: string;
-  avg_price: number;
-  mark_price: number;
-  multiplier: number;
+  position_type?: string;
+  avg_price?: number;
+  mark_price?: number;
+  multiplier?: number;
   cost_basis: number;
   current_value: number;
   unrealized_pl: number;
-  unrealized_pl_pct: number;
-  underlying_price: number;
-  break_even: number;
-  greeks: {
+  unrealized_pl_pct?: number;
+  underlying_price?: number;
+  break_even?: number;
+  greeks?: {
     delta: number;
     gamma: number;
     theta: number;
     vega: number;
-    rho: number;
-    iv: number;
+    rho?: number;
+    iv?: number;
+    [key: string]: number | undefined;
   };
-  expected_pl: {
-    '-5%': number;
-    '-1%': number;
-    '+1%': number;
-    '+5%': number;
+  expected_pl?: {
     theta_daily: number;
+    [scenario: string]: number;
   };
-  chance_of_profit: number;
-  recommended_action: {
+  chance_of_profit?: number;
+  recommended_action?: {
     action: string;
-    reasons: string[];
+    reasons?: string[];
   };
-  btc_correlation: number;
+  btc_correlation?: number;
 }
 
 export interface SnapshotPosition {
@@ -163,10 +165,10 @@ export interface SnapshotOrder {
   quantity: number;
   limit_price: number;
   stop_price: number | null;
-  average_price?: number;
-  filled_quantity?: number;
   created_at: string;
   updated_at: string;
+  filled_quantity?: number;
+  average_price?: number;
 }
 
 export interface SymbolMarketData {
@@ -178,12 +180,12 @@ export interface SymbolMarketData {
     '30d_high': number;
     '30d_low': number;
   };
-  orders: {
+  orders?: {
     active_buy: unknown;
     active_sell: unknown;
     order_history: unknown[];
   };
-  last_signal: {
+  last_signal?: {
     signal: string;
     timestamp: string;
   };
@@ -197,29 +199,33 @@ export interface MarketData {
 
 export interface SnapshotOptionOrderLeg {
   side: string;
-  position_effect: string;
-  quantity: number;
-  strike: number;
-  expiration: string;
+  position_effect?: string;
+  quantity?: number;
+  // RH API uses strike_price/expiration_date; engine blob may shorten to strike/expiration
+  strike?: number | string;
+  strike_price?: string;
+  expiration?: string;
+  expiration_date?: string;
   option_type: string;
-  chain_symbol: string;
+  chain_symbol?: string;
 }
 
 export interface SnapshotOptionOrder {
   order_id: string;
+  chain_symbol?: string;
   state: string;
   quantity: number;
-  price: number;
-  premium: number;
-  processed_premium: number;
+  price?: number;
+  premium?: number;
+  processed_premium?: number;
   direction: string;
-  order_type: string;
-  trigger: string;
-  time_in_force: string;
-  opening_strategy: string;
+  order_type?: string;
+  trigger?: string;
+  time_in_force?: string;
+  opening_strategy?: string;
   created_at: string;
   updated_at: string;
-  legs: SnapshotOptionOrderLeg[];
+  legs?: SnapshotOptionOrderLeg[];
 }
 
 export interface OrderBookSnapshot {
@@ -402,7 +408,8 @@ export async function placeOrder(
 }
 
 // Format currency
-export function formatCurrency(value: number): string {
+export function formatCurrency(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return '$0.00';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -412,16 +419,18 @@ export function formatCurrency(value: number): string {
 }
 
 // Format percentage
-export function formatPercent(value: number): string {
+export function formatPercent(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return '+0.00%';
   const sign = value >= 0 ? '+' : '';
   return `${sign}${value.toFixed(2)}%`;
 }
 
 // Get color class based on value
-export function getGainColor(value: number): string {
-  if (value > 0) return 'text-green-600';
-  if (value < 0) return 'text-red-600';
-  return 'text-gray-600';
+export function getGainColor(value: number | null | undefined): string {
+  if (value == null) return 'text-gray-600 dark:text-gray-400';
+  if (value > 0) return 'text-green-600 dark:text-green-400';
+  if (value < 0) return 'text-red-600 dark:text-red-400';
+  return 'text-gray-600 dark:text-gray-400';
 }
 
 // Get background color class based on value
@@ -429,6 +438,98 @@ export function getGainBgColor(value: number): string {
   if (value > 0) return 'bg-green-100';
   if (value < 0) return 'bg-red-100';
   return 'bg-gray-100';
+}
+
+// ── Enriched snapshot types ───────────────────────────────────────────────────
+
+export type PnLPeriod = '1W' | '1M' | '3M' | '6M' | '1Y' | '5Y';
+
+export interface StockSymbolPnL {
+  symbol: string;
+  realized_pnl: number;
+  total_bought: number;
+  total_sold: number;
+  buy_count: number;
+  sell_count: number;
+  shares_held: number;
+  cost_basis: number;
+}
+
+export interface OptionSymbolPnL {
+  symbol: string;
+  realized_pnl: number;
+  total_bought: number;
+  total_sold: number;
+  buy_count: number;
+  sell_count: number;
+}
+
+export interface StockPnLResult {
+  total_realized_pnl: number;
+  total_buy_volume: number;
+  total_sell_volume: number;
+  filled_count: number;
+  symbols: StockSymbolPnL[];
+}
+
+export interface OptionPnLResult {
+  total_realized_pnl: number;
+  total_buy_volume: number;
+  total_sell_volume: number;
+  filled_count: number;
+  symbols: OptionSymbolPnL[];
+}
+
+export interface OptionsSummary {
+  count: number;
+  total_cost_basis: number;
+  total_current_value: number;
+  total_unrealized_pl: number;
+  total_theta_daily: number;
+}
+
+
+export interface EnrichedPortfolio {
+  cash: {
+    cash: number;
+    cash_available_for_withdrawal: number;
+    buying_power: number;
+    tradeable_cash: number;
+  };
+  equity: number;
+  rh_market_value: number | null;
+  market_value: number;
+  stock_market_value: number;
+  options_market_value: number;
+  margin_used: number;
+  reconciliation: {
+    rh_equity: number;
+    computed_equity: number;
+  };
+  positions: SnapshotPosition[];
+  open_orders: SnapshotOrder[];
+  open_option_orders: SnapshotOptionOrder[];
+  options: OptionPosition[];
+  options_summary: OptionsSummary | null;
+  total_pl: number;
+  total_pl_pct: number;
+}
+
+export interface EnrichedSnapshot {
+  timestamp: string;
+  market_data: MarketData | null;
+  order_book: SnapshotOrder[];
+  recent_orders: SnapshotOrder[];
+  recent_option_orders: SnapshotOptionOrder[];
+  recent_pnl: StockPnLResult;
+  option_pnl: OptionPnLResult;
+  combined_7d_pnl: number;
+  pnl_by_period: Record<PnLPeriod, { stock: StockPnLResult; option: OptionPnLResult }>;
+  portfolio: EnrichedPortfolio;
+}
+
+export async function getEnrichedSnapshot(): Promise<EnrichedSnapshot> {
+  return fetchApi<EnrichedSnapshot>('/enriched-snapshot');
 }
 
 // Auth functions
