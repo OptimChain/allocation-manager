@@ -25,6 +25,67 @@ function hasCompleteMetrics(snapshot) {
   return m.current_price != null && m.intraday_high != null && m.intraday_low != null;
 }
 
+// Normalize blobs from allocation-engine-2.0 (flat format) into the
+// nested portfolio structure the rest of the pipeline expects.
+//
+// v2 shape: { timestamp, account, positions[], open_orders[], ... }
+// v1 shape: { timestamp, portfolio: { cash, equity, positions[], ... }, order_book[], ... }
+function normalizeBlob(blob) {
+  if (blob.portfolio) return blob;
+
+  if (blob.account && Array.isArray(blob.positions)) {
+    const acct = blob.account;
+    const totalMarketValue = (blob.positions || []).reduce((s, p) => s + (p.market_value || 0), 0);
+
+    blob.portfolio = {
+      cash: {
+        cash: acct.cash ?? 0,
+        cash_available_for_withdrawal: acct.buying_power ?? 0,
+        buying_power: acct.buying_power ?? 0,
+        tradeable_cash: acct.cash ?? 0,
+      },
+      equity: acct.equity ?? 0,
+      market_value: totalMarketValue,
+      positions: (blob.positions || []).map(p => ({
+        symbol: p.symbol,
+        name: p.symbol,
+        type: 'stock',
+        quantity: p.qty ?? p.quantity ?? 0,
+        avg_buy_price: p.avg_entry ?? p.avg_buy_price ?? 0,
+        current_price: (p.qty ?? p.quantity ?? 0) > 0 ? ((p.market_value ?? 0) / (p.qty ?? p.quantity)) : 0,
+        equity: p.market_value ?? 0,
+        profit_loss: p.unrealized_pl ?? 0,
+        profit_loss_pct: (p.unrealized_pl_pct ?? 0) * 100,
+        percent_change: (p.unrealized_pl_pct ?? 0) * 100,
+        equity_change: p.unrealized_pl ?? 0,
+        pe_ratio: null,
+        percentage: totalMarketValue > 0 ? ((p.market_value || 0) / totalMarketValue) * 100 : 0,
+      })),
+      open_orders: (blob.open_orders || []).map(o => ({
+        order_id: o.id,
+        symbol: o.symbol,
+        side: o.side,
+        order_type: o.order_type || 'limit',
+        trigger: o.stop_price ? 'stop' : 'immediate',
+        state: o.status || 'confirmed',
+        quantity: o.qty ?? o.quantity ?? 0,
+        limit_price: o.limit_price ?? null,
+        stop_price: o.stop_price ?? null,
+        created_at: blob.timestamp,
+        updated_at: blob.timestamp,
+      })),
+      open_option_orders: [],
+      options: [],
+    };
+
+    if (!blob.order_book) {
+      blob.order_book = blob.portfolio.open_orders;
+    }
+  }
+
+  return blob;
+}
+
 async function fetchBlob(token, key, storeName) {
   const res = await fetch(
     `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${storeName}/${encodeURIComponent(key)}`,
@@ -33,7 +94,8 @@ async function fetchBlob(token, key, storeName) {
   if (!res.ok) {
     throw new Error(`Failed to fetch snapshot ${key}: ${res.status}`);
   }
-  return res.json();
+  const blob = await res.json();
+  return normalizeBlob(blob);
 }
 
 async function listAllBlobKeys(token, storeName) {

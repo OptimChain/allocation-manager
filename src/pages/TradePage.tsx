@@ -408,8 +408,8 @@ function OptionsPositions({ options, summary }: {
 function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
   const { portfolio, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
 
-  const openOrders       = portfolio.open_orders.length > 0 ? portfolio.open_orders : snapshot.order_book;
-  const openOptionOrders = portfolio.open_option_orders;
+  const openOrders       = (portfolio?.open_orders || []).length > 0 ? portfolio.open_orders : (snapshot.order_book || []);
+  const openOptionOrders = portfolio?.open_option_orders || [];
 
   // Pre-computed by backend — no client-side math
   const recentPnl = snapshot.recent_pnl;
@@ -445,9 +445,9 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
       {/* Summary cards — all values from backend */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
         {[
-          { label: 'Equity',        icon: <DollarSign className="w-4 h-4" />, val: portfolio.equity },
-          { label: 'Market Value',  icon: <BarChart3   className="w-4 h-4" />, val: portfolio.market_value },
-          { label: 'Buying Power',  icon: <Activity    className="w-4 h-4" />, val: portfolio.cash.buying_power },
+          { label: 'Equity',        icon: <DollarSign className="w-4 h-4" />, val: portfolio?.equity ?? 0 },
+          { label: 'Market Value',  icon: <BarChart3   className="w-4 h-4" />, val: portfolio?.market_value ?? 0 },
+          { label: 'Buying Power',  icon: <Activity    className="w-4 h-4" />, val: portfolio?.cash?.buying_power ?? 0 },
         ].map(({ label, icon, val }) => (
           <div key={label} className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
             <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">{icon}{label}</div>
@@ -456,11 +456,11 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
         ))}
         <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4">
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm mb-1">
-            {portfolio.total_pl >= 0 ? <TrendingUp className="w-4 h-4 text-gray-700 dark:text-gray-300" /> : <TrendingDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />}
+            {(portfolio?.total_pl ?? 0) >= 0 ? <TrendingUp className="w-4 h-4 text-gray-700 dark:text-gray-300" /> : <TrendingDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />}
             Total P&amp;L
           </div>
-          <div className={`text-2xl font-bold ${getGainColor(portfolio.total_pl)}`}>
-            {formatCurrency(portfolio.total_pl)} ({formatPercent(portfolio.total_pl_pct)})
+          <div className={`text-2xl font-bold ${getGainColor(portfolio?.total_pl ?? 0)}`}>
+            {formatCurrency(portfolio?.total_pl ?? 0)} ({formatPercent(portfolio?.total_pl_pct ?? 0)})
           </div>
         </div>
       </div>
@@ -488,7 +488,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
           <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-gray-500" />
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Positions</h3>
-            <span className="text-sm text-gray-400 ml-auto">{portfolio.positions.length} holdings</span>
+            <span className="text-sm text-gray-400 ml-auto">{(portfolio?.positions || []).length} holdings</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -500,7 +500,7 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-zinc-700">
-                {portfolio.positions.map((pos, i) => (
+                {(portfolio?.positions || []).map((pos, i) => (
                   <tr key={pos.symbol} className={i % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-800'}>
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900 dark:text-gray-100">{pos.symbol}</div>
@@ -713,9 +713,9 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
         </div>
       </div>
 
-      {portfolio.options.length > 0 && (
+      {(portfolio?.options || []).length > 0 && (
         <div className="mt-6">
-          <OptionsPositions options={portfolio.options} summary={portfolio.options_summary} />
+          <OptionsPositions options={portfolio.options} summary={portfolio?.options_summary ?? null} />
         </div>
       )}
     </div>
@@ -958,7 +958,7 @@ export default function TradePage() {
                 stock={pnl.stock}
                 option={pnl.option}
                 periodLabel={PERIOD_LABEL[pnlPeriod]}
-                openOrders={snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book}
+                openOrders={(snapshot.portfolio?.open_orders || []).length > 0 ? snapshot.portfolio.open_orders : (snapshot.order_book || [])}
               />
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
