@@ -241,10 +241,102 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
     };
   }
 
-  // Enriched snapshot (newer endpoint)
+  // Enriched snapshot (newer endpoint — serves full TradePage data)
   if (fn === 'enriched-snapshot') {
-    const snapshot = loadMock('order_book_snapshot');
-    return snapshot ? { status: 200, body: snapshot } : null;
+    const snapshot = loadMock('order_book_snapshot') as Record<string, unknown> | null;
+    const account = loadMock('account') as Record<string, unknown> | null;
+    if (!snapshot) return null;
+
+    const portfolio = snapshot.portfolio as Record<string, unknown>;
+    const positions = (portfolio?.positions ?? []) as Record<string, unknown>[];
+    const openOrders = (portfolio?.open_orders ?? []) as Record<string, unknown>[];
+    const cash = portfolio?.cash as Record<string, unknown> ?? {};
+
+    const stockMarketValue = positions.reduce((sum, p) => sum + (p.equity as number), 0);
+    const totalPl = positions.reduce((sum, p) => sum + (p.profit_loss as number), 0);
+    const totalCost = positions.reduce((sum, p) => sum + ((p.quantity as number) * (p.avg_buy_price as number)), 0);
+    const totalPlPct = totalCost > 0 ? (totalPl / totalCost) * 100 : 0;
+
+    const mockStockPnl = {
+      total_realized_pnl: 842.75,
+      total_buy_volume: 12500.00,
+      total_sell_volume: 13342.75,
+      filled_count: 18,
+      symbols: positions.map(p => ({
+        symbol: p.symbol as string,
+        realized_pnl: Math.round((p.profit_loss as number) * 0.6 * 100) / 100,
+        total_bought: Math.round((p.equity as number) * 0.8 * 100) / 100,
+        total_sold: Math.round((p.equity as number) * 0.8 * 100 + (p.profit_loss as number) * 0.6 * 100) / 100,
+        buy_count: 5,
+        sell_count: 3,
+        shares_held: p.quantity as number,
+        cost_basis: Math.round((p.quantity as number) * (p.avg_buy_price as number) * 100) / 100,
+      })),
+    };
+
+    const mockOptionPnl = {
+      total_realized_pnl: 215.50,
+      total_buy_volume: 3200.00,
+      total_sell_volume: 3415.50,
+      filled_count: 6,
+      symbols: [],
+    };
+
+    const pnlByPeriod: Record<string, unknown> = {};
+    for (const period of ['1W', '1M', '3M', '6M', '1Y', '5Y']) {
+      const scale = period === '1W' ? 0.1 : period === '1M' ? 0.3 : period === '3M' ? 0.5 : period === '6M' ? 0.7 : period === '1Y' ? 1.0 : 1.5;
+      pnlByPeriod[period] = {
+        stock: {
+          ...mockStockPnl,
+          total_realized_pnl: Math.round(mockStockPnl.total_realized_pnl * scale * 100) / 100,
+          total_buy_volume: Math.round(mockStockPnl.total_buy_volume * scale * 100) / 100,
+          total_sell_volume: Math.round(mockStockPnl.total_sell_volume * scale * 100) / 100,
+          filled_count: Math.max(1, Math.round(mockStockPnl.filled_count * scale)),
+        },
+        option: {
+          ...mockOptionPnl,
+          total_realized_pnl: Math.round(mockOptionPnl.total_realized_pnl * scale * 100) / 100,
+          total_buy_volume: Math.round(mockOptionPnl.total_buy_volume * scale * 100) / 100,
+          total_sell_volume: Math.round(mockOptionPnl.total_sell_volume * scale * 100) / 100,
+          filled_count: Math.max(1, Math.round(mockOptionPnl.filled_count * scale)),
+        },
+      };
+    }
+
+    return {
+      status: 200,
+      body: {
+        timestamp: snapshot.timestamp,
+        market_data: snapshot.market_data ?? null,
+        order_book: openOrders,
+        recent_orders: openOrders.slice(0, 5),
+        recent_option_orders: [],
+        recent_pnl: mockStockPnl,
+        option_pnl: mockOptionPnl,
+        combined_7d_pnl: Math.round((mockStockPnl.total_realized_pnl + mockOptionPnl.total_realized_pnl) * 0.1 * 100) / 100,
+        pnl_by_period: pnlByPeriod,
+        portfolio: {
+          cash,
+          equity: account?.equity ?? (stockMarketValue + (cash.cash as number ?? 0)),
+          rh_market_value: null,
+          market_value: stockMarketValue + (cash.cash as number ?? 0),
+          stock_market_value: stockMarketValue,
+          options_market_value: 0,
+          margin_used: 0,
+          reconciliation: {
+            rh_equity: account?.equity ?? stockMarketValue,
+            computed_equity: stockMarketValue + (cash.cash as number ?? 0),
+          },
+          positions,
+          open_orders: openOrders,
+          open_option_orders: [],
+          options: [],
+          options_summary: null,
+          total_pl: Math.round(totalPl * 100) / 100,
+          total_pl_pct: Math.round(totalPlPct * 100) / 100,
+        },
+      },
+    };
   }
 
   return null;
