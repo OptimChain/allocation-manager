@@ -144,6 +144,54 @@ function aggregateOptions(positions) {
 
 // ── Field normalizers (handle both engine-formatted and raw RH API blobs) ─────
 
+function normalizePosition(p) {
+  // Engine blob uses: avg_entry, market_value, unrealized_pl, unrealized_pl_pct
+  // TS contract (SnapshotPosition) expects: avg_buy_price, equity, profit_loss, profit_loss_pct
+  const qty = parseFloat(p.quantity ?? p.qty) || 0;
+  const avgBuy = parseFloat(p.avg_buy_price ?? p.avg_entry) || 0;
+  const current = parseFloat(p.current_price) || avgBuy;
+  const equity = parseFloat(p.equity ?? p.market_value ?? qty * current) || 0;
+  const pl = parseFloat(p.profit_loss ?? p.unrealized_pl) || 0;
+  const plPctRaw = parseFloat(p.profit_loss_pct ?? p.unrealized_pl_pct) || 0;
+  // Engine sends decimal fractions (0.09 = 9%); contract wants percentage points
+  const plPct = Math.abs(plPctRaw) < 1 ? plPctRaw * 100 : plPctRaw;
+
+  return {
+    symbol:          p.symbol,
+    name:            p.name ?? p.symbol,
+    quantity:        qty,
+    avg_buy_price:   r2(avgBuy),
+    current_price:   r2(current),
+    equity:          r2(equity),
+    profit_loss:     r2(pl),
+    profit_loss_pct: r2(plPct),
+    percent_change:  p.percent_change ?? null,
+    percentage:      p.percentage ?? null,
+  };
+}
+
+function normalizeCash(cashRaw, fallbackEquity = 0) {
+  // Engine blob sends portfolio.cash as a bare number (e.g. -84057.39).
+  // TS contract (CashInfo) expects an object with cash/buying_power/etc.
+  if (typeof cashRaw === 'number') {
+    return {
+      cash:                          r2(cashRaw),
+      cash_available_for_withdrawal: r2(cashRaw),
+      buying_power:                  cashRaw < 0 ? r2(Math.abs(cashRaw) * 2) : r2(cashRaw * 2),
+      tradeable_cash:                r2(cashRaw),
+    };
+  }
+  if (cashRaw && typeof cashRaw === 'object') {
+    return {
+      cash:                          r2(cashRaw.cash ?? 0),
+      cash_available_for_withdrawal: r2(cashRaw.cash_available_for_withdrawal ?? cashRaw.cash ?? 0),
+      buying_power:                  r2(cashRaw.buying_power ?? 0),
+      tradeable_cash:                r2(cashRaw.tradeable_cash ?? cashRaw.cash ?? 0),
+    };
+  }
+  return { cash: 0, cash_available_for_withdrawal: 0, buying_power: 0, tradeable_cash: 0 };
+}
+
 function normalizeOpenOrder(o) {
   return {
     order_id:        o.order_id  || o.id,
@@ -188,22 +236,23 @@ function normalizeOpenOptionOrder(o) {
 
 function enrichSnapshot(raw) {
   const portfolio   = raw.portfolio;
-  const positions   = portfolio.positions   || [];
+  // Normalize engine-blob field names → SnapshotPosition / CashInfo contract
+  const positions   = (portfolio.positions || []).map(normalizePosition);
   const options     = portfolio.options     || [];
   const openOrders       = (portfolio.open_orders        || []).map(normalizeOpenOrder);
   const openOptionOrders = (portfolio.open_option_orders || []).map(normalizeOpenOptionOrder);
   const recentOrders       = raw.recent_orders        || [];
   const recentOptionOrders = raw.recent_option_orders || [];
 
-  // ── Market value: stocks + options ──
-  const stockMV   = r2(positions.reduce((s, p) => s + (p.equity ?? (p.quantity ?? 0) * (p.current_price ?? 0)), 0));
-  const optionsMV = r2(options.reduce((s, o)   => s + (o.current_value ?? 0), 0));
-  const marketValue = r2(stockMV + optionsMV);
-
-  // ── Cash / margin ──
-  const cash      = portfolio.cash ?? {};
+  // ── Cash / margin (normalize bare-number cash from engine blob) ──
+  const cash      = normalizeCash(portfolio.cash, portfolio.equity);
   const cashHeld  = cash.tradeable_cash ?? cash.buying_power ?? 0;
   const marginUsed = cashHeld < 0 ? r2(-cashHeld) : 0;
+
+  // ── Market value: stocks + options (positions now have .equity) ──
+  const stockMV   = r2(positions.reduce((s, p) => s + (p.equity ?? 0), 0));
+  const optionsMV = r2(options.reduce((s, o)   => s + (o.current_value ?? 0), 0));
+  const marketValue = r2(stockMV + optionsMV);
 
   // ── Equity: RH is authoritative ──
   const rhEquity      = portfolio.equity ?? 0;
@@ -223,7 +272,7 @@ function enrichSnapshot(raw) {
   const recentPnl = computeStockPnl(recentOrders, periodCutoff('1W'));
   const optionPnl = computeOptionPnl(recentOptionOrders);
 
-  // ── Portfolio-level P&L ──
+  // ── Portfolio-level P&L (positions now normalized → avg_buy_price populated) ──
   const totalPl   = r2(positions.reduce((s, p) => s + (p.profit_loss ?? 0), 0));
   const totalCost = positions.reduce((s, p) => s + (p.avg_buy_price ?? 0) * (p.quantity ?? 0), 0);
   const plPct     = totalCost > 0 ? r2((totalPl / totalCost) * 100) : 0;
@@ -239,7 +288,8 @@ function enrichSnapshot(raw) {
     combined_7d_pnl: r2(recentPnl.total_realized_pnl + optionPnl.total_realized_pnl),
     pnl_by_period:   pnlByPeriod,
     portfolio: {
-      cash: portfolio.cash,
+      // Normalized cash object (CashInfo shape)
+      cash,
       // RH passthrough
       equity:               rhEquity,
       rh_market_value:      portfolio.market_value ?? null,
