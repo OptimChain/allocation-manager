@@ -241,67 +241,85 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
     };
   }
 
-  // Enriched snapshot (newer endpoint — serves full TradePage data)
+  // Enriched snapshot — serves full TradePage data with P&L computed from
+  // historical orders (same algorithm as netlify/functions/enriched-snapshot.cjs).
   if (fn === 'enriched-snapshot') {
     const snapshot = loadMock('order_book_snapshot') as Record<string, unknown> | null;
     const account = loadMock('account') as Record<string, unknown> | null;
+    const historicalOrders = (loadMock('_historical_orders') ?? []) as Record<string, unknown>[];
     if (!snapshot) return null;
 
     const portfolio = snapshot.portfolio as Record<string, unknown>;
     const positions = (portfolio?.positions ?? []) as Record<string, unknown>[];
     const openOrders = (portfolio?.open_orders ?? []) as Record<string, unknown>[];
-    const cash = portfolio?.cash as Record<string, unknown> ?? {};
+    const rawCash = portfolio?.cash as unknown;
+    const cashInfo = (typeof rawCash === 'object' && rawCash !== null)
+      ? rawCash as Record<string, unknown>
+      : { cash: Number(rawCash) || 0, buying_power: 0, tradeable_cash: Number(rawCash) || 0, cash_available_for_withdrawal: 0 };
+    const cashHeld = (cashInfo.tradeable_cash as number ?? cashInfo.cash as number ?? 0);
 
-    const stockMarketValue = positions.reduce((sum, p) => sum + (p.equity as number), 0);
-    const totalPl = positions.reduce((sum, p) => sum + (p.profit_loss as number), 0);
-    const totalCost = positions.reduce((sum, p) => sum + ((p.quantity as number) * (p.avg_buy_price as number)), 0);
+    const stockMarketValue = positions.reduce((sum, p) => sum + (p.equity as number ?? 0), 0);
+    const totalPl = positions.reduce((sum, p) => sum + (p.profit_loss as number ?? 0), 0);
+    const totalCost = positions.reduce((sum, p) => sum + ((p.quantity as number) * (p.avg_buy_price as number ?? 0)), 0);
     const totalPlPct = totalCost > 0 ? (totalPl / totalCost) * 100 : 0;
 
-    const mockStockPnl = {
-      total_realized_pnl: 842.75,
-      total_buy_volume: 12500.00,
-      total_sell_volume: 13342.75,
-      filled_count: 18,
-      symbols: positions.map(p => ({
-        symbol: p.symbol as string,
-        realized_pnl: Math.round((p.profit_loss as number) * 0.6 * 100) / 100,
-        total_bought: Math.round((p.equity as number) * 0.8 * 100) / 100,
-        total_sold: Math.round((p.equity as number) * 0.8 * 100 + (p.profit_loss as number) * 0.6 * 100) / 100,
-        buy_count: 5,
-        sell_count: 3,
-        shares_held: p.quantity as number,
-        cost_basis: Math.round((p.quantity as number) * (p.avg_buy_price as number) * 100) / 100,
-      })),
-    };
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const PERIOD_DAYS: Record<string, number> = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 1825 };
 
-    const mockOptionPnl = {
-      total_realized_pnl: 215.50,
-      total_buy_volume: 3200.00,
-      total_sell_volume: 3415.50,
-      filled_count: 6,
-      symbols: [],
-    };
+    // Mirror the FIFO weighted-average cost-basis algorithm from enriched-snapshot.cjs
+    function computeStockPnl(orders: Record<string, unknown>[], cutoff: Date) {
+      const filtered = orders
+        .filter(o => o.state === 'filled' && o.symbol && new Date(o.created_at as string) >= cutoff)
+        .sort((a, b) => new Date(a.created_at as string).getTime() - new Date(b.created_at as string).getTime());
 
-    const pnlByPeriod: Record<string, unknown> = {};
-    for (const period of ['1W', '1M', '3M', '6M', '1Y', '5Y']) {
-      const scale = period === '1W' ? 0.1 : period === '1M' ? 0.3 : period === '3M' ? 0.5 : period === '6M' ? 0.7 : period === '1Y' ? 1.0 : 1.5;
-      pnlByPeriod[period] = {
-        stock: {
-          ...mockStockPnl,
-          total_realized_pnl: Math.round(mockStockPnl.total_realized_pnl * scale * 100) / 100,
-          total_buy_volume: Math.round(mockStockPnl.total_buy_volume * scale * 100) / 100,
-          total_sell_volume: Math.round(mockStockPnl.total_sell_volume * scale * 100) / 100,
-          filled_count: Math.max(1, Math.round(mockStockPnl.filled_count * scale)),
-        },
-        option: {
-          ...mockOptionPnl,
-          total_realized_pnl: Math.round(mockOptionPnl.total_realized_pnl * scale * 100) / 100,
-          total_buy_volume: Math.round(mockOptionPnl.total_buy_volume * scale * 100) / 100,
-          total_sell_volume: Math.round(mockOptionPnl.total_sell_volume * scale * 100) / 100,
-          filled_count: Math.max(1, Math.round(mockOptionPnl.filled_count * scale)),
-        },
+      const book: Record<string, { symbol: string; realized_pnl: number; total_bought: number; total_sold: number; buy_count: number; sell_count: number; shares_held: number; cost_basis: number }> = {};
+      for (const o of filtered) {
+        const sym = o.symbol as string;
+        if (!book[sym]) book[sym] = { symbol: sym, realized_pnl: 0, total_bought: 0, total_sold: 0, buy_count: 0, sell_count: 0, shares_held: 0, cost_basis: 0 };
+        const s = book[sym];
+        const qty = parseFloat(String(o.filled_quantity ?? o.quantity ?? 0)) || 0;
+        const price = parseFloat(String(o.average_price ?? o.price ?? o.limit_price ?? 0)) || 0;
+        const total = qty * price;
+
+        if (String(o.side ?? '').toUpperCase() === 'BUY') {
+          s.shares_held += qty;
+          s.cost_basis += total;
+          s.total_bought += total;
+          s.buy_count++;
+        } else {
+          const avg = s.shares_held > 0 ? s.cost_basis / s.shares_held : 0;
+          s.realized_pnl += (price - avg) * qty;
+          s.cost_basis -= avg * qty;
+          s.shares_held -= qty;
+          s.total_sold += total;
+          s.sell_count++;
+        }
+      }
+
+      const symbols = Object.values(book)
+        .map(s => ({ ...s, realized_pnl: r2(s.realized_pnl), total_bought: r2(s.total_bought), total_sold: r2(s.total_sold), cost_basis: r2(s.cost_basis) }))
+        .sort((a, b) => Math.abs(b.realized_pnl) - Math.abs(a.realized_pnl));
+
+      return {
+        total_realized_pnl: r2(symbols.reduce((s, x) => s + x.realized_pnl, 0)),
+        total_buy_volume: r2(symbols.reduce((s, x) => s + x.total_bought, 0)),
+        total_sell_volume: r2(symbols.reduce((s, x) => s + x.total_sold, 0)),
+        filled_count: filtered.length,
+        symbols,
       };
     }
+
+    const pnlByPeriod: Record<string, unknown> = {};
+    for (const period of Object.keys(PERIOD_DAYS)) {
+      const cutoff = new Date(Date.now() - PERIOD_DAYS[period] * 86_400_000);
+      pnlByPeriod[period] = {
+        stock: computeStockPnl(historicalOrders, cutoff),
+        option: { total_realized_pnl: 0, total_buy_volume: 0, total_sell_volume: 0, filled_count: 0, symbols: [] },
+      };
+    }
+
+    const recentPnl = computeStockPnl(historicalOrders, new Date(Date.now() - 7 * 86_400_000));
+    const optionPnl = { total_realized_pnl: 0, total_buy_volume: 0, total_sell_volume: 0, filled_count: 0, symbols: [] };
 
     return {
       status: 200,
@@ -309,31 +327,31 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
         timestamp: snapshot.timestamp,
         market_data: snapshot.market_data ?? null,
         order_book: openOrders,
-        recent_orders: openOrders.slice(0, 5),
+        recent_orders: historicalOrders.slice(0, 50),
         recent_option_orders: [],
-        recent_pnl: mockStockPnl,
-        option_pnl: mockOptionPnl,
-        combined_7d_pnl: Math.round((mockStockPnl.total_realized_pnl + mockOptionPnl.total_realized_pnl) * 0.1 * 100) / 100,
+        recent_pnl: recentPnl,
+        option_pnl: optionPnl,
+        combined_7d_pnl: r2(recentPnl.total_realized_pnl + optionPnl.total_realized_pnl),
         pnl_by_period: pnlByPeriod,
         portfolio: {
-          cash,
-          equity: account?.equity ?? (stockMarketValue + (cash.cash as number ?? 0)),
+          cash: cashInfo,
+          equity: (account?.equity as number) ?? (stockMarketValue + cashHeld),
           rh_market_value: null,
-          market_value: stockMarketValue + (cash.cash as number ?? 0),
-          stock_market_value: stockMarketValue,
+          market_value: r2(stockMarketValue + cashHeld),
+          stock_market_value: r2(stockMarketValue),
           options_market_value: 0,
-          margin_used: 0,
+          margin_used: cashHeld < 0 ? r2(-cashHeld) : 0,
           reconciliation: {
-            rh_equity: account?.equity ?? stockMarketValue,
-            computed_equity: stockMarketValue + (cash.cash as number ?? 0),
+            rh_equity: (account?.equity as number) ?? stockMarketValue,
+            computed_equity: r2(stockMarketValue + cashHeld),
           },
-          positions,
+          positions: [...positions].sort((a, b) => Math.abs((b.profit_loss as number) ?? 0) - Math.abs((a.profit_loss as number) ?? 0)),
           open_orders: openOrders,
           open_option_orders: [],
           options: [],
           options_summary: null,
-          total_pl: Math.round(totalPl * 100) / 100,
-          total_pl_pct: Math.round(totalPlPct * 100) / 100,
+          total_pl: r2(totalPl),
+          total_pl_pct: r2(totalPlPct),
         },
       },
     };
