@@ -268,6 +268,12 @@ function enrichSnapshot(raw) {
 
 // ── Handler ──────────────────────────────────────────────────────────────────
 
+// Export enrichment helpers so local dev (vite-mock-api.ts) can run the same
+// code path as production — no duplicated P&L math that can drift.
+module.exports.enrichSnapshot = enrichSnapshot;
+module.exports.computeStockPnl = computeStockPnl;
+module.exports.computeOptionPnl = computeOptionPnl;
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: CORS, body: '' };

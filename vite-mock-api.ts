@@ -7,14 +7,51 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import type { Plugin } from 'vite';
 
 const MOCK_DIR = path.resolve(__dirname, '../shared/mocks');
+
+// Import the production enrichSnapshot function directly — the mock and the
+// deployed Netlify function share the exact same P&L computation code.
+const require_ = createRequire(import.meta.url);
+const { enrichSnapshot } = require_('./netlify/functions/enriched-snapshot.cjs') as {
+  enrichSnapshot: (raw: Record<string, unknown>) => Record<string, unknown>;
+};
 
 function loadMock(name: string): unknown {
   const file = path.join(MOCK_DIR, `${name}.json`);
   if (!fs.existsSync(file)) return null;
   return JSON.parse(fs.readFileSync(file, 'utf-8'));
+}
+
+/**
+ * Build a raw snapshot in the shape `order-book-snapshot` returns, from
+ * the local mock fixtures. Then let the production enrichSnapshot do the work.
+ */
+function buildRawSnapshot(): Record<string, unknown> | null {
+  const snapshot = loadMock('order_book_snapshot') as Record<string, unknown> | null;
+  if (!snapshot) return null;
+  const historicalOrders = (loadMock('_historical_orders') ?? []) as Record<string, unknown>[];
+
+  const portfolio = snapshot.portfolio as Record<string, unknown>;
+
+  // Produce the shape order-book-snapshot returns: timestamp, portfolio,
+  // order_book, recent_orders, recent_option_orders, market_data
+  return {
+    timestamp: snapshot.timestamp,
+    portfolio: {
+      ...portfolio,
+      // Pre-populate with live-like equity numbers. enrichSnapshot will
+      // compute stock_market_value / options_market_value / reconciliation.
+      equity: (portfolio.equity ?? 0) as number,
+      market_value: (portfolio.market_value ?? 0) as number,
+    },
+    order_book: snapshot.order_book ?? [],
+    recent_orders: historicalOrders,
+    recent_option_orders: [],
+    market_data: snapshot.market_data ?? null,
+  };
 }
 
 // Build mock responses for each Netlify function endpoint
@@ -241,120 +278,13 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
     };
   }
 
-  // Enriched snapshot — serves full TradePage data with P&L computed from
-  // historical orders (same algorithm as netlify/functions/enriched-snapshot.cjs).
+  // Enriched snapshot — delegates to the production enrichSnapshot function
+  // (netlify/functions/enriched-snapshot.cjs) so the local mock UI sees the
+  // exact same response shape and P&L math as production.
   if (fn === 'enriched-snapshot') {
-    const snapshot = loadMock('order_book_snapshot') as Record<string, unknown> | null;
-    const account = loadMock('account') as Record<string, unknown> | null;
-    const historicalOrders = (loadMock('_historical_orders') ?? []) as Record<string, unknown>[];
-    if (!snapshot) return null;
-
-    const portfolio = snapshot.portfolio as Record<string, unknown>;
-    const positions = (portfolio?.positions ?? []) as Record<string, unknown>[];
-    const openOrders = (portfolio?.open_orders ?? []) as Record<string, unknown>[];
-    const rawCash = portfolio?.cash as unknown;
-    const cashInfo = (typeof rawCash === 'object' && rawCash !== null)
-      ? rawCash as Record<string, unknown>
-      : { cash: Number(rawCash) || 0, buying_power: 0, tradeable_cash: Number(rawCash) || 0, cash_available_for_withdrawal: 0 };
-    const cashHeld = (cashInfo.tradeable_cash as number ?? cashInfo.cash as number ?? 0);
-
-    const stockMarketValue = positions.reduce((sum, p) => sum + (p.equity as number ?? 0), 0);
-    const totalPl = positions.reduce((sum, p) => sum + (p.profit_loss as number ?? 0), 0);
-    const totalCost = positions.reduce((sum, p) => sum + ((p.quantity as number) * (p.avg_buy_price as number ?? 0)), 0);
-    const totalPlPct = totalCost > 0 ? (totalPl / totalCost) * 100 : 0;
-
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-    const PERIOD_DAYS: Record<string, number> = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 1825 };
-
-    // Mirror the FIFO weighted-average cost-basis algorithm from enriched-snapshot.cjs
-    function computeStockPnl(orders: Record<string, unknown>[], cutoff: Date) {
-      const filtered = orders
-        .filter(o => o.state === 'filled' && o.symbol && new Date(o.created_at as string) >= cutoff)
-        .sort((a, b) => new Date(a.created_at as string).getTime() - new Date(b.created_at as string).getTime());
-
-      const book: Record<string, { symbol: string; realized_pnl: number; total_bought: number; total_sold: number; buy_count: number; sell_count: number; shares_held: number; cost_basis: number }> = {};
-      for (const o of filtered) {
-        const sym = o.symbol as string;
-        if (!book[sym]) book[sym] = { symbol: sym, realized_pnl: 0, total_bought: 0, total_sold: 0, buy_count: 0, sell_count: 0, shares_held: 0, cost_basis: 0 };
-        const s = book[sym];
-        const qty = parseFloat(String(o.filled_quantity ?? o.quantity ?? 0)) || 0;
-        const price = parseFloat(String(o.average_price ?? o.price ?? o.limit_price ?? 0)) || 0;
-        const total = qty * price;
-
-        if (String(o.side ?? '').toUpperCase() === 'BUY') {
-          s.shares_held += qty;
-          s.cost_basis += total;
-          s.total_bought += total;
-          s.buy_count++;
-        } else {
-          const avg = s.shares_held > 0 ? s.cost_basis / s.shares_held : 0;
-          s.realized_pnl += (price - avg) * qty;
-          s.cost_basis -= avg * qty;
-          s.shares_held -= qty;
-          s.total_sold += total;
-          s.sell_count++;
-        }
-      }
-
-      const symbols = Object.values(book)
-        .map(s => ({ ...s, realized_pnl: r2(s.realized_pnl), total_bought: r2(s.total_bought), total_sold: r2(s.total_sold), cost_basis: r2(s.cost_basis) }))
-        .sort((a, b) => Math.abs(b.realized_pnl) - Math.abs(a.realized_pnl));
-
-      return {
-        total_realized_pnl: r2(symbols.reduce((s, x) => s + x.realized_pnl, 0)),
-        total_buy_volume: r2(symbols.reduce((s, x) => s + x.total_bought, 0)),
-        total_sell_volume: r2(symbols.reduce((s, x) => s + x.total_sold, 0)),
-        filled_count: filtered.length,
-        symbols,
-      };
-    }
-
-    const pnlByPeriod: Record<string, unknown> = {};
-    for (const period of Object.keys(PERIOD_DAYS)) {
-      const cutoff = new Date(Date.now() - PERIOD_DAYS[period] * 86_400_000);
-      pnlByPeriod[period] = {
-        stock: computeStockPnl(historicalOrders, cutoff),
-        option: { total_realized_pnl: 0, total_buy_volume: 0, total_sell_volume: 0, filled_count: 0, symbols: [] },
-      };
-    }
-
-    const recentPnl = computeStockPnl(historicalOrders, new Date(Date.now() - 7 * 86_400_000));
-    const optionPnl = { total_realized_pnl: 0, total_buy_volume: 0, total_sell_volume: 0, filled_count: 0, symbols: [] };
-
-    return {
-      status: 200,
-      body: {
-        timestamp: snapshot.timestamp,
-        market_data: snapshot.market_data ?? null,
-        order_book: openOrders,
-        recent_orders: historicalOrders.slice(0, 50),
-        recent_option_orders: [],
-        recent_pnl: recentPnl,
-        option_pnl: optionPnl,
-        combined_7d_pnl: r2(recentPnl.total_realized_pnl + optionPnl.total_realized_pnl),
-        pnl_by_period: pnlByPeriod,
-        portfolio: {
-          cash: cashInfo,
-          equity: (account?.equity as number) ?? (stockMarketValue + cashHeld),
-          rh_market_value: null,
-          market_value: r2(stockMarketValue + cashHeld),
-          stock_market_value: r2(stockMarketValue),
-          options_market_value: 0,
-          margin_used: cashHeld < 0 ? r2(-cashHeld) : 0,
-          reconciliation: {
-            rh_equity: (account?.equity as number) ?? stockMarketValue,
-            computed_equity: r2(stockMarketValue + cashHeld),
-          },
-          positions: [...positions].sort((a, b) => Math.abs((b.profit_loss as number) ?? 0) - Math.abs((a.profit_loss as number) ?? 0)),
-          open_orders: openOrders,
-          open_option_orders: [],
-          options: [],
-          options_summary: null,
-          total_pl: r2(totalPl),
-          total_pl_pct: r2(totalPlPct),
-        },
-      },
-    };
+    const raw = buildRawSnapshot();
+    if (!raw) return null;
+    return { status: 200, body: enrichSnapshot(raw) };
   }
 
   return null;
