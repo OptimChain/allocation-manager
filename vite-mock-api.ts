@@ -290,31 +290,44 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
   return null;
 }
 
+type Req = { url?: string };
+type Res = {
+  writeHead: (status: number, headers: Record<string, string>) => void;
+  end: (body: string) => void;
+};
+type NextFn = () => void;
+
+function mockMiddleware(req: Req, res: Res, next: NextFn) {
+  if (!req.url?.startsWith('/.netlify/functions/')) {
+    return next();
+  }
+  const url = new URL(req.url, 'http://localhost');
+  const params = url.searchParams;
+  const result = getMockResponse(url.pathname, params);
+
+  if (!result) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Mock not found for ' + url.pathname }));
+    return;
+  }
+  res.writeHead(result.status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.end(JSON.stringify(result.body));
+}
+
 export function mockApiPlugin(): Plugin {
   return {
     name: 'mock-netlify-functions',
+    // Dev server (`vite` / `npm run dev:mock`)
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith('/.netlify/functions/')) {
-          return next();
-        }
-
-        const url = new URL(req.url, 'http://localhost');
-        const params = url.searchParams;
-        const result = getMockResponse(url.pathname, params);
-
-        if (!result) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Mock not found for ' + url.pathname }));
-          return;
-        }
-
-        res.writeHead(result.status, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        });
-        res.end(JSON.stringify(result.body));
-      });
+      server.middlewares.use(mockMiddleware);
+    },
+    // Preview server (`vite preview` / `npm run preview:mock`) — serves
+    // the production-built dist/ bundle with the same mock API in front.
+    configurePreviewServer(server) {
+      server.middlewares.use(mockMiddleware);
     },
   };
 }
