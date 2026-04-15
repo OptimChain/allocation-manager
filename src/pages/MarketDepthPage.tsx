@@ -379,10 +379,6 @@ export default function MarketDepthPage() {
     try {
       setLoading(true);
       const res = await fetch('/.netlify/functions/market-depth');
-      const contentType = res.headers.get('content-type') ?? '';
-      if (!contentType.includes('application/json')) {
-        throw new Error('Mock API not available — run "npm run dev:mock" instead of "npm run dev"');
-      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: MarketDepthResponse = await res.json();
       setData(json);
