@@ -14,7 +14,12 @@
 // These were written via the REST API (/api/v1/blobs/) so they must be
 // read back through the same REST API — the @netlify/blobs SDK uses a
 // different internal storage layer and cannot see them.
-const ALLOC_ENGINE_STORES = new Set(['options-chain', 'market-quotes']);
+const ALLOC_ENGINE_STORES = new Set([
+  'options-chain',
+  'market-quotes',
+  'option-positions-history',
+  'option-orders-history',
+]);
 
 const NETLIFY_API = 'https://api.netlify.com/api/v1';
 
