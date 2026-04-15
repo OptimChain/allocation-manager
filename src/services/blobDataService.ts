@@ -149,3 +149,82 @@ export async function getMarketData(
   const data = await vendBlobs<{ options: OptionsChainBlob | null; quotes: MarketQuotesBlob | null }>(params);
   return { options: data.options ?? null, quotes: data.quotes ?? null };
 }
+
+// ── Option position/order history ────────────────────────────
+//
+// Written by allocation-engine-2.0 every poll tick into two stores:
+//   option-positions-history/{ISO-timestamp}
+//   option-orders-history/{ISO-timestamp}
+// Keys look like "2026-04-15T00-06-01" (UTC). Listing returns newest-last,
+// matching Netlify's lexicographic order on ISO timestamps.
+
+export interface OptionHistoryPositionRow {
+  chain_symbol: string;
+  option_type: string;       // "call" | "put"
+  position_type?: string;    // "long" | "short"
+  strike: number;
+  expiration: string;
+  dte: number;
+  quantity: number;
+  avg_price: number;
+  mark_price: number;
+  multiplier: number;
+  cost_basis: number;
+  current_value: number;
+  unrealized_pl: number;
+  unrealized_pl_pct: number;
+  underlying_price?: number | null;
+  greeks?: Record<string, number | null> | null;
+  mark_stale?: boolean;
+}
+
+export interface OptionPositionsHistoryBlob {
+  timestamp: string;
+  broker?: string;
+  count: number;
+  positions: OptionHistoryPositionRow[];
+  underlying_prices?: Record<string, number>;
+  account_equity?: number | null;
+}
+
+export interface OptionOrdersHistoryBlob {
+  timestamp: string;
+  broker?: string;
+  count: number;
+  orders: Record<string, unknown>[];
+  states_seen?: string[];
+  state_hash?: string;
+}
+
+/** List option-position-history blob keys, newest first. */
+export async function listOptionPositionHistoryKeys(limit = 100): Promise<string[]> {
+  const data = await vendBlobs<{ keys: string[] }>({
+    store: 'option-positions-history',
+    action: 'list',
+  });
+  const keys = data.keys ?? [];
+  return keys.slice(-limit).reverse();
+}
+
+/** Fetch a single option-positions snapshot by key. */
+export async function getOptionPositionSnapshot(
+  key: string,
+): Promise<OptionPositionsHistoryBlob | null> {
+  const data = await vendBlobs<{ value: OptionPositionsHistoryBlob | null }>({
+    store: 'option-positions-history',
+    action: 'get',
+    key,
+  });
+  return data.value ?? null;
+}
+
+/** Convenience: pull the last N snapshots (oldest → newest for charting). */
+export async function getOptionPositionHistory(
+  limit = 50,
+): Promise<OptionPositionsHistoryBlob[]> {
+  const keys = await listOptionPositionHistoryKeys(limit);
+  const snaps = await Promise.all(keys.map(k => getOptionPositionSnapshot(k)));
+  return snaps
+    .filter((s): s is OptionPositionsHistoryBlob => s != null)
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
