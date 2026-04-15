@@ -1,0 +1,10 @@
+{
+  "symbol": "AAPL",
+  "name": "Apple Inc.",
+  "quantity": 50,
+  "avg_buy_price": 178.50,
+  "current_price": 185.25,
+  "equity": 9262.50,
+  "profit_loss": 337.50,
+  "profit_loss_pct": 3.78
+}

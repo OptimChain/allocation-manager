@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Bitcoin, LayoutDashboard, GitCompare, TrendingUp, FlaskConical, Moon, Sun, Menu, X, Settings } from 'lucide-react';
+import { Bitcoin, LayoutDashboard, GitCompare, TrendingUp, FlaskConical, Moon, Sun, Menu, X, Settings, Layers } from 'lucide-react';
 import { ThemeProvider, useTheme, FontMode } from './contexts/ThemeContext';
 
 // Import page components
@@ -10,6 +10,7 @@ import ComparePage from './pages/ComparePage';
 import TradePage from './pages/TradePage';
 import StrategiesPage from './pages/StrategiesPage';
 import ConfigurePage from './pages/ConfigurePage';
+import MarketDepthPage from './pages/MarketDepthPage';
 
 const FONT_LABELS: Record<FontMode, string> = {
   clean: 'Aa',
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/compare', icon: GitCompare, label: 'Compare' },
   { to: '/trade', icon: TrendingUp, label: 'Trade' },
+  { to: '/depth', icon: Layers, label: 'Depth' },
   { to: '/strategies', icon: FlaskConical, label: 'Strategies' },
   { to: '/configure', icon: Settings, label: 'Configure' },
 ];
@@ -146,6 +148,7 @@ function AppShell() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/compare" element={<ComparePage />} />
           <Route path="/trade" element={<TradePage />} />
+          <Route path="/depth" element={<MarketDepthPage />} />
           <Route path="/configure" element={<ConfigurePage />} />
           <Route path="/strategies" element={<StrategiesPage />} />
         </Routes>
