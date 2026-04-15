@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const MOCK_DIR = path.resolve(__dirname, '../../../shared/mocks');
+const MOCK_DIR = path.resolve(__dirname, '../../shared/mocks');
 
 function loadMock(name: string): Record<string, unknown> {
   const raw = fs.readFileSync(path.join(MOCK_DIR, `${name}.json`), 'utf-8');

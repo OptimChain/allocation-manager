@@ -1,0 +1,191 @@
+{
+  "timestamp": "2026-04-13T12:00:00Z",
+  "market_data": {
+    "timestamp": "2026-04-13T12:00:00Z",
+    "symbols": {
+      "AAPL": {
+        "metrics": {
+          "intraday_volatility": 0.012,
+          "intraday_high": 186.50,
+          "intraday_low": 183.90,
+          "current_price": 185.25,
+          "30d_high": 192.00,
+          "30d_low": 170.50
+        },
+        "last_signal": {
+          "signal": "HOLD",
+          "timestamp": "2026-04-13T11:55:00Z"
+        },
+        "last_updated": "2026-04-13T12:00:00Z"
+      },
+      "TSLA": {
+        "metrics": {
+          "intraday_volatility": 0.025,
+          "intraday_high": 252.80,
+          "intraday_low": 244.10,
+          "current_price": 248.60,
+          "30d_high": 265.00,
+          "30d_low": 220.00
+        },
+        "last_signal": {
+          "signal": "BUY",
+          "timestamp": "2026-04-13T11:45:00Z"
+        },
+        "last_updated": "2026-04-13T12:00:00Z"
+      },
+      "NVDA": {
+        "metrics": {
+          "intraday_volatility": 0.018,
+          "intraday_high": 875.00,
+          "intraday_low": 858.20,
+          "current_price": 868.50,
+          "30d_high": 920.00,
+          "30d_low": 790.00
+        },
+        "last_signal": {
+          "signal": "HOLD",
+          "timestamp": "2026-04-13T11:50:00Z"
+        },
+        "last_updated": "2026-04-13T12:00:00Z"
+      },
+      "MSFT": {
+        "metrics": {
+          "intraday_volatility": 0.009,
+          "intraday_high": 422.50,
+          "intraday_low": 417.30,
+          "current_price": 420.15,
+          "30d_high": 435.00,
+          "30d_low": 400.00
+        },
+        "last_signal": {
+          "signal": "HOLD",
+          "timestamp": "2026-04-13T11:58:00Z"
+        },
+        "last_updated": "2026-04-13T12:00:00Z"
+      }
+    }
+  },
+  "order_book": [
+    {
+      "order_id": "mock-order-001",
+      "symbol": "TSLA",
+      "side": "BUY",
+      "order_type": "limit",
+      "trigger": "immediate",
+      "state": "queued",
+      "quantity": 10,
+      "limit_price": 245.00,
+      "stop_price": null,
+      "created_at": "2026-04-13T09:30:00Z",
+      "updated_at": "2026-04-13T09:30:00Z"
+    },
+    {
+      "order_id": "mock-order-002",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "order_type": "limit",
+      "trigger": "immediate",
+      "state": "queued",
+      "quantity": 20,
+      "limit_price": 190.00,
+      "stop_price": null,
+      "created_at": "2026-04-13T10:15:00Z",
+      "updated_at": "2026-04-13T10:15:00Z"
+    }
+  ],
+  "portfolio": {
+    "cash": {
+      "cash": 10864.20,
+      "cash_available_for_withdrawal": 8500.00,
+      "buying_power": 10864.20,
+      "tradeable_cash": 10864.20
+    },
+    "equity": 52340.18,
+    "positions": [
+      {
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "quantity": 50,
+        "avg_buy_price": 178.50,
+        "current_price": 185.25,
+        "equity": 9262.50,
+        "profit_loss": 337.50,
+        "profit_loss_pct": 3.78,
+        "percent_change": 1.2,
+        "equity_change": 110.50,
+        "pe_ratio": 28.5,
+        "percentage": 22.3
+      },
+      {
+        "symbol": "TSLA",
+        "name": "Tesla Inc.",
+        "quantity": 25,
+        "avg_buy_price": 235.00,
+        "current_price": 248.60,
+        "equity": 6215.00,
+        "profit_loss": 340.00,
+        "profit_loss_pct": 5.79,
+        "percent_change": 1.8,
+        "equity_change": 110.00,
+        "pe_ratio": 62.1,
+        "percentage": 14.9
+      },
+      {
+        "symbol": "NVDA",
+        "name": "NVIDIA Corp.",
+        "quantity": 15,
+        "avg_buy_price": 820.00,
+        "current_price": 868.50,
+        "equity": 13027.50,
+        "profit_loss": 727.50,
+        "profit_loss_pct": 5.91,
+        "percent_change": 0.9,
+        "equity_change": 117.00,
+        "pe_ratio": 55.3,
+        "percentage": 31.4
+      },
+      {
+        "symbol": "MSFT",
+        "name": "Microsoft Corp.",
+        "quantity": 30,
+        "avg_buy_price": 405.00,
+        "current_price": 420.15,
+        "equity": 12604.50,
+        "profit_loss": 454.50,
+        "profit_loss_pct": 3.74,
+        "percent_change": 0.5,
+        "equity_change": 63.00,
+        "pe_ratio": 34.2,
+        "percentage": 30.3
+      }
+    ],
+    "open_orders": [
+      {
+        "order_id": "mock-order-001",
+        "symbol": "TSLA",
+        "side": "BUY",
+        "order_type": "limit",
+        "trigger": "immediate",
+        "state": "queued",
+        "quantity": 10,
+        "limit_price": 245.00,
+        "stop_price": null,
+        "created_at": "2026-04-13T09:30:00Z",
+        "updated_at": "2026-04-13T09:30:00Z"
+      },
+      {
+        "order_id": "mock-order-002",
+        "symbol": "AAPL",
+        "side": "SELL",
+        "order_type": "limit",
+        "trigger": "immediate",
+        "state": "queued",
+        "quantity": 20,
+        "limit_price": 190.00,
+        "stop_price": null,
+        "created_at": "2026-04-13T10:15:00Z",
+        "updated_at": "2026-04-13T10:15:00Z"
+      }
+    ]
+  }
+}

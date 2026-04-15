@@ -6,7 +6,9 @@
  * frontend receives idiomatic TypeScript types directly.
  */
 
-const BASE = '/.netlify/functions/vend-blobs';
+import { API_BASE } from '../config/api';
+
+const BASE = `${API_BASE}/vend-blobs`;
 
 // ── Public types ──────��──────────────────────────────────────
 

@@ -1,6 +1,8 @@
 // Perplexity News Service
 // Fetches AI-curated news for ETF tickers via the Perplexity search API (proxied through Netlify)
 
+import { API_BASE } from '../config/api';
+
 export interface PerplexityNewsItem {
   title: string;
   date: string;
@@ -29,7 +31,7 @@ export async function getPerplexityNews(
   ticker: NewsStraddleTicker
 ): Promise<PerplexityNewsResponse> {
   const params = new URLSearchParams({ ticker });
-  const response = await fetch(`/.netlify/functions/perplexity-news?${params}`);
+  const response = await fetch(`${API_BASE}/perplexity-news?${params}`);
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));

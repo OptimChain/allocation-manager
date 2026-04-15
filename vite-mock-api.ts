@@ -10,7 +10,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import type { Plugin } from 'vite';
 
-const MOCK_DIR = path.resolve(__dirname, '../shared/mocks');
+const MOCK_DIR = path.resolve(__dirname, 'shared/mocks');
 
 // Import the production enrichSnapshot function directly — the mock and the
 // deployed Netlify function share the exact same P&L computation code.
@@ -25,6 +25,24 @@ function loadMock(name: string): unknown {
   return JSON.parse(fs.readFileSync(file, 'utf-8'));
 }
 
+const PROD_BASE = 'https://5thstreetcapital.netlify.app/.netlify/functions';
+
+let _liveCache: { data: Record<string, unknown>; ts: number } | null = null;
+
+async function fetchLiveSnapshot(): Promise<Record<string, unknown> | null> {
+  // Cache for 30s to avoid hammering prod on every refresh
+  if (_liveCache && Date.now() - _liveCache.ts < 30_000) return _liveCache.data;
+  try {
+    const res = await fetch(`${PROD_BASE}/enriched-snapshot`);
+    if (!res.ok) return null;
+    const data = await res.json() as Record<string, unknown>;
+    _liveCache = { data, ts: Date.now() };
+    return data;
+  } catch {
+    return _liveCache?.data ?? null;
+  }
+}
+
 /**
  * Build a raw snapshot in the shape `order-book-snapshot` returns, from
  * the local mock fixtures. Then let the production enrichSnapshot do the work.
@@ -36,14 +54,10 @@ function buildRawSnapshot(): Record<string, unknown> | null {
 
   const portfolio = snapshot.portfolio as Record<string, unknown>;
 
-  // Produce the shape order-book-snapshot returns: timestamp, portfolio,
-  // order_book, recent_orders, recent_option_orders, market_data
   return {
     timestamp: snapshot.timestamp,
     portfolio: {
       ...portfolio,
-      // Pre-populate with live-like equity numbers. enrichSnapshot will
-      // compute stock_market_value / options_market_value / reconciliation.
       equity: (portfolio.equity ?? 0) as number,
       market_value: (portfolio.market_value ?? 0) as number,
     },
@@ -55,7 +69,7 @@ function buildRawSnapshot(): Record<string, unknown> | null {
 }
 
 // Build mock responses for each Netlify function endpoint
-function getMockResponse(pathname: string, params: URLSearchParams): { status: number; body: unknown } | null {
+async function getMockResponse(pathname: string, params: URLSearchParams): Promise<{ status: number; body: unknown } | null> {
   const fn = pathname.replace('/.netlify/functions/', '');
 
   // Order Book Snapshot
@@ -231,6 +245,37 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
       return raw ? { status: 200, body: { store, key, value: raw } } : null;
     }
 
+    if (action === 'list-symbols' && store === 'options-chain') {
+      return { status: 200, body: { symbols: ['AAPL', 'TSLA', 'NVDA', 'MSFT'] } };
+    }
+
+    if (action === 'list-dates' && store === 'options-chain') {
+      return { status: 200, body: { dates: ['2026-04-13', '2026-04-12', '2026-04-11'] } };
+    }
+
+    if (action === 'market-data') {
+      const symbol = params.get('symbol') ?? 'AAPL';
+      const raw = loadMock('_raw_market_quotes') as Record<string, unknown> | null;
+      const quotes = raw?.quotes as Record<string, unknown> | undefined;
+      const symbolQuote = quotes?.[symbol] as Record<string, unknown> | undefined;
+
+      return {
+        status: 200,
+        body: {
+          options: null,
+          quotes: {
+            timestamp: new Date().toISOString(),
+            blobKey: 'mock-latest',
+            latestQuotes: symbolQuote
+              ? { [symbol]: symbolQuote }
+              : {},
+            historyCount: 0,
+            history: [],
+          },
+        },
+      };
+    }
+
     if (action === 'get' && store === 'option-positions-history' && key) {
       const series = loadMock('_option_position_history') as
         | { timestamp: string }[]
@@ -296,6 +341,72 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
     };
   }
 
+  // Finnhub news
+  if (fn === 'finnhub-news') {
+    return {
+      status: 200,
+      body: {
+        results: [
+          {
+            id: 'mock-finnhub-1',
+            title: 'Fed Signals Steady Rates Through Q3, Markets React Positively',
+            author: 'Mock Analyst',
+            published_utc: new Date().toISOString(),
+            article_url: 'https://example.com/mock-finnhub-news',
+            image_url: null,
+            description: 'Mock Finnhub news article for local development.',
+            tickers: ['SPY', 'QQQ'],
+            publisher: { name: 'Finnhub Mock', logo_url: null, favicon_url: null },
+          },
+        ],
+        count: 1,
+      },
+    };
+  }
+
+  // Perplexity news
+  if (fn === 'perplexity-news') {
+    const ticker = params.get('ticker') ?? 'IWN';
+    return {
+      status: 200,
+      body: {
+        articles: [
+          {
+            title: `${ticker} Shows Strong Momentum Amid Sector Rotation`,
+            date: new Date().toISOString().split('T')[0],
+            summary: `Mock analysis: ${ticker} has seen increased institutional interest driven by value rotation trends.`,
+            impact: 'positive',
+            source: 'Mock Perplexity',
+          },
+          {
+            title: `${ticker} Volatility Remains Elevated Ahead of Earnings Season`,
+            date: new Date().toISOString().split('T')[0],
+            summary: `Options implied volatility for ${ticker} sits above the 75th percentile, suggesting caution.`,
+            impact: 'neutral',
+            source: 'Mock Perplexity',
+          },
+        ],
+        citations: ['https://example.com/mock-citation-1'],
+        ticker,
+      },
+    };
+  }
+
+  // Plaid link
+  if (fn === 'plaid-link') {
+    const action = params.get('action');
+    if (action === 'create-link-token') {
+      return { status: 200, body: { linkToken: 'mock-link-token-001' } };
+    }
+    if (action === 'status') {
+      return { status: 200, body: { connected: false, institution: null } };
+    }
+    if (action === 'holdings') {
+      return { status: 200, body: { positions: [], accounts: [] } };
+    }
+    return { status: 200, body: {} };
+  }
+
   // Deribit DVOL
   if (fn === 'deribit-dvol') {
     return {
@@ -304,13 +415,249 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
     };
   }
 
-  // Enriched snapshot — delegates to the production enrichSnapshot function
-  // (netlify/functions/enriched-snapshot.cjs) so the local mock UI sees the
-  // exact same response shape and P&L math as production.
+  // Enriched snapshot — try live data from prod with mock option overlay,
+  // fall back to local mock fixtures + production enrichSnapshot function.
   if (fn === 'enriched-snapshot') {
+    const live = await fetchLiveSnapshot();
+
+    if (live) {
+      // Live path: use prod data, overlay mock option positions/orders
+      const livePortfolio = live.portfolio as Record<string, unknown>;
+
+      const mockOptions = [
+        {
+          chain_symbol: 'SNDK', symbol: 'SNDK 05/08/2026 $1200 C', option_type: 'call',
+          strike: 1200, strike_price: '1200.0000', expiration: '2026-05-08', expiration_date: '2026-05-08',
+          dte: 23, quantity: 2, position_type: 'long', avg_price: 4.85, mark_price: 6.10, multiplier: 100,
+          cost_basis: 970.00, current_value: 1220.00, unrealized_pl: 250.00, unrealized_pl_pct: 25.77,
+          underlying_price: 952.50, break_even: 1204.85,
+          greeks: { delta: 0.085, gamma: 0.0004, theta: -0.92, vega: 1.45, rho: 0.08, iv: 0.58 },
+          expected_pl: { theta_daily: -1.84, '+5%': 820.00, '-5%': -380.00 }, chance_of_profit: 0.12,
+        },
+        {
+          chain_symbol: 'IWN', symbol: 'IWN 05/15/2026 $185 P', option_type: 'put',
+          strike: 185, strike_price: '185.0000', expiration: '2026-05-15', expiration_date: '2026-05-15',
+          dte: 30, quantity: 5, position_type: 'long', avg_price: 1.45, mark_price: 1.25, multiplier: 100,
+          cost_basis: 725.00, current_value: 625.00, unrealized_pl: -100.00, unrealized_pl_pct: -13.79,
+          underlying_price: 200.85, break_even: 183.55,
+          greeks: { delta: -0.155, gamma: 0.0125, theta: -0.032, vega: 0.115, rho: -0.025, iv: 0.215 },
+          expected_pl: { theta_daily: -0.16, '+5%': -420.00, '-5%': 380.00 }, chance_of_profit: 0.18,
+        },
+        {
+          chain_symbol: 'SNDK', symbol: 'SNDK 04/17/2026 $7.70 P', option_type: 'put',
+          strike: 7.70, strike_price: '7.7000', expiration: '2026-04-17', expiration_date: '2026-04-17',
+          dte: 2, quantity: 10, position_type: 'long', avg_price: 0.01, mark_price: 0.02, multiplier: 100,
+          cost_basis: 10.00, current_value: 20.00, unrealized_pl: 10.00, unrealized_pl_pct: 100.00,
+          underlying_price: 952.50, break_even: 7.69,
+          greeks: { delta: -0.0001, gamma: 0.00001, theta: -0.005, vega: 0.0005, rho: -0.00001, iv: 2.10 },
+          expected_pl: { theta_daily: -0.05, '+5%': -10.00, '-5%': -10.00 }, chance_of_profit: 0.0,
+        },
+      ];
+
+      const mockOpenOptionOrders = [
+        {
+          order_id: 'mock-opt-order-001', chain_symbol: 'SNDK', direction: 'debit', state: 'queued',
+          quantity: 3, price: 5.20, processed_premium: null, order_type: 'limit', opening_strategy: 'long_call',
+          created_at: '2026-04-15T14:30:00Z', updated_at: '2026-04-15T14:30:00Z',
+          legs: [{ chain_symbol: 'SNDK', strike_price: '1200.0000', expiration_date: '2026-05-08', option_type: 'call', side: 'BUY', position_effect: 'open' }],
+        },
+        {
+          order_id: 'mock-opt-order-002', chain_symbol: 'IWN', direction: 'debit', state: 'queued',
+          quantity: 10, price: 1.10, processed_premium: null, order_type: 'limit', opening_strategy: 'long_put',
+          created_at: '2026-04-15T15:00:00Z', updated_at: '2026-04-15T15:00:00Z',
+          legs: [{ chain_symbol: 'IWN', strike_price: '185.0000', expiration_date: '2026-05-15', option_type: 'put', side: 'BUY', position_effect: 'open' }],
+        },
+      ];
+
+      const mockRecentOptionOrders = [
+        {
+          order_id: 'mock-opt-filled-001', chain_symbol: 'SNDK', direction: 'debit', state: 'filled',
+          quantity: 2, price: 4.85, processed_premium: 970.00, order_type: 'limit', opening_strategy: 'long_call',
+          created_at: '2026-04-10T10:15:00Z', updated_at: '2026-04-10T10:15:05Z',
+          legs: [{ chain_symbol: 'SNDK', strike_price: '1200.0000', expiration_date: '2026-05-08', option_type: 'call', side: 'BUY', position_effect: 'open' }],
+        },
+        {
+          order_id: 'mock-opt-filled-002', chain_symbol: 'IWN', direction: 'debit', state: 'filled',
+          quantity: 5, price: 1.45, processed_premium: 725.00, order_type: 'limit', opening_strategy: 'long_put',
+          created_at: '2026-04-08T11:30:00Z', updated_at: '2026-04-08T11:30:03Z',
+          legs: [{ chain_symbol: 'IWN', strike_price: '185.0000', expiration_date: '2026-05-15', option_type: 'put', side: 'BUY', position_effect: 'open' }],
+        },
+        {
+          order_id: 'mock-opt-filled-003', chain_symbol: 'SNDK', direction: 'debit', state: 'filled',
+          quantity: 10, price: 0.01, processed_premium: 10.00, order_type: 'limit', opening_strategy: 'long_put',
+          created_at: '2026-04-14T09:45:00Z', updated_at: '2026-04-14T09:45:02Z',
+          legs: [{ chain_symbol: 'SNDK', strike_price: '7.7000', expiration_date: '2026-04-17', option_type: 'put', side: 'BUY', position_effect: 'open' }],
+        },
+      ];
+
+      const liveOptions = (livePortfolio.options as unknown[]) ?? [];
+      const liveOpenOptOrders = (livePortfolio.open_option_orders as unknown[]) ?? [];
+      const liveRecentOptOrders = (live.recent_option_orders as unknown[]) ?? [];
+
+      const mergedOptions = [...liveOptions, ...mockOptions];
+      const mergedOpenOptOrders = [...liveOpenOptOrders, ...mockOpenOptionOrders];
+      const mergedRecentOptOrders = [...liveRecentOptOrders, ...mockRecentOptionOrders];
+
+      const optionsMV = mockOptions.reduce((s, o) => s + o.current_value, 0);
+      const optionsSummary = {
+        count: mergedOptions.length,
+        total_cost_basis: mockOptions.reduce((s, o) => s + o.cost_basis, 0),
+        total_current_value: optionsMV,
+        total_unrealized_pl: mockOptions.reduce((s, o) => s + o.unrealized_pl, 0),
+        total_theta_daily: mockOptions.reduce((s, o) => s + o.expected_pl.theta_daily, 0),
+      };
+
+      return {
+        status: 200,
+        body: {
+          ...live,
+          recent_option_orders: mergedRecentOptOrders,
+          portfolio: {
+            ...livePortfolio,
+            options_market_value: (livePortfolio.options_market_value as number ?? 0) + optionsMV,
+            market_value: (livePortfolio.market_value as number ?? 0) + optionsMV,
+            open_option_orders: mergedOpenOptOrders,
+            options: mergedOptions,
+            options_summary: optionsSummary,
+          },
+        },
+      };
+    }
+
+    // Fallback: use local mock fixtures + production enrichSnapshot
     const raw = buildRawSnapshot();
     if (!raw) return null;
     return { status: 200, body: enrichSnapshot(raw) };
+  }
+
+  // Market Depth — options contracts with greeks, depth ladder, theta decay
+  if (fn === 'market-depth') {
+    function buildDepth(mid: number, spreadPct: number, levels: number): { bids: unknown[]; asks: unknown[] } {
+      const bids = [];
+      const asks = [];
+      const halfSpread = mid * (spreadPct / 2);
+      const exchanges = ['CBOE', 'ISE', 'PHLX', 'BOX', 'MIAX', 'ARCA'];
+      for (let i = 0; i < levels; i++) {
+        const step = halfSpread * (1 + i * 0.4);
+        bids.push({
+          price: Math.round((mid - step) * 100) / 100,
+          size: Math.floor(Math.random() * 80) + 5,
+          exchange: exchanges[i % exchanges.length],
+          timestamp: new Date().toISOString(),
+        });
+        asks.push({
+          price: Math.round((mid + step) * 100) / 100,
+          size: Math.floor(Math.random() * 80) + 5,
+          exchange: exchanges[(i + 1) % exchanges.length],
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return { bids, asks };
+    }
+
+    function buildThetaCurve(dte: number, currentMid: number): unknown[] {
+      const points = [];
+      for (let d = dte; d >= 0; d -= Math.max(1, Math.floor(dte / 20))) {
+        const frac = d / dte;
+        const timeValue = currentMid * Math.sqrt(frac);
+        const dailyTheta = d > 0 ? -(currentMid * (1 - Math.sqrt((d - 1) / dte))) + (currentMid * (1 - Math.sqrt(d / dte))) : -currentMid * 0.05;
+        points.push({ dte: d, value: Math.round(dailyTheta * 100) / 100 });
+      }
+      return points;
+    }
+
+    // SNDK $1200 Call 5/8 — spot ~$952, strike $1200 → ~26% OTM
+    const sndk1200 = {
+      symbol: 'SNDK260508C01200000',
+      underlying: 'SNDK',
+      optionType: 'call',
+      strike: 1200,
+      expiration: '2026-05-08',
+      dte: 23,
+      spot: 952.50,
+      bid: 5.80,
+      ask: 6.40,
+      mid: 6.10,
+      last: 6.05,
+      volume: 1842,
+      openInterest: 5620,
+      greeks: {
+        delta: 0.085,
+        gamma: 0.0004,
+        theta: -0.92,
+        vega: 1.45,
+        rho: 0.08,
+        iv: 0.58,
+      },
+      thetaDecayCurve: buildThetaCurve(23, 6.10),
+    };
+    const sndk1200Depth = buildDepth(6.10, 0.10, 6);
+
+    // IWN $185 Put 5/15 — spot ~$201, strike $185 → ~8% OTM
+    const iwn185 = {
+      symbol: 'IWN260515P00185000',
+      underlying: 'IWN',
+      optionType: 'put',
+      strike: 185,
+      expiration: '2026-05-15',
+      dte: 30,
+      spot: 200.85,
+      bid: 1.18,
+      ask: 1.32,
+      mid: 1.25,
+      last: 1.22,
+      volume: 3210,
+      openInterest: 12450,
+      greeks: {
+        delta: -0.155,
+        gamma: 0.0125,
+        theta: -0.032,
+        vega: 0.115,
+        rho: -0.025,
+        iv: 0.215,
+      },
+      thetaDecayCurve: buildThetaCurve(30, 1.25),
+    };
+    const iwn185Depth = buildDepth(1.25, 0.11, 6);
+
+    // SNDK $7.70 Put 4/17 — spot ~$952, strike $7.70 → absurdly deep OTM, 2 DTE
+    const sndk770 = {
+      symbol: 'SNDK260417P00007700',
+      underlying: 'SNDK',
+      optionType: 'put',
+      strike: 7.70,
+      expiration: '2026-04-17',
+      dte: 2,
+      spot: 952.50,
+      bid: 0.01,
+      ask: 0.03,
+      mid: 0.02,
+      last: 0.02,
+      volume: 520,
+      openInterest: 8900,
+      greeks: {
+        delta: -0.0001,
+        gamma: 0.00001,
+        theta: -0.005,
+        vega: 0.0005,
+        rho: -0.00001,
+        iv: 2.10,
+      },
+      thetaDecayCurve: buildThetaCurve(2, 0.02),
+    };
+    const sndk770Depth = buildDepth(0.02, 0.5, 6);
+
+    return {
+      status: 200,
+      body: {
+        timestamp: new Date().toISOString(),
+        contracts: [
+          { ...sndk1200, bidDepth: sndk1200Depth.bids, askDepth: sndk1200Depth.asks },
+          { ...iwn185, bidDepth: iwn185Depth.bids, askDepth: iwn185Depth.asks },
+          { ...sndk770, bidDepth: sndk770Depth.bids, askDepth: sndk770Depth.asks },
+        ],
+      },
+    };
   }
 
   return null;
@@ -323,13 +670,13 @@ type Res = {
 };
 type NextFn = () => void;
 
-function mockMiddleware(req: Req, res: Res, next: NextFn) {
+async function mockMiddleware(req: Req, res: Res, next: NextFn) {
   if (!req.url?.startsWith('/.netlify/functions/')) {
     return next();
   }
   const url = new URL(req.url, 'http://localhost');
   const params = url.searchParams;
-  const result = getMockResponse(url.pathname, params);
+  const result = await getMockResponse(url.pathname, params);
 
   if (!result) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -346,12 +693,9 @@ function mockMiddleware(req: Req, res: Res, next: NextFn) {
 export function mockApiPlugin(): Plugin {
   return {
     name: 'mock-netlify-functions',
-    // Dev server (`vite` / `npm run dev:mock`)
     configureServer(server) {
       server.middlewares.use(mockMiddleware);
     },
-    // Preview server (`vite preview` / `npm run preview:mock`) — serves
-    // the production-built dist/ bundle with the same mock API in front.
     configurePreviewServer(server) {
       server.middlewares.use(mockMiddleware);
     },
