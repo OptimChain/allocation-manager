@@ -38,6 +38,7 @@ import {
   formatPercent,
   getGainColor,
 } from '../services/robinhoodService';
+import OptionPositionsHistory from '../components/OptionPositionsHistory';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -718,6 +719,10 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
           <OptionsPositions options={portfolio.options} summary={portfolio.options_summary} />
         </div>
       )}
+
+      <div className="mt-6">
+        <OptionPositionsHistory />
+      </div>
     </div>
   );
 }

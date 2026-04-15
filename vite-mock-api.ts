@@ -211,12 +211,38 @@ function getMockResponse(pathname: string, params: URLSearchParams): { status: n
           body: { store, count: 1, keys: [(raw as Record<string, unknown>).timestamp ?? 'latest'] },
         };
       }
+      if (store === 'option-positions-history') {
+        const series = loadMock('_option_position_history') as
+          | { timestamp: string }[]
+          | null;
+        if (series && Array.isArray(series)) {
+          // Mirror the live store: keys are ISO timestamps with ":" → "-".
+          const keys = series.map(s =>
+            s.timestamp.replace(/:/g, '-').replace(/\..*$/, '').replace(/\+.*$/, ''),
+          );
+          return { status: 200, body: { store, count: keys.length, keys } };
+        }
+      }
       return { status: 200, body: { store, count: 0, keys: [] } };
     }
 
     if (action === 'get' && store === 'market-quotes') {
       const raw = loadMock('_raw_market_quotes');
       return raw ? { status: 200, body: { store, key, value: raw } } : null;
+    }
+
+    if (action === 'get' && store === 'option-positions-history' && key) {
+      const series = loadMock('_option_position_history') as
+        | { timestamp: string }[]
+        | null;
+      if (series && Array.isArray(series)) {
+        const match = series.find(s => {
+          const k = s.timestamp.replace(/:/g, '-').replace(/\..*$/, '').replace(/\+.*$/, '');
+          return k === key;
+        });
+        if (match) return { status: 200, body: { store, key, value: match } };
+      }
+      return { status: 200, body: { store, key, value: null } };
     }
 
     return { status: 200, body: { store, count: 0, keys: [] } };
