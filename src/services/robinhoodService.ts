@@ -1,7 +1,7 @@
 // Robinhood API Service
 // Connects to Netlify functions for Robinhood data
 
-const API_BASE = '/.netlify/functions';
+import { API_BASE } from '../config/api';
 
 // Auth types
 export interface AuthStatus {

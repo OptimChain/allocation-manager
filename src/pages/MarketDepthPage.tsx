@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../config/api';
 import {
   RefreshCw,
   Activity,
@@ -378,7 +379,7 @@ export default function MarketDepthPage() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/.netlify/functions/market-depth');
+      const res = await fetch(`${API_BASE}/market-depth`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: MarketDepthResponse = await res.json();
       setData(json);

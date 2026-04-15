@@ -1,6 +1,8 @@
 // Twelve Data API Service
 // Documentation: https://twelvedata.com/docs
 
+import { API_BASE } from '../config/api';
+
 const TWELVE_DATA_API = 'https://api.twelvedata.com';
 
 export interface TimeSeriesData {
@@ -154,7 +156,7 @@ export interface CoinGeckoMarketData {
 
 export async function getCoinGeckoMarketData(): Promise<CoinGeckoMarketData> {
   try {
-    const response = await fetch('/.netlify/functions/coingecko-market');
+    const response = await fetch(`${API_BASE}/coingecko-market`);
 
     const data = await response.json();
 
