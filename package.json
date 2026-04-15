@@ -10,6 +10,8 @@
     "dev:mock": "VITE_MOCK_API=1 vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "preview:mock": "VITE_MOCK_API=1 vite preview",
+    "build:mock": "tsc && vite build && VITE_MOCK_API=1 vite preview",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "test": "jest",
     "test:watch": "jest --watch",

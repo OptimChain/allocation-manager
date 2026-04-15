@@ -7,9 +7,17 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import type { Plugin } from 'vite';
 
 const MOCK_DIR = path.resolve(__dirname, 'shared/mocks');
+
+// Import the production enrichSnapshot function directly — the mock and the
+// deployed Netlify function share the exact same P&L computation code.
+const require_ = createRequire(import.meta.url);
+const { enrichSnapshot } = require_('./netlify/functions/enriched-snapshot.cjs') as {
+  enrichSnapshot: (raw: Record<string, unknown>) => Record<string, unknown>;
+};
 
 function loadMock(name: string): unknown {
   const file = path.join(MOCK_DIR, `${name}.json`);
@@ -33,6 +41,31 @@ async function fetchLiveSnapshot(): Promise<Record<string, unknown> | null> {
   } catch {
     return _liveCache?.data ?? null;
   }
+}
+
+/**
+ * Build a raw snapshot in the shape `order-book-snapshot` returns, from
+ * the local mock fixtures. Then let the production enrichSnapshot do the work.
+ */
+function buildRawSnapshot(): Record<string, unknown> | null {
+  const snapshot = loadMock('order_book_snapshot') as Record<string, unknown> | null;
+  if (!snapshot) return null;
+  const historicalOrders = (loadMock('_historical_orders') ?? []) as Record<string, unknown>[];
+
+  const portfolio = snapshot.portfolio as Record<string, unknown>;
+
+  return {
+    timestamp: snapshot.timestamp,
+    portfolio: {
+      ...portfolio,
+      equity: (portfolio.equity ?? 0) as number,
+      market_value: (portfolio.market_value ?? 0) as number,
+    },
+    order_book: snapshot.order_book ?? [],
+    recent_orders: historicalOrders,
+    recent_option_orders: [],
+    market_data: snapshot.market_data ?? null,
+  };
 }
 
 // Build mock responses for each Netlify function endpoint
@@ -192,6 +225,18 @@ async function getMockResponse(pathname: string, params: URLSearchParams): Promi
           body: { store, count: 1, keys: [(raw as Record<string, unknown>).timestamp ?? 'latest'] },
         };
       }
+      if (store === 'option-positions-history') {
+        const series = loadMock('_option_position_history') as
+          | { timestamp: string }[]
+          | null;
+        if (series && Array.isArray(series)) {
+          // Mirror the live store: keys are ISO timestamps with ":" → "-".
+          const keys = series.map(s =>
+            s.timestamp.replace(/:/g, '-').replace(/\..*$/, '').replace(/\+.*$/, ''),
+          );
+          return { status: 200, body: { store, count: keys.length, keys } };
+        }
+      }
       return { status: 200, body: { store, count: 0, keys: [] } };
     }
 
@@ -229,6 +274,20 @@ async function getMockResponse(pathname: string, params: URLSearchParams): Promi
           },
         },
       };
+    }
+
+    if (action === 'get' && store === 'option-positions-history' && key) {
+      const series = loadMock('_option_position_history') as
+        | { timestamp: string }[]
+        | null;
+      if (series && Array.isArray(series)) {
+        const match = series.find(s => {
+          const k = s.timestamp.replace(/:/g, '-').replace(/\..*$/, '').replace(/\+.*$/, '');
+          return k === key;
+        });
+        if (match) return { status: 200, body: { store, key, value: match } };
+      }
+      return { status: 200, body: { store, key, value: null } };
     }
 
     return { status: 200, body: { store, count: 0, keys: [] } };
@@ -356,235 +415,119 @@ async function getMockResponse(pathname: string, params: URLSearchParams): Promi
     };
   }
 
-  // Enriched snapshot — live data from prod, mock option overlay
+  // Enriched snapshot — try live data from prod with mock option overlay,
+  // fall back to local mock fixtures + production enrichSnapshot function.
   if (fn === 'enriched-snapshot') {
     const live = await fetchLiveSnapshot();
-    if (!live) return null;
 
-    const livePortfolio = live.portfolio as Record<string, unknown>;
+    if (live) {
+      // Live path: use prod data, overlay mock option positions/orders
+      const livePortfolio = live.portfolio as Record<string, unknown>;
 
-    // ── Mock option positions (held contracts) ──
-    const mockOptions = [
-      {
-        chain_symbol: 'SNDK',
-        symbol: 'SNDK 05/08/2026 $1200 C',
-        option_type: 'call',
-        strike: 1200,
-        strike_price: '1200.0000',
-        expiration: '2026-05-08',
-        expiration_date: '2026-05-08',
-        dte: 23,
-        quantity: 2,
-        position_type: 'long',
-        avg_price: 4.85,
-        mark_price: 6.10,
-        multiplier: 100,
-        cost_basis: 970.00,
-        current_value: 1220.00,
-        unrealized_pl: 250.00,
-        unrealized_pl_pct: 25.77,
-        underlying_price: 952.50,
-        break_even: 1204.85,
-        greeks: { delta: 0.085, gamma: 0.0004, theta: -0.92, vega: 1.45, rho: 0.08, iv: 0.58 },
-        expected_pl: { theta_daily: -1.84, '+5%': 820.00, '-5%': -380.00 },
-        chance_of_profit: 0.12,
-      },
-      {
-        chain_symbol: 'IWN',
-        symbol: 'IWN 05/15/2026 $185 P',
-        option_type: 'put',
-        strike: 185,
-        strike_price: '185.0000',
-        expiration: '2026-05-15',
-        expiration_date: '2026-05-15',
-        dte: 30,
-        quantity: 5,
-        position_type: 'long',
-        avg_price: 1.45,
-        mark_price: 1.25,
-        multiplier: 100,
-        cost_basis: 725.00,
-        current_value: 625.00,
-        unrealized_pl: -100.00,
-        unrealized_pl_pct: -13.79,
-        underlying_price: 200.85,
-        break_even: 183.55,
-        greeks: { delta: -0.155, gamma: 0.0125, theta: -0.032, vega: 0.115, rho: -0.025, iv: 0.215 },
-        expected_pl: { theta_daily: -0.16, '+5%': -420.00, '-5%': 380.00 },
-        chance_of_profit: 0.18,
-      },
-      {
-        chain_symbol: 'SNDK',
-        symbol: 'SNDK 04/17/2026 $7.70 P',
-        option_type: 'put',
-        strike: 7.70,
-        strike_price: '7.7000',
-        expiration: '2026-04-17',
-        expiration_date: '2026-04-17',
-        dte: 2,
-        quantity: 10,
-        position_type: 'long',
-        avg_price: 0.01,
-        mark_price: 0.02,
-        multiplier: 100,
-        cost_basis: 10.00,
-        current_value: 20.00,
-        unrealized_pl: 10.00,
-        unrealized_pl_pct: 100.00,
-        underlying_price: 952.50,
-        break_even: 7.69,
-        greeks: { delta: -0.0001, gamma: 0.00001, theta: -0.005, vega: 0.0005, rho: -0.00001, iv: 2.10 },
-        expected_pl: { theta_daily: -0.05, '+5%': -10.00, '-5%': -10.00 },
-        chance_of_profit: 0.0,
-      },
-    ];
-
-    const mockOpenOptionOrders = [
-      {
-        order_id: 'mock-opt-order-001',
-        chain_symbol: 'SNDK',
-        direction: 'debit',
-        state: 'queued',
-        quantity: 3,
-        price: 5.20,
-        processed_premium: null,
-        order_type: 'limit',
-        opening_strategy: 'long_call',
-        created_at: '2026-04-15T14:30:00Z',
-        updated_at: '2026-04-15T14:30:00Z',
-        legs: [{
-          chain_symbol: 'SNDK',
-          strike_price: '1200.0000',
-          expiration_date: '2026-05-08',
-          option_type: 'call',
-          side: 'BUY',
-          position_effect: 'open',
-        }],
-      },
-      {
-        order_id: 'mock-opt-order-002',
-        chain_symbol: 'IWN',
-        direction: 'debit',
-        state: 'queued',
-        quantity: 10,
-        price: 1.10,
-        processed_premium: null,
-        order_type: 'limit',
-        opening_strategy: 'long_put',
-        created_at: '2026-04-15T15:00:00Z',
-        updated_at: '2026-04-15T15:00:00Z',
-        legs: [{
-          chain_symbol: 'IWN',
-          strike_price: '185.0000',
-          expiration_date: '2026-05-15',
-          option_type: 'put',
-          side: 'BUY',
-          position_effect: 'open',
-        }],
-      },
-    ];
-
-    const mockRecentOptionOrders = [
-      {
-        order_id: 'mock-opt-filled-001',
-        chain_symbol: 'SNDK',
-        direction: 'debit',
-        state: 'filled',
-        quantity: 2,
-        price: 4.85,
-        processed_premium: 970.00,
-        order_type: 'limit',
-        opening_strategy: 'long_call',
-        created_at: '2026-04-10T10:15:00Z',
-        updated_at: '2026-04-10T10:15:05Z',
-        legs: [{
-          chain_symbol: 'SNDK',
-          strike_price: '1200.0000',
-          expiration_date: '2026-05-08',
-          option_type: 'call',
-          side: 'BUY',
-          position_effect: 'open',
-        }],
-      },
-      {
-        order_id: 'mock-opt-filled-002',
-        chain_symbol: 'IWN',
-        direction: 'debit',
-        state: 'filled',
-        quantity: 5,
-        price: 1.45,
-        processed_premium: 725.00,
-        order_type: 'limit',
-        opening_strategy: 'long_put',
-        created_at: '2026-04-08T11:30:00Z',
-        updated_at: '2026-04-08T11:30:03Z',
-        legs: [{
-          chain_symbol: 'IWN',
-          strike_price: '185.0000',
-          expiration_date: '2026-05-15',
-          option_type: 'put',
-          side: 'BUY',
-          position_effect: 'open',
-        }],
-      },
-      {
-        order_id: 'mock-opt-filled-003',
-        chain_symbol: 'SNDK',
-        direction: 'debit',
-        state: 'filled',
-        quantity: 10,
-        price: 0.01,
-        processed_premium: 10.00,
-        order_type: 'limit',
-        opening_strategy: 'long_put',
-        created_at: '2026-04-14T09:45:00Z',
-        updated_at: '2026-04-14T09:45:02Z',
-        legs: [{
-          chain_symbol: 'SNDK',
-          strike_price: '7.7000',
-          expiration_date: '2026-04-17',
-          option_type: 'put',
-          side: 'BUY',
-          position_effect: 'open',
-        }],
-      },
-    ];
-
-    // Merge: live data for everything, mock overlay for options
-    const liveOptions = (livePortfolio.options as unknown[]) ?? [];
-    const liveOpenOptOrders = (livePortfolio.open_option_orders as unknown[]) ?? [];
-    const liveRecentOptOrders = (live.recent_option_orders as unknown[]) ?? [];
-
-    const mergedOptions = [...liveOptions, ...mockOptions];
-    const mergedOpenOptOrders = [...liveOpenOptOrders, ...mockOpenOptionOrders];
-    const mergedRecentOptOrders = [...liveRecentOptOrders, ...mockRecentOptionOrders];
-
-    const optionsMV = mockOptions.reduce((s, o) => s + o.current_value, 0);
-    const optionsSummary = {
-      count: mergedOptions.length,
-      total_cost_basis: mockOptions.reduce((s, o) => s + o.cost_basis, 0),
-      total_current_value: optionsMV,
-      total_unrealized_pl: mockOptions.reduce((s, o) => s + o.unrealized_pl, 0),
-      total_theta_daily: mockOptions.reduce((s, o) => s + o.expected_pl.theta_daily, 0),
-    };
-
-    return {
-      status: 200,
-      body: {
-        // Top-level fields: use live, overlay option arrays
-        ...live,
-        recent_option_orders: mergedRecentOptOrders,
-        portfolio: {
-          // Spread live portfolio, then override option fields
-          ...livePortfolio,
-          options_market_value: (livePortfolio.options_market_value as number ?? 0) + optionsMV,
-          market_value: (livePortfolio.market_value as number ?? 0) + optionsMV,
-          open_option_orders: mergedOpenOptOrders,
-          options: mergedOptions,
-          options_summary: optionsSummary,
+      const mockOptions = [
+        {
+          chain_symbol: 'SNDK', symbol: 'SNDK 05/08/2026 $1200 C', option_type: 'call',
+          strike: 1200, strike_price: '1200.0000', expiration: '2026-05-08', expiration_date: '2026-05-08',
+          dte: 23, quantity: 2, position_type: 'long', avg_price: 4.85, mark_price: 6.10, multiplier: 100,
+          cost_basis: 970.00, current_value: 1220.00, unrealized_pl: 250.00, unrealized_pl_pct: 25.77,
+          underlying_price: 952.50, break_even: 1204.85,
+          greeks: { delta: 0.085, gamma: 0.0004, theta: -0.92, vega: 1.45, rho: 0.08, iv: 0.58 },
+          expected_pl: { theta_daily: -1.84, '+5%': 820.00, '-5%': -380.00 }, chance_of_profit: 0.12,
         },
-      },
-    };
+        {
+          chain_symbol: 'IWN', symbol: 'IWN 05/15/2026 $185 P', option_type: 'put',
+          strike: 185, strike_price: '185.0000', expiration: '2026-05-15', expiration_date: '2026-05-15',
+          dte: 30, quantity: 5, position_type: 'long', avg_price: 1.45, mark_price: 1.25, multiplier: 100,
+          cost_basis: 725.00, current_value: 625.00, unrealized_pl: -100.00, unrealized_pl_pct: -13.79,
+          underlying_price: 200.85, break_even: 183.55,
+          greeks: { delta: -0.155, gamma: 0.0125, theta: -0.032, vega: 0.115, rho: -0.025, iv: 0.215 },
+          expected_pl: { theta_daily: -0.16, '+5%': -420.00, '-5%': 380.00 }, chance_of_profit: 0.18,
+        },
+        {
+          chain_symbol: 'SNDK', symbol: 'SNDK 04/17/2026 $7.70 P', option_type: 'put',
+          strike: 7.70, strike_price: '7.7000', expiration: '2026-04-17', expiration_date: '2026-04-17',
+          dte: 2, quantity: 10, position_type: 'long', avg_price: 0.01, mark_price: 0.02, multiplier: 100,
+          cost_basis: 10.00, current_value: 20.00, unrealized_pl: 10.00, unrealized_pl_pct: 100.00,
+          underlying_price: 952.50, break_even: 7.69,
+          greeks: { delta: -0.0001, gamma: 0.00001, theta: -0.005, vega: 0.0005, rho: -0.00001, iv: 2.10 },
+          expected_pl: { theta_daily: -0.05, '+5%': -10.00, '-5%': -10.00 }, chance_of_profit: 0.0,
+        },
+      ];
+
+      const mockOpenOptionOrders = [
+        {
+          order_id: 'mock-opt-order-001', chain_symbol: 'SNDK', direction: 'debit', state: 'queued',
+          quantity: 3, price: 5.20, processed_premium: null, order_type: 'limit', opening_strategy: 'long_call',
+          created_at: '2026-04-15T14:30:00Z', updated_at: '2026-04-15T14:30:00Z',
+          legs: [{ chain_symbol: 'SNDK', strike_price: '1200.0000', expiration_date: '2026-05-08', option_type: 'call', side: 'BUY', position_effect: 'open' }],
+        },
+        {
+          order_id: 'mock-opt-order-002', chain_symbol: 'IWN', direction: 'debit', state: 'queued',
+          quantity: 10, price: 1.10, processed_premium: null, order_type: 'limit', opening_strategy: 'long_put',
+          created_at: '2026-04-15T15:00:00Z', updated_at: '2026-04-15T15:00:00Z',
+          legs: [{ chain_symbol: 'IWN', strike_price: '185.0000', expiration_date: '2026-05-15', option_type: 'put', side: 'BUY', position_effect: 'open' }],
+        },
+      ];
+
+      const mockRecentOptionOrders = [
+        {
+          order_id: 'mock-opt-filled-001', chain_symbol: 'SNDK', direction: 'debit', state: 'filled',
+          quantity: 2, price: 4.85, processed_premium: 970.00, order_type: 'limit', opening_strategy: 'long_call',
+          created_at: '2026-04-10T10:15:00Z', updated_at: '2026-04-10T10:15:05Z',
+          legs: [{ chain_symbol: 'SNDK', strike_price: '1200.0000', expiration_date: '2026-05-08', option_type: 'call', side: 'BUY', position_effect: 'open' }],
+        },
+        {
+          order_id: 'mock-opt-filled-002', chain_symbol: 'IWN', direction: 'debit', state: 'filled',
+          quantity: 5, price: 1.45, processed_premium: 725.00, order_type: 'limit', opening_strategy: 'long_put',
+          created_at: '2026-04-08T11:30:00Z', updated_at: '2026-04-08T11:30:03Z',
+          legs: [{ chain_symbol: 'IWN', strike_price: '185.0000', expiration_date: '2026-05-15', option_type: 'put', side: 'BUY', position_effect: 'open' }],
+        },
+        {
+          order_id: 'mock-opt-filled-003', chain_symbol: 'SNDK', direction: 'debit', state: 'filled',
+          quantity: 10, price: 0.01, processed_premium: 10.00, order_type: 'limit', opening_strategy: 'long_put',
+          created_at: '2026-04-14T09:45:00Z', updated_at: '2026-04-14T09:45:02Z',
+          legs: [{ chain_symbol: 'SNDK', strike_price: '7.7000', expiration_date: '2026-04-17', option_type: 'put', side: 'BUY', position_effect: 'open' }],
+        },
+      ];
+
+      const liveOptions = (livePortfolio.options as unknown[]) ?? [];
+      const liveOpenOptOrders = (livePortfolio.open_option_orders as unknown[]) ?? [];
+      const liveRecentOptOrders = (live.recent_option_orders as unknown[]) ?? [];
+
+      const mergedOptions = [...liveOptions, ...mockOptions];
+      const mergedOpenOptOrders = [...liveOpenOptOrders, ...mockOpenOptionOrders];
+      const mergedRecentOptOrders = [...liveRecentOptOrders, ...mockRecentOptionOrders];
+
+      const optionsMV = mockOptions.reduce((s, o) => s + o.current_value, 0);
+      const optionsSummary = {
+        count: mergedOptions.length,
+        total_cost_basis: mockOptions.reduce((s, o) => s + o.cost_basis, 0),
+        total_current_value: optionsMV,
+        total_unrealized_pl: mockOptions.reduce((s, o) => s + o.unrealized_pl, 0),
+        total_theta_daily: mockOptions.reduce((s, o) => s + o.expected_pl.theta_daily, 0),
+      };
+
+      return {
+        status: 200,
+        body: {
+          ...live,
+          recent_option_orders: mergedRecentOptOrders,
+          portfolio: {
+            ...livePortfolio,
+            options_market_value: (livePortfolio.options_market_value as number ?? 0) + optionsMV,
+            market_value: (livePortfolio.market_value as number ?? 0) + optionsMV,
+            open_option_orders: mergedOpenOptOrders,
+            options: mergedOptions,
+            options_summary: optionsSummary,
+          },
+        },
+      };
+    }
+
+    // Fallback: use local mock fixtures + production enrichSnapshot
+    const raw = buildRawSnapshot();
+    if (!raw) return null;
+    return { status: 200, body: enrichSnapshot(raw) };
   }
 
   // Market Depth — options contracts with greeks, depth ladder, theta decay
@@ -720,31 +663,41 @@ async function getMockResponse(pathname: string, params: URLSearchParams): Promi
   return null;
 }
 
+type Req = { url?: string };
+type Res = {
+  writeHead: (status: number, headers: Record<string, string>) => void;
+  end: (body: string) => void;
+};
+type NextFn = () => void;
+
+async function mockMiddleware(req: Req, res: Res, next: NextFn) {
+  if (!req.url?.startsWith('/.netlify/functions/')) {
+    return next();
+  }
+  const url = new URL(req.url, 'http://localhost');
+  const params = url.searchParams;
+  const result = await getMockResponse(url.pathname, params);
+
+  if (!result) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Mock not found for ' + url.pathname }));
+    return;
+  }
+  res.writeHead(result.status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.end(JSON.stringify(result.body));
+}
+
 export function mockApiPlugin(): Plugin {
   return {
     name: 'mock-netlify-functions',
     configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        if (!req.url?.startsWith('/.netlify/functions/')) {
-          return next();
-        }
-
-        const url = new URL(req.url, 'http://localhost');
-        const params = url.searchParams;
-        const result = await getMockResponse(url.pathname, params);
-
-        if (!result) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Mock not found for ' + url.pathname }));
-          return;
-        }
-
-        res.writeHead(result.status, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        });
-        res.end(JSON.stringify(result.body));
-      });
+      server.middlewares.use(mockMiddleware);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(mockMiddleware);
     },
   };
 }

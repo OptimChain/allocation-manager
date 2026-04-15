@@ -38,6 +38,7 @@ import {
   formatPercent,
   getGainColor,
 } from '../services/robinhoodService';
+import OptionPositionsHistory from '../components/OptionPositionsHistory';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -62,12 +63,12 @@ function fmtTime(dateStr: string, timeOnly = false): string {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const COLORS = [
+export const COLORS = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
   '#8B5CF6', '#EC4899', '#06B6D4', '#F97316',
 ];
 
-const PNL_PERIODS: { label: string; value: PnLPeriod }[] = [
+export const PNL_PERIODS: { label: string; value: PnLPeriod }[] = [
   { label: '1W', value: '1W' },
   { label: '1M', value: '1M' },
   { label: '3M', value: '3M' },
@@ -76,7 +77,7 @@ const PNL_PERIODS: { label: string; value: PnLPeriod }[] = [
   { label: '5Y', value: '5Y' },
 ];
 
-const PERIOD_LABEL: Record<PnLPeriod, string> = {
+export const PERIOD_LABEL: Record<PnLPeriod, string> = {
   '1W': 'last week', '1M': 'last month', '3M': 'last 3 months',
   '6M': 'last 6 months', '1Y': 'last year', '5Y': 'last 5 years',
 };
@@ -148,7 +149,7 @@ function PortfolioSummary({ portfolio }: { portfolio: EnrichedPortfolio }) {
 
 // ─── PortfolioAllocation ──────────────────────────────────────────────────────
 
-function PortfolioAllocation({ portfolio }: { portfolio: EnrichedPortfolio }) {
+export function PortfolioAllocation({ portfolio }: { portfolio: EnrichedPortfolio }) {
   const pieData = portfolio.positions.map((pos, i) => ({
     name: pos.symbol,
     value: pos.equity,
@@ -718,13 +719,17 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
           <OptionsPositions options={portfolio.options} summary={portfolio.options_summary} />
         </div>
       )}
+
+      <div className="mt-6">
+        <OptionPositionsHistory />
+      </div>
     </div>
   );
 }
 
 // ─── RealizedPnLSummary ───────────────────────────────────────────────────────
 
-function RealizedPnLSummary({ stock, option, periodLabel, openOrders }: {
+export function RealizedPnLSummary({ stock, option, periodLabel, openOrders }: {
   stock: StockPnLResult;
   option: OptionPnLResult;
   periodLabel: string;
@@ -765,7 +770,7 @@ function RealizedPnLSummary({ stock, option, periodLabel, openOrders }: {
 
 // ─── PnLBySymbolTable ─────────────────────────────────────────────────────────
 
-function PnLBySymbolTable({ stock, option }: { stock: StockPnLResult; option: OptionPnLResult }) {
+export function PnLBySymbolTable({ stock, option }: { stock: StockPnLResult; option: OptionPnLResult }) {
   if (!stock.symbols.length && !option.symbols.length) return null;
 
   return (
@@ -825,10 +830,6 @@ export default function TradePage() {
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [pnlPeriod,  setPnlPeriod]  = useState<PnLPeriod>('1Y');
-
-  // Period switch is a key lookup — no recomputation
-  const pnl = snapshot?.pnl_by_period[pnlPeriod] ?? null;
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -920,56 +921,18 @@ export default function TradePage() {
 
           <PortfolioSummary portfolio={snapshot.portfolio} />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <PortfolioAllocation portfolio={snapshot.portfolio} />
+          <div className="mb-6">
             <BotActionsLog actions={botActions} />
           </div>
 
           <PositionsTable portfolio={snapshot.portfolio} />
 
-          {/* Realized P&L with period selector */}
-          <div className="mt-8 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Order P&amp;L</h2>
-              <p className="text-gray-500 mt-1">Realized profit &amp; loss from filled orders</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => fetchData(true)} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-zinc-700 rounded-xl hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-50">
-                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
-              <div className="flex bg-gray-100 dark:bg-zinc-800 rounded-xl p-1 overflow-x-auto">
-                {PNL_PERIODS.map(({ label, value }) => (
-                  <button
-                    key={value}
-                    onClick={() => setPnlPeriod(value)}
-                    className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${pnlPeriod === value ? 'bg-white dark:bg-zinc-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {pnl && (
-            <>
-              <RealizedPnLSummary
-                stock={pnl.stock}
-                option={pnl.option}
-                periodLabel={PERIOD_LABEL[pnlPeriod]}
-                openOrders={snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book}
-              />
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
-                  <PnLBySymbolTable stock={pnl.stock} option={pnl.option} />
-                </div>
-                <div>
-                  {/* Historical orders shown inline in OrderBookSnapshotView above */}
-                </div>
-              </div>
-            </>
-          )}
+          <p className="text-xs text-gray-400 mt-6">
+            Portfolio allocation and realized P&amp;L have moved to the{' '}
+            <RouterLink to="/pnl-allocation" className="text-gray-600 dark:text-gray-400 hover:underline font-medium">
+              P&amp;L &amp; Asset Allocation
+            </RouterLink>{' '}tab.
+          </p>
         </>
       )}
     </div>
