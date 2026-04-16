@@ -17,6 +17,10 @@
 
 'use strict';
 
+const tokenStore = require('./lib/tokenStore.cjs');
+
+const RH_API = 'https://api.robinhood.com';
+
 // ── Data source: delegate blob-reading to order-book-snapshot ────────────────
 // Netlify sets URL to the current deploy's base URL (e.g. https://xxx--site.netlify.app)
 
@@ -234,6 +238,207 @@ function normalizeOpenOptionOrder(o) {
   };
 }
 
+// ── Live Robinhood API helpers ──────────────────────────────────────────────
+// Used when blobs have no option data — fetches directly from RH.
+
+const _optionInstrumentCache = {};
+
+async function rhFetch(endpoint) {
+  const token = await tokenStore.getToken();
+  if (!token) return null;
+  const res = await fetch(`${RH_API}${endpoint}`, {
+    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function rhFetchAll(endpoint) {
+  const all = [];
+  let url = endpoint;
+  while (url) {
+    const data = await rhFetch(url);
+    if (!data) break;
+    all.push(...(data.results || []));
+    url = data.next ? data.next.replace(RH_API, '') : null;
+  }
+  return all;
+}
+
+async function resolveOptionInstrument(optionUrl) {
+  const key = optionUrl.replace(RH_API, '');
+  if (_optionInstrumentCache[key]) return _optionInstrumentCache[key];
+  const inst = await rhFetch(key);
+  if (inst) _optionInstrumentCache[key] = inst;
+  return inst;
+}
+
+/**
+ * Fetch live option orders from RH API.
+ * Returns { open: [], recent: [] } in the shape enrichSnapshot expects.
+ */
+async function fetchLiveOptionOrders() {
+  const raw = await rhFetchAll('/options/orders/');
+  if (!raw.length) return { open: [], recent: [] };
+
+  const open = [];
+  const recent = [];
+
+  for (const o of raw) {
+    // Resolve legs to get strike/expiration/type
+    const legs = [];
+    for (const leg of (o.legs || [])) {
+      let strike_price = leg.strike_price || null;
+      let expiration_date = leg.expiration_date || null;
+      let option_type = leg.option_type || null;
+
+      // If leg fields are missing, resolve from option instrument URL
+      if ((!strike_price || !expiration_date || !option_type) && leg.option) {
+        const inst = await resolveOptionInstrument(leg.option);
+        if (inst) {
+          strike_price = strike_price || inst.strike_price;
+          expiration_date = expiration_date || inst.expiration_date;
+          option_type = option_type || inst.type;
+        }
+      }
+
+      legs.push({
+        chain_symbol: leg.chain_symbol || o.chain_symbol || null,
+        strike_price,
+        expiration_date,
+        option_type,
+        side: (leg.side || '').toUpperCase(),
+        position_effect: leg.position_effect || null,
+      });
+    }
+
+    const normalized = {
+      order_id: o.id,
+      chain_symbol: o.chain_symbol || null,
+      direction: (o.direction || '').toLowerCase(),
+      state: o.state,
+      quantity: parseFloat(o.quantity) || 0,
+      price: parseFloat(o.price) || 0,
+      processed_premium: o.processed_premium ? parseFloat(o.processed_premium) : null,
+      order_type: o.type || o.order_type || null,
+      opening_strategy: o.opening_strategy || null,
+      created_at: o.created_at,
+      updated_at: o.updated_at,
+      legs,
+    };
+
+    if (['queued', 'confirmed', 'unconfirmed', 'partially_filled'].includes(o.state)) {
+      open.push(normalized);
+    }
+    recent.push(normalized);
+  }
+
+  // recent: most recent first, cap at 50
+  recent.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return { open, recent: recent.slice(0, 50) };
+}
+
+/**
+ * Fetch live option positions from RH API.
+ * Returns positions in the shape the frontend OptionPosition interface expects.
+ */
+async function fetchLiveOptionPositions() {
+  const raw = await rhFetchAll('/options/aggregate_positions/?nonzero=true');
+  if (!raw.length) return [];
+
+  const positions = [];
+  for (const pos of raw) {
+    const qty = parseFloat(pos.quantity) || 0;
+    if (qty === 0) continue;
+
+    const multiplier = parseFloat(pos.trade_value_multiplier) || 100;
+    const avgPrice = parseFloat(pos.average_open_price) || 0;
+
+    // Resolve first leg for strike/expiration/type + market data
+    let strike = null, expiration = null, optionType = null, markPrice = null;
+    const legs = pos.legs || [];
+    if (legs.length > 0 && legs[0].option) {
+      const inst = await resolveOptionInstrument(legs[0].option);
+      if (inst) {
+        strike = parseFloat(inst.strike_price);
+        expiration = inst.expiration_date;
+        optionType = inst.type;
+      }
+      // Fetch current mark price
+      try {
+        const encoded = encodeURIComponent(legs[0].option);
+        const md = await rhFetch(`/marketdata/options/?instruments=${encoded}`);
+        if (md?.results?.[0]) {
+          markPrice = parseFloat(md.results[0].adjusted_mark_price)
+            || parseFloat(md.results[0].mark_price) || null;
+        }
+      } catch (_) { /* ignore */ }
+    }
+
+    const costBasis = r2(avgPrice * qty * multiplier);
+    const currentValue = markPrice != null ? r2(markPrice * qty * multiplier) : costBasis;
+    const unrealizedPl = r2(currentValue - costBasis);
+    const unrealizedPlPct = costBasis !== 0 ? r2((unrealizedPl / Math.abs(costBasis)) * 100) : 0;
+
+    positions.push({
+      chain_symbol: pos.chain_symbol || pos.symbol,
+      symbol: pos.symbol,
+      option_type: optionType || 'unknown',
+      strike,
+      strike_price: strike ? String(strike) : null,
+      expiration,
+      expiration_date: expiration,
+      quantity: qty,
+      position_type: (pos.direction || 'long').toLowerCase(),
+      avg_price: avgPrice,
+      mark_price: markPrice,
+      multiplier,
+      cost_basis: costBasis,
+      current_value: currentValue,
+      unrealized_pl: unrealizedPl,
+      unrealized_pl_pct: unrealizedPlPct,
+    });
+  }
+
+  return positions;
+}
+
+/**
+ * Augment a raw snapshot with live RH option data when blobs are empty.
+ */
+async function augmentWithLiveOptions(raw) {
+  const portfolio = raw.portfolio || {};
+  const hasPositions = (portfolio.options || []).length > 0;
+  const hasOpenOrders = (portfolio.open_option_orders || []).length > 0;
+  const hasRecentOrders = (raw.recent_option_orders || []).length > 0;
+
+  // If blob already has option data, skip live fetch
+  if (hasPositions && hasOpenOrders && hasRecentOrders) return raw;
+
+  try {
+    const [liveOrders, livePositions] = await Promise.all([
+      (!hasOpenOrders || !hasRecentOrders) ? fetchLiveOptionOrders() : Promise.resolve(null),
+      !hasPositions ? fetchLiveOptionPositions() : Promise.resolve(null),
+    ]);
+
+    if (liveOrders) {
+      if (!hasOpenOrders && liveOrders.open.length > 0) {
+        portfolio.open_option_orders = liveOrders.open;
+      }
+      if (!hasRecentOrders && liveOrders.recent.length > 0) {
+        raw.recent_option_orders = liveOrders.recent;
+      }
+    }
+    if (livePositions && livePositions.length > 0) {
+      portfolio.options = livePositions;
+    }
+  } catch (err) {
+    console.warn('Live option fetch failed (non-fatal):', err.message);
+  }
+
+  return raw;
+}
+
 function enrichSnapshot(raw) {
   const portfolio   = raw.portfolio;
   // Normalize engine-blob field names → SnapshotPosition / CashInfo contract
@@ -330,7 +535,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const raw      = await fetchRawSnapshot();
+    const raw      = await augmentWithLiveOptions(await fetchRawSnapshot());
     const enriched = enrichSnapshot(raw);
     return {
       statusCode: 200,
