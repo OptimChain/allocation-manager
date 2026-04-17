@@ -357,6 +357,109 @@ async function calculateOrderPnL() {
   };
 }
 
+/**
+ * Fetch a full options chain for a symbol, returning IV and greeks
+ * for all available expiration dates.  Focuses on puts for term-structure analysis.
+ *
+ * Robinhood flow:
+ *   1. /instruments/?symbol=X          → equity instrument id
+ *   2. /options/chains/?equity_instrument_ids=…  → chain id + expiration_dates
+ *   3. /options/instruments/?chain_id=…&expiration_dates=…&type=put
+ *   4. /marketdata/options/?instruments=…  → mark, IV, greeks
+ */
+async function getOptionsChain(symbol, optionType = 'put') {
+  // 1. Resolve equity instrument ID
+  const instrSearch = await fetchWithAuth(`/instruments/?symbol=${encodeURIComponent(symbol)}`);
+  const equity = (instrSearch.results || []).find(
+    (r) => r.symbol.toUpperCase() === symbol.toUpperCase() && r.state === 'active',
+  );
+  if (!equity) throw new Error(`No active equity instrument found for ${symbol}`);
+
+  // 2. Get options chain metadata (expiration dates)
+  const chainsResp = await fetchWithAuth(
+    `/options/chains/?equity_instrument_ids=${equity.id}`,
+  );
+  const chain = (chainsResp.results || [])[0];
+  if (!chain) throw new Error(`No options chain found for ${symbol}`);
+
+  const expirationDates = (chain.expiration_dates || []).sort();
+  if (expirationDates.length === 0) throw new Error(`No expiration dates available for ${symbol}`);
+
+  // 3-4. For each expiry, fetch option instruments + market data
+  const results = [];
+
+  for (const expDate of expirationDates) {
+    try {
+      // Fetch put option instruments for this expiry
+      let optUrl = `/options/instruments/?chain_id=${chain.id}&expiration_dates=${expDate}&type=${optionType}&state=active`;
+      const allInstruments = [];
+
+      while (optUrl) {
+        const page = await fetchWithAuth(optUrl);
+        allInstruments.push(...(page.results || []));
+        optUrl = page.next ? page.next.replace(ROBINHOOD_API_BASE, '') : null;
+      }
+
+      if (allInstruments.length === 0) continue;
+
+      // Fetch market data in batches of 25 (Robinhood API limit)
+      const contracts = [];
+      for (let i = 0; i < allInstruments.length; i += 25) {
+        const batch = allInstruments.slice(i, i + 25);
+        const instrumentUrls = batch.map((inst) => inst.url).join(',');
+        const encoded = encodeURIComponent(instrumentUrls);
+
+        try {
+          const mktResp = await fetchWithAuth(`/marketdata/options/?instruments=${encoded}`);
+          for (const md of mktResp.results || []) {
+            const inst = batch.find(
+              (b) => b.url === md.instrument || md.instrument?.endsWith(b.id + '/'),
+            );
+            if (!inst) continue;
+            const iv = parseFloat(md.implied_volatility);
+            if (isNaN(iv) || iv <= 0) continue;
+
+            contracts.push({
+              strike: parseFloat(inst.strike_price),
+              expiry: inst.expiration_date,
+              type: inst.type, // 'put' or 'call'
+              iv: iv,
+              delta: parseFloat(md.delta) || null,
+              gamma: parseFloat(md.gamma) || null,
+              theta: parseFloat(md.theta) || null,
+              vega: parseFloat(md.vega) || null,
+              mark: parseFloat(md.adjusted_mark_price) || parseFloat(md.mark_price) || null,
+              bid: parseFloat(md.bid_price) || 0,
+              ask: parseFloat(md.ask_price) || 0,
+              volume: parseInt(md.volume) || 0,
+              openInterest: parseInt(md.open_interest) || 0,
+            });
+          }
+        } catch (e) {
+          console.warn(`Market data batch failed for ${symbol} ${expDate}:`, e.message);
+        }
+      }
+
+      if (contracts.length > 0) {
+        contracts.sort((a, b) => a.strike - b.strike);
+        results.push({ expiry: expDate, contracts });
+      }
+    } catch (e) {
+      console.warn(`Failed to fetch ${optionType}s for ${symbol} ${expDate}:`, e.message);
+    }
+  }
+
+  return {
+    symbol: symbol.toUpperCase(),
+    chainId: chain.id,
+    type: optionType,
+    expirationDates,
+    timestamp: new Date().toISOString(),
+    expiries: results,
+    totalContracts: results.reduce((s, e) => s + e.contracts.length, 0),
+  };
+}
+
 exports.handler = async (event) => {
   // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
@@ -392,8 +495,16 @@ exports.handler = async (event) => {
         data = await getOptionsPositions();
         break;
 
+      case 'chain': {
+        const symbol = event.queryStringParameters?.symbol;
+        const type = event.queryStringParameters?.type || 'put';
+        if (!symbol) throw new Error('Missing "symbol" query parameter');
+        data = await getOptionsChain(symbol, type);
+        break;
+      }
+
       default:
-        throw new Error(`Unknown action: ${action}. Available: status, portfolio, orders, pnl, options`);
+        throw new Error(`Unknown action: ${action}. Available: status, portfolio, orders, pnl, options, chain`);
     }
 
     return {
