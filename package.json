@@ -16,6 +16,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "deploy": "netlify deploy --prod",
+    "deploy:check": "netlify deploy --prod && npm run healthcheck",
+    "healthcheck": "node scripts/healthcheck.mjs",
+    "healthcheck:preview": "node scripts/healthcheck.mjs --url",
     "test:rh": "./scripts/test-robinhood.sh",
     "functions": "node scripts/local-functions.cjs"
   },
