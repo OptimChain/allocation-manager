@@ -3,12 +3,14 @@ import { FileText, Download } from 'lucide-react';
 import WeekendMomentum from '../components/WeekendMomentum';
 import NewsStraddle from '../components/NewsStraddle';
 import MarketDepth from '../components/MarketDepth';
+import LiveAlphas from '../components/LiveAlphas';
 
 const TABS = [
   { id: 'market-depth', label: 'Market Depth' },
   { id: 'volatility-puts', label: 'Volatility Puts' },
   { id: 'weekend-momentum', label: 'Weekend Momentum' },
   { id: 'news-straddle', label: 'News Straddle' },
+  { id: 'generic-industry', label: 'Generic Industry Strategies' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -82,6 +84,7 @@ export default function StrategiesPage() {
       )}
       {activeTab === 'weekend-momentum' && <WeekendMomentum />}
       {activeTab === 'news-straddle' && <NewsStraddle />}
+      {activeTab === 'generic-industry' && <LiveAlphas />}
     </div>
   );
 }
