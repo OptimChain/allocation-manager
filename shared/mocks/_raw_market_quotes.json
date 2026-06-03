@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-04-13T12:00:00Z",
+  "quotes": {
+    "AAPL": {
+      "bid": 185.20,
+      "ask": 185.30,
+      "mid": 185.25,
+      "spread": 0.10,
+      "spreadBps": 5.4,
+      "bidSize": 200,
+      "askSize": 150,
+      "timestamp": "2026-04-13T12:00:00Z",
+      "source": "mock",
+      "symbol": "AAPL",
+      "assetClass": "equity"
+    },
+    "TSLA": {
+      "bid": 248.50,
+      "ask": 248.70,
+      "mid": 248.60,
+      "spread": 0.20,
+      "spreadBps": 8.0,
+      "bidSize": 100,
+      "askSize": 120,
+      "timestamp": "2026-04-13T12:00:00Z",
+      "source": "mock",
+      "symbol": "TSLA",
+      "assetClass": "equity"
+    },
+    "NVDA": {
+      "bid": 868.30,
+      "ask": 868.70,
+      "mid": 868.50,
+      "spread": 0.40,
+      "spreadBps": 4.6,
+      "bidSize": 50,
+      "askSize": 75,
+      "timestamp": "2026-04-13T12:00:00Z",
+      "source": "mock",
+      "symbol": "NVDA",
+      "assetClass": "equity"
+    }
+  }
+}
