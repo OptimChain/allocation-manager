@@ -23,6 +23,7 @@ export const NEWS_STRADDLE_TICKERS = [
   { symbol: 'CB', name: 'Chubb Limited', color: '#8B5CF6' },
   { symbol: 'AVDV', name: 'Avantis Intl Small Cap Value', color: '#F59E0B' },
   { symbol: 'ISRA', name: 'VanEck Israel ETF', color: '#10B981' },
+  { symbol: 'AVGO', name: 'Broadcom Inc.', color: '#EF4444' },
 ] as const;
 
 export type NewsStraddleTicker = (typeof NEWS_STRADDLE_TICKERS)[number]['symbol'];

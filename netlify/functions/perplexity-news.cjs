@@ -53,6 +53,7 @@ exports.handler = async (event) => {
       CB: 'Chubb Limited (CB)',
       AVDV: 'Avantis International Small Cap Value ETF (AVDV)',
       ISRA: 'VanEck Israel ETF (ISRA)',
+      AVGO: 'Broadcom Inc. (AVGO)',
     };
 
     const fullName = tickerNames[ticker] || ticker;
