@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FileText, Download } from 'lucide-react';
 import WeekendMomentum from '../components/WeekendMomentum';
+import WeekendGap from '../components/WeekendGap';
 import NewsStraddle from '../components/NewsStraddle';
 import MarketDepth from '../components/MarketDepth';
 import UnderlyingsMomentum from '../components/UnderlyingsMomentum';
@@ -10,6 +11,7 @@ const TABS = [
   { id: 'market-depth', label: 'Market Depth' },
   { id: 'volatility-puts', label: 'Volatility Puts' },
   { id: 'weekend-momentum', label: 'Weekend Momentum' },
+  { id: 'weekend-gap', label: 'Weekend Gap' },
   { id: 'news-straddle', label: 'News Straddle' },
 ] as const;
 
@@ -84,6 +86,7 @@ export default function StrategiesPage() {
         </div>
       )}
       {activeTab === 'weekend-momentum' && <WeekendMomentum />}
+      {activeTab === 'weekend-gap' && <WeekendGap />}
       {activeTab === 'news-straddle' && <NewsStraddle />}
     </div>
   );
