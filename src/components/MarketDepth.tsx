@@ -275,6 +275,9 @@ function LevelBadge({ level }: { level: DataLevel }) {
 
 // ── Component ─────────────────────────────────────────────
 
+// Underlyings to surface quotes for in this page (BTC intentionally excluded).
+const QUOTE_SYMBOLS = ['CRWD', 'IWN'];
+
 export default function MarketDepth() {
   const { isDark } = useTheme();
   const [loading, setLoading] = useState(false);
@@ -297,9 +300,11 @@ export default function MarketDepth() {
     async function load() {
       try {
         const syms = await listOptionSymbols();
-        if (!cancelled && syms.length > 0) {
-          setSymbols(syms);
-          setSelectedSymbol(syms[0]);
+        // Restrict to CRWD/IWN only, preserving the allowlist order.
+        const allowed = QUOTE_SYMBOLS.filter((s) => syms.includes(s));
+        if (!cancelled && allowed.length > 0) {
+          setSymbols(allowed);
+          setSelectedSymbol(allowed[0]);
         }
       } catch {
         // Symbols might not be available yet
@@ -361,12 +366,8 @@ export default function MarketDepth() {
   // Derived chart data
   const quoteTimeSeries = useMemo(() => {
     if (!quotesBlob) return [];
-    // Try the selected symbol, then BTC/USD, then BTC
-    for (const sym of [selectedSymbol, 'BTC/USD', 'BTC']) {
-      const pts = extractQuoteTimeSeries(quotesBlob, sym);
-      if (pts.length > 0) return pts;
-    }
-    return [];
+    // Only the selected underlying (CRWD/IWN) — no BTC fallback.
+    return extractQuoteTimeSeries(quotesBlob, selectedSymbol);
   }, [quotesBlob, selectedSymbol]);
 
   const ivSmile = useMemo(() => {
