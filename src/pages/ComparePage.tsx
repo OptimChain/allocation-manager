@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { PortfolioChart } from '../components/PortfolioChart';
 import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset } from '../services/twelveDataService';
 import { processPortfolioReturns, calculateCorrelations } from '../utils/portfolioCalculations';
+import { useTwelveDataLivePrices } from '../hooks/useTwelveDataLivePrices';
 
 const TIME_RANGES = [
   { label: '1W', value: '1W' },
@@ -57,6 +58,13 @@ export default function ComparePage() {
 
   const correlations = useMemo(() => calculateCorrelations(chartData), [chartData]);
 
+  // Live tick stream (Twelve Data WebSocket) for the currently enabled assets.
+  const enabledSymbols = useMemo(
+    () => PORTFOLIO_ASSETS.filter((a) => enabledAssets[a.symbol]).map((a) => a.symbol),
+    [enabledAssets]
+  );
+  const { prices: livePrices, status: liveStatus } = useTwelveDataLivePrices(enabledSymbols);
+
   const toggleAsset = (symbol: string) => {
     setEnabledAssets((prev) => ({ ...prev, [symbol]: !prev[symbol] }));
   };
@@ -104,14 +112,30 @@ export default function ComparePage() {
             Compare returns across BTC, indices, and MAG7 stocks with custom fee adjustments
           </p>
         </div>
-        <button
-          onClick={() => fetchData(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-zinc-900 disabled:opacity-50 text-sm"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2" title="Twelve Data WebSocket — tick-by-tick (~170 ms) live prices">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                liveStatus === 'open'
+                  ? 'bg-green-500 animate-pulse'
+                  : liveStatus === 'connecting'
+                    ? 'bg-amber-500 animate-pulse'
+                    : 'bg-gray-400'
+              }`}
+            />
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {liveStatus === 'open' ? 'Live' : liveStatus === 'connecting' ? 'Connecting…' : 'Offline'}
+            </span>
+          </div>
+          <button
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-zinc-900 disabled:opacity-50 text-sm"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Time Range Selector */}
@@ -194,9 +218,13 @@ export default function ComparePage() {
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {chartData.map((asset) => {
             const lastPoint = asset.returns[asset.returns.length - 1];
-            const lastReturn = lastPoint?.returnPercent ?? 0;
-            const lastPrice = lastPoint?.price;
-            const isPositive = lastReturn >= 0;
+            const basePrice = asset.returns[0]?.price;
+            const live = livePrices[asset.symbol];
+            // Prefer the live tick; fall back to the latest REST close.
+            const displayPrice = live?.price ?? lastPoint?.price;
+            const displayReturn =
+              live && basePrice ? (live.price / basePrice - 1) * 100 : lastPoint?.returnPercent ?? 0;
+            const isPositive = displayReturn >= 0;
             return (
               <div
                 key={asset.symbol}
@@ -207,10 +235,15 @@ export default function ComparePage() {
                   style={{ backgroundColor: asset.color }}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{asset.displayName}</p>
-                  {lastPrice !== undefined && (
+                  <p className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
+                    {asset.displayName}
+                    {live && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" title="Live tick" />
+                    )}
+                  </p>
+                  {displayPrice !== undefined && (
                     <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                      ${lastPrice >= 1000 ? lastPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : lastPrice.toFixed(2)}
+                      ${displayPrice >= 1000 ? displayPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : displayPrice.toFixed(2)}
                     </p>
                   )}
                   <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -218,7 +251,7 @@ export default function ComparePage() {
                   </p>
                 </div>
                 <div className={`text-lg font-semibold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                  {isPositive ? '+' : ''}{lastReturn.toFixed(2)}%
+                  {isPositive ? '+' : ''}{displayReturn.toFixed(2)}%
                 </div>
               </div>
             );
