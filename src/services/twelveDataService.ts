@@ -65,6 +65,7 @@ const SMA_DAYS = 150;
 // Map time ranges to output sizes and intervals
 // outputsize includes extra warm-up data so the SMA covers the entire visible chart
 const RANGE_CONFIG: Record<string, { outputsize: number; interval: string; smaWindow: number; visibleSize: number }> = {
+  '1D':  { outputsize: 78,                         interval: '5min',  smaWindow: 0,                           visibleSize: 78 },
   '1W':  { outputsize: 7 + SMA_DAYS,               interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 7 },
   '1M':  { outputsize: 22 + SMA_DAYS,              interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 22 },
   '3M':  { outputsize: 66 + SMA_DAYS,              interval: '1day',  smaWindow: SMA_DAYS,                    visibleSize: 66 },
@@ -126,6 +127,7 @@ export const PORTFOLIO_ASSETS = [
   { symbol: 'GOOGL', displayName: 'Alphabet', color: '#4285F4' },
   { symbol: 'META', displayName: 'Meta', color: '#0668E1' },
   { symbol: 'NVDA', displayName: 'Nvidia', color: '#76B900' },
+  { symbol: 'AVGO', displayName: 'Broadcom', color: '#EF4444' },
   { symbol: 'TSLA', displayName: 'Tesla', color: '#E31937' },
   { symbol: 'GLD', displayName: 'Gold (GLD)', color: '#FFD700' },
 ];
