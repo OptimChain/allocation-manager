@@ -173,6 +173,7 @@ export default function ComparePage() {
                 style={isEnabled ? { backgroundColor: asset.color } : undefined}
               >
                 {asset.displayName}
+                <span className="text-[11px] font-mono opacity-70">{asset.symbol}</span>
               </button>
             );
           })}
@@ -189,7 +190,10 @@ export default function ComparePage() {
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: asset.color }}
               />
-              <label className="text-sm text-gray-600 dark:text-gray-400 w-24">{asset.displayName}</label>
+              <label className="text-sm text-gray-600 dark:text-gray-400 w-24">
+                {asset.displayName}{' '}
+                <span className="text-xs font-mono text-gray-400 dark:text-gray-500">{asset.symbol}</span>
+              </label>
               <div className="relative flex-1">
                 <input
                   type="number"
@@ -237,6 +241,7 @@ export default function ComparePage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
                     {asset.displayName}
+                    <span className="text-xs font-mono text-gray-400 dark:text-gray-500">{asset.symbol}</span>
                     {live && (
                       <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" title="Live tick" />
                     )}

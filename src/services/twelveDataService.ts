@@ -128,6 +128,7 @@ export const PORTFOLIO_ASSETS = [
   { symbol: 'META', displayName: 'Meta', color: '#0668E1' },
   { symbol: 'NVDA', displayName: 'Nvidia', color: '#76B900' },
   { symbol: 'AVGO', displayName: 'Broadcom', color: '#EF4444' },
+  { symbol: 'NBIS', displayName: 'Nebius', color: '#14B8A6' },
   { symbol: 'TSLA', displayName: 'Tesla', color: '#E31937' },
   { symbol: 'GLD', displayName: 'Gold (GLD)', color: '#FFD700' },
 ];
