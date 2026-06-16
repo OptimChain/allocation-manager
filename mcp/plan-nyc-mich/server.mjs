@@ -1,204 +1,120 @@
 #!/usr/bin/env node
-// plan-nyc-mich MCP server
-//
-// Curated for planning weekend trips between NYC-area airports (JFK / LGA /
-// NYC city code) and Michigan (GRR, DTW). Tools are intentionally
-// route-specific rather than generic — they take no origin/destination
-// arguments. Add a new MCP per route family rather than parameterizing this
-// one.
-//
-// AUTH: this server holds no credentials. It proxies to the deployed Netlify
-// function `search-flights`, which holds the Amadeus API key/secret in its
-// site environment (AMADEUS_API_KEY / AMADEUS_API_SECRET — set per Netlify
-// site; see netlify/functions/search-flights.js). Override the upstream with
-// the ROUTE_MANAGER_ENDPOINT env var.
+// plan-nyc-mich MCP server — NYC-area → Michigan weekend flights
+// Proxies to the Netlify search-flights function (holds Amadeus creds).
+// Override upstream: ROUTE_MANAGER_ENDPOINT env var.
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const ENDPOINT =
   process.env.ROUTE_MANAGER_ENDPOINT ||
   'https://route-manager-prod.netlify.app/.netlify/functions/search-flights';
 
-const ORIGINS = ['JFK', 'LGA', 'NYC'];
-const DESTINATIONS = ['GRR', 'DTW'];
+const ROUTES = [
+  ['JFK', 'GRR'], ['JFK', 'DTW'],
+  ['LGA', 'GRR'], ['LGA', 'DTW'],
+  ['NYC', 'GRR'], ['NYC', 'DTW'],
+];
 
-const addDays = (date, n) => {
-  const d = new Date(date);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d;
-};
+const flightsUrl = (o, d, date = null) =>
+  `https://www.google.com/travel/flights?q=One-way%20flights%20from%20${o}%20to%20${d}${date ? `%20on%20${date}` : ''}`;
+
 const iso = (d) => d.toISOString().slice(0, 10);
 const dayLabel = (s) =>
-  ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][
-    new Date(s + 'T00:00:00Z').getUTCDay()
-  ];
-
-const googleFlightsUrl = (o, d, date) =>
-  `https://www.google.com/travel/flights?q=One-way%20flights%20from%20${o}%20to%20${d}%20on%20${date}`;
-
-const googleFlightsRouteUrl = (o, d) =>
-  `https://www.google.com/travel/flights?q=One-way%20flights%20from%20${o}%20to%20${d}`;
+  ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(s + 'T00:00:00Z').getUTCDay()];
 
 function weekendDates(weeks) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
-  const dow = today.getUTCDay();
-  const daysToSat = ((6 - dow + 7) % 7) || 7;
-  const firstSat = addDays(today, daysToSat);
+  const daysToSat = ((6 - today.getUTCDay() + 7) % 7) || 7;
+  const firstSat = new Date(today);
+  firstSat.setUTCDate(today.getUTCDate() + daysToSat);
   const dates = [];
   for (let w = 0; w < weeks; w++) {
-    const sat = addDays(firstSat, 7 * w);
-    dates.push(iso(sat), iso(addDays(sat, 1)));
+    const sat = new Date(firstSat);
+    sat.setUTCDate(firstSat.getUTCDate() + 7 * w);
+    const sun = new Date(sat);
+    sun.setUTCDate(sat.getUTCDate() + 1);
+    dates.push(iso(sat), iso(sun));
   }
   return dates;
 }
 
-async function fetchCheapest(origin, destination, departureDate) {
+async function fetchPrice(origin, destination, departureDate) {
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      origin,
-      destination,
-      departureDate,
-      adults: 1,
-      nonStop: false,
-      maxResults: 5,
-    }),
+    body: JSON.stringify({ origin, destination, departureDate, adults: 1, nonStop: false, maxResults: 5 }),
   });
-  if (!res.ok) throw new Error(`Netlify function returned HTTP ${res.status}`);
-  const json = await res.json();
-  const offers = json.data || [];
-  const prices = offers
-    .map((o) => parseFloat(o.price?.grandTotal ?? o.price?.total))
-    .filter(Number.isFinite);
-  return {
-    price: prices.length ? Math.min(...prices) : null,
-    offerCount: offers.length,
-  };
+  if (!res.ok) return null;
+  const { data = [] } = await res.json();
+  const prices = data.map((o) => parseFloat(o.price?.grandTotal ?? o.price?.total)).filter(Number.isFinite);
+  return prices.length ? Math.min(...prices) : null;
 }
 
-async function buildMatrix(weeks) {
+async function fetchAll(weeks) {
   const dates = weekendDates(weeks);
-  const rows = [];
-  for (const o of ORIGINS) {
-    for (const d of DESTINATIONS) {
-      const cells = {};
-      for (const date of dates) {
-        try {
-          cells[date] = await fetchCheapest(o, d, date);
-        } catch (e) {
-          cells[date] = { error: e.message };
-        }
-        await new Promise((r) => setTimeout(r, 200));
+  const tasks = ROUTES.flatMap(([o, d]) => dates.map((date) => ({ o, d, date })));
+  const results = await Promise.all(
+    tasks.map(async ({ o, d, date }) => {
+      try {
+        return { o, d, date, price: await fetchPrice(o, d, date) };
+      } catch {
+        return { o, d, date, price: null };
       }
-      rows.push({ origin: o, destination: d, cells });
-    }
-  }
-  return { dates, rows };
+    })
+  );
+  return { dates, results };
 }
 
-function matrixToMarkdown({ dates, rows }) {
+function render({ dates, results }) {
+  const best = results.reduce(
+    (b, r) => (r.price != null && (!b || r.price < b.price) ? r : b),
+    null
+  );
+
   const header = dates.map((d) => `${dayLabel(d)} ${d.slice(5)}`);
   const lines = [
-    '| Route | ' + header.join(' | ') + ' |',
-    '|---|' + dates.map(() => '---').join('|') + '|',
+    `| Route | ${header.join(' | ')} |`,
+    `|---|${dates.map(() => '---').join('|')}|`,
   ];
-  for (const row of rows) {
+  for (const [o, d] of ROUTES) {
     const cells = dates.map((date) => {
-      const c = row.cells[date];
-      const v = c.error ? 'ERR' : c.price == null ? '—' : `$${c.price.toFixed(2)}`;
-      return `[${v}](${googleFlightsUrl(row.origin, row.destination, date)})`;
+      const r = results.find((x) => x.o === o && x.d === d && x.date === date);
+      const v = r?.price == null ? '—' : `$${r.price.toFixed(2)}`;
+      return `[${v}](${flightsUrl(o, d, date)})`;
     });
-    const routeLabel = `[${row.origin}→${row.destination}](${googleFlightsRouteUrl(row.origin, row.destination)})`;
-    lines.push(`| ${routeLabel} | ${cells.join(' | ')} |`);
+    lines.push(`| [${o}→${d}](${flightsUrl(o, d)}) | ${cells.join(' | ')} |`);
   }
-  return lines.join('\n');
+
+  const bestLine = best
+    ? `**Best: ${best.o} → ${best.d} — ${dayLabel(best.date)} ${best.date} — $${best.price.toFixed(2)}** [→ Google Flights](${flightsUrl(best.o, best.d, best.date)})\n\n`
+    : '';
+
+  return bestLine + lines.join('\n');
 }
 
-const server = new Server(
-  { name: 'plan_nyc_mich', version: '0.2.0' },
-  { capabilities: { tools: {} } }
-);
+const server = new Server({ name: 'plan_nyc_mich', version: '0.3.0' }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: 'weekend_price_matrix',
-      description:
-        'Cheapest one-way price for each weekend day (Sat + Sun) over the next N weekends, across the curated NYC-area → Michigan routes (JFK/LGA/NYC × GRR/DTW). Returns a markdown table; each cell links to Google Flights.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          weeks: { type: 'number', default: 4, description: 'Number of upcoming weekends (default 4).' },
-        },
+  tools: [{
+    name: 'nyc_to_michigan_flights',
+    description:
+      'One-way weekend flights from NYC-area airports (JFK/LGA/NYC) to Michigan (GRR/DTW) for the next N weekends. Returns the best deal highlighted and a full price matrix — every cell and route label links to Google Flights.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        weeks: { type: 'number', default: 4, description: 'Number of upcoming weekends to check (default 4).' },
       },
     },
-    {
-      name: 'cheapest_weekend_trip',
-      description:
-        'Among the curated NYC-area → Michigan routes, return the single cheapest (route, weekend date) pair found in the next N weekends.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          weeks: { type: 'number', default: 4 },
-        },
-      },
-    },
-  ],
+  }],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
-  const { name, arguments: args = {} } = req.params;
-  const weeks = args.weeks ?? 4;
-
-  if (name === 'weekend_price_matrix') {
-    const matrix = await buildMatrix(weeks);
-    return {
-      content: [
-        { type: 'text', text: matrixToMarkdown(matrix) },
-        { type: 'text', text: JSON.stringify(matrix, null, 2) },
-      ],
-    };
-  }
-
-  if (name === 'cheapest_weekend_trip') {
-    const matrix = await buildMatrix(weeks);
-    let best = null;
-    for (const row of matrix.rows) {
-      for (const date of matrix.dates) {
-        const c = row.cells[date];
-        if (c.error || c.price == null) continue;
-        if (!best || c.price < best.price) {
-          best = {
-            origin: row.origin,
-            destination: row.destination,
-            date,
-            day: dayLabel(date),
-            price: c.price,
-            googleFlights: googleFlightsUrl(row.origin, row.destination, date),
-          };
-        }
-      }
-    }
-    return {
-      content: [
-        {
-          type: 'text',
-          text: best
-            ? `**${best.origin} → ${best.destination}** — ${best.day} ${best.date} — **$${best.price.toFixed(2)}**\n[Search on Google Flights](${best.googleFlights})`
-            : 'No bookable weekend offers found in the next ' + weeks + ' weekends.',
-        },
-      ],
-    };
-  }
-
-  throw new Error(`Unknown tool: ${name}`);
+  if (req.params.name !== 'nyc_to_michigan_flights') throw new Error(`Unknown tool: ${req.params.name}`);
+  const weeks = req.params.arguments?.weeks ?? 4;
+  return { content: [{ type: 'text', text: render(await fetchAll(weeks)) }] };
 });
 
 const transport = new StdioServerTransport();
