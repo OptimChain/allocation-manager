@@ -17,6 +17,8 @@ const ROUTES = [
   ['NYC', 'GRR'], ['NYC', 'DTW'],
 ];
 
+const log = (msg) => process.stderr.write(msg + '\n');
+
 const flightsUrl = (o, d, date = null) =>
   `https://www.google.com/travel/flights?q=One-way%20flights%20from%20${o}%20to%20${d}${date ? `%20on%20${date}` : ''}`;
 
@@ -41,30 +43,56 @@ function weekendDates(weeks) {
   return dates;
 }
 
-async function fetchPrice(origin, destination, departureDate) {
+async function fetchOffer(origin, destination, departureDate) {
+  // Log the root search link immediately before the fetch
+  log(`🔍 ${flightsUrl(origin, destination, departureDate)}`);
+
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ origin, destination, departureDate, adults: 1, nonStop: false, maxResults: 5 }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const { data = [] } = await res.json();
-  const prices = data.map((o) => parseFloat(o.price?.grandTotal ?? o.price?.total)).filter(Number.isFinite);
-  return prices.length ? Math.min(...prices) : null;
+
+  let best = null;
+  for (const offer of data) {
+    const price = parseFloat(offer.price?.grandTotal ?? offer.price?.total);
+    if (!Number.isFinite(price)) continue;
+    if (!best || price < best.price) {
+      const seg = offer.itineraries?.[0]?.segments?.[0] ?? {};
+      best = {
+        price,
+        carrier: seg.carrierCode ?? null,
+        flightNumber: seg.number ?? null,
+        departure: seg.departure?.at ?? null,
+        arrival: seg.arrival?.at ?? null,
+      };
+    }
+  }
+  return best;
 }
 
 async function fetchAll(weeks) {
   const dates = weekendDates(weeks);
   const tasks = ROUTES.flatMap(([o, d]) => dates.map((date) => ({ o, d, date })));
+
+  log(`\nSearching ${tasks.length} route×date combinations in parallel...\n`);
+
   const results = await Promise.all(
     tasks.map(async ({ o, d, date }) => {
       try {
-        return { o, d, date, price: await fetchPrice(o, d, date) };
-      } catch {
+        const offer = await fetchOffer(o, d, date);
+        const priceStr = offer ? `$${offer.price.toFixed(2)}` : '—';
+        log(`  ✓ ${o}→${d} ${dayLabel(date)} ${date.slice(5)}: ${priceStr}${offer?.carrier ? ` (${offer.carrier}${offer.flightNumber})` : ''}`);
+        return { o, d, date, ...(offer ?? { price: null }) };
+      } catch (e) {
+        log(`  ✗ ${o}→${d} ${date}: ${e.message}`);
         return { o, d, date, price: null };
       }
     })
   );
+
   return { dates, results };
 }
 
@@ -74,6 +102,7 @@ function render({ dates, results }) {
     null
   );
 
+  // Matrix table
   const header = dates.map((d) => `${dayLabel(d)} ${d.slice(5)}`);
   const lines = [
     `| Route | ${header.join(' | ')} |`,
@@ -88,20 +117,39 @@ function render({ dates, results }) {
     lines.push(`| [${o}→${d}](${flightsUrl(o, d)}) | ${cells.join(' | ')} |`);
   }
 
-  const bestLine = best
-    ? `**Best: ${best.o} → ${best.d} — ${dayLabel(best.date)} ${best.date} — $${best.price.toFixed(2)}** [→ Google Flights](${flightsUrl(best.o, best.d, best.date)})\n\n`
-    : '';
+  // Serialized best-deal link with all known params
+  let serialized = '';
+  if (best) {
+    const params = new URLSearchParams({
+      q: `One-way flights from ${best.o} to ${best.d} on ${best.date}`,
+    });
+    if (best.carrier) params.set('carrier', best.carrier);
+    if (best.flightNumber) params.set('flight', `${best.carrier}${best.flightNumber}`);
+    serialized = `\nhttps://www.google.com/travel/flights?${params.toString()}`;
+  }
 
-  return bestLine + lines.join('\n');
+  const rootLink = `https://www.google.com/travel/flights?q=One-way%20flights%20from%20NYC%20to%20Michigan`;
+  const bestLine = best
+    ? `**Best: ${best.o} → ${best.d} — ${dayLabel(best.date)} ${best.date} — $${best.price.toFixed(2)}**${best.carrier ? ` (${best.carrier}${best.flightNumber ?? ''})` : ''}`
+    : 'No bookable offers found.';
+
+  return [
+    rootLink,
+    '',
+    lines.join('\n'),
+    '',
+    bestLine,
+    serialized,
+  ].join('\n');
 }
 
-const server = new Server({ name: 'plan_nyc_mich', version: '0.3.0' }, { capabilities: { tools: {} } });
+const server = new Server({ name: 'plan_nyc_mich', version: '0.4.0' }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [{
     name: 'nyc_to_michigan_flights',
     description:
-      'One-way weekend flights from NYC-area airports (JFK/LGA/NYC) to Michigan (GRR/DTW) for the next N weekends. Returns the best deal highlighted and a full price matrix — every cell and route label links to Google Flights.',
+      'One-way weekend flights from NYC-area airports (JFK/LGA/NYC) to Michigan (GRR/DTW) for the next N weekends. Immediately logs each search URL and price as fetches complete. Returns root search link, full price matrix with Google Flights links, and a serialized best-deal link.',
     inputSchema: {
       type: 'object',
       properties: {
