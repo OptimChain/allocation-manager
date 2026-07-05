@@ -132,8 +132,15 @@ Query params: `limit` (≤500, default 50), `type`, `status`, `symbol`, `since=<
 
 Accepts `{ "events": [...] }`, a bare array, or a single event. snake_case or
 camelCase (`event_type`/`type`, `dry_run`/`dryRun`, `created_at`/`timestamp`).
-`total` is derived from `quantity × price` when omitted. Supplying `event_id`
-makes writes idempotent — duplicates are skipped.
+`total` is derived from `quantity × price` when omitted.
+
+**De-dup:** the writer can simply pass the Robinhood `order_id` through —
+when `event_id` is absent it is derived as `{order_id}:{status}`, so each
+order lifecycle transition (submitted / filled / cancelled…) logs exactly
+once across retries. An explicit `event_id` always wins over derivation
+(use it for finer granularity, e.g. per-execution `rh:exec:{execution.id}`).
+Events with neither field always insert (no de-dup). `order_id` is stored
+on the event and filterable via `GET ?order_id=`.
 
 Returns `data: { "inserted": 2, "skipped": 0, "ids": [1, 2] }`.
 

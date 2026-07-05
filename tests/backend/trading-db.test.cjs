@@ -198,6 +198,43 @@ describe('db-bot-activity', () => {
     expect(parse(await dbBotActivity.handler(makeEvent())).data.events).toHaveLength(1);
   });
 
+  test('derives event_id from order_id + status when event_id is absent', async () => {
+    const fill = { order_id: 'rh-abc-123', type: 'BUY_ORDER', status: 'filled', symbol: 'TSLA', quantity: 10, price: 245 };
+    const first = parse(await dbBotActivity.handler(makeEvent({ method: 'POST', body: fill })));
+    expect(first.data).toEqual(expect.objectContaining({ inserted: 1, skipped: 0 }));
+
+    // Retry of the same lifecycle transition dedupes via derived key
+    const retry = parse(await dbBotActivity.handler(makeEvent({ method: 'POST', body: fill })));
+    expect(retry.data).toEqual(expect.objectContaining({ inserted: 0, skipped: 1 }));
+
+    // A different transition for the same order is a distinct event
+    const cancelled = parse(await dbBotActivity.handler(makeEvent({
+      method: 'POST', body: { ...fill, status: 'cancelled' },
+    })));
+    expect(cancelled.data).toEqual(expect.objectContaining({ inserted: 1 }));
+
+    const get = parse(await dbBotActivity.handler(makeEvent()));
+    const ids = get.data.events.map(e => e.event_id).sort();
+    expect(ids).toEqual(['rh-abc-123:cancelled', 'rh-abc-123:filled']);
+    expect(get.data.events.every(e => e.order_id === 'rh-abc-123')).toBe(true);
+
+    // GET filter by order_id
+    const byOrder = parse(await dbBotActivity.handler(makeEvent({ params: { order_id: 'rh-abc-123' } })));
+    expect(byOrder.data.events).toHaveLength(2);
+    const miss = parse(await dbBotActivity.handler(makeEvent({ params: { order_id: 'other' } })));
+    expect(miss.data.events).toHaveLength(0);
+  });
+
+  test('explicit event_id wins over order_id derivation', async () => {
+    await dbBotActivity.handler(makeEvent({
+      method: 'POST',
+      body: { event_id: 'custom-1', order_id: 'rh-abc-123', type: 'BUY_ORDER', status: 'filled' },
+    }));
+    const get = parse(await dbBotActivity.handler(makeEvent()));
+    expect(get.data.events[0].event_id).toBe('custom-1');
+    expect(get.data.events[0].order_id).toBe('rh-abc-123');
+  });
+
   test('filters by type and symbol', async () => {
     await dbBotActivity.handler(makeEvent({ method: 'POST', body: { events: [
       { type: 'BUY_ORDER', status: 'submitted', symbol: 'TSLA' },

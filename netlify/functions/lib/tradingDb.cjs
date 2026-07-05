@@ -135,6 +135,7 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS bot_activity (
      id         BIGSERIAL PRIMARY KEY,
      event_id   TEXT UNIQUE,
+     order_id   TEXT,
      event_type TEXT NOT NULL,
      status     TEXT NOT NULL,
      symbol     TEXT,
@@ -147,7 +148,10 @@ const SCHEMA_STATEMENTS = [
      metadata   JSONB,
      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
    )`,
+  // Upgrade path for tables created before order_id existed
+  `ALTER TABLE bot_activity ADD COLUMN IF NOT EXISTS order_id TEXT`,
   `CREATE INDEX IF NOT EXISTS bot_activity_created_at_idx ON bot_activity (created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS bot_activity_order_id_idx ON bot_activity (order_id)`,
 ];
 
 async function ensureSchema(db) {
@@ -249,10 +253,17 @@ function normalizeOptionOrder(o) {
 function normalizeBotEvent(e) {
   const quantity = toNum(e.quantity);
   const price    = toNum(e.price);
+  const orderId  = e.order_id != null ? String(e.order_id) : (e.orderId != null ? String(e.orderId) : null);
+  const status   = e.status || 'unknown';
+  // De-dup key precedence: explicit event_id/id wins; otherwise derive one
+  // from the RH order id + status so writers can pass order_id straight
+  // through and lifecycle events (submitted/filled/…) dedupe on retries.
+  const explicitId = e.event_id != null ? String(e.event_id) : (e.id != null ? String(e.id) : null);
   return {
-    event_id:   e.event_id != null ? String(e.event_id) : (e.id != null ? String(e.id) : null),
+    event_id:   explicitId ?? (orderId ? `${orderId}:${status}` : null),
+    order_id:   orderId,
     event_type: e.event_type || e.type || 'UNKNOWN',
-    status:     e.status || 'unknown',
+    status,
     symbol:     e.symbol || null,
     quantity,
     price,
@@ -311,11 +322,11 @@ async function upsertOptionOrder(db, order, rawSource) {
 async function insertBotEvent(db, ev) {
   const rows = await db.query(
     `INSERT INTO bot_activity
-       (event_id, event_type, status, symbol, quantity, price, total, message, details, dry_run, metadata, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
+       (event_id, order_id, event_type, status, symbol, quantity, price, total, message, details, dry_run, metadata, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)
      ON CONFLICT (event_id) DO NOTHING
      RETURNING id`,
-    [ev.event_id, ev.event_type, ev.status, ev.symbol, ev.quantity, ev.price, ev.total,
+    [ev.event_id, ev.order_id, ev.event_type, ev.status, ev.symbol, ev.quantity, ev.price, ev.total,
      ev.message, ev.details, ev.dry_run, JSON.stringify(ev.metadata), ev.created_at]
   );
   if (!rows.length) return null;
@@ -387,6 +398,7 @@ function rowToBotEvent(r) {
   return {
     id:         typeof r.id === 'string' ? parseInt(r.id, 10) : r.id,
     event_id:   r.event_id,
+    order_id:   r.order_id ?? null,
     event_type: r.event_type,
     status:     r.status,
     symbol:     r.symbol,
@@ -461,7 +473,7 @@ function createMemoryClient() {
     async query(text, params = []) {
       const sql = text.trim();
 
-      if (/^CREATE (TABLE|INDEX)/i.test(sql)) return [];
+      if (/^CREATE (TABLE|INDEX)|^ALTER TABLE/i.test(sql)) return [];
 
       if (/^INSERT INTO stock_orders/i.test(sql)) {
         const [order_id, symbol, side, order_type, trigger_type, state, quantity, limit_price,
@@ -484,10 +496,10 @@ function createMemoryClient() {
       }
 
       if (/^INSERT INTO bot_activity/i.test(sql)) {
-        const [event_id, event_type, status, symbol, quantity, price, total,
+        const [event_id, order_id, event_type, status, symbol, quantity, price, total,
                message, details, dry_run, metadata, created_at] = params;
         if (event_id != null && botEvents.some(e => e.event_id === event_id)) return [];
-        const row = { id: ++seq, event_id, event_type, status, symbol, quantity, price, total,
+        const row = { id: ++seq, event_id, order_id, event_type, status, symbol, quantity, price, total,
                       message, details, dry_run, metadata, created_at };
         botEvents.push(row);
         return [{ id: row.id }];

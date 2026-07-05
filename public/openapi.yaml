@@ -190,6 +190,10 @@ paths:
         - name: symbol
           in: query
           schema: { type: string, example: TSLA }
+        - name: order_id
+          in: query
+          description: Only events linked to this Robinhood order id
+          schema: { type: string }
         - name: since
           in: query
           description: Only events at/after this ISO timestamp
@@ -219,8 +223,15 @@ paths:
         Accepts `{ events: [...] }`, a bare array, or a single event.
         snake_case or camelCase (`event_type`/`type`, `dry_run`/`dryRun`,
         `created_at`/`timestamp`). `total` is derived from
-        `quantity × price` when omitted. Supplying `event_id` makes the
-        write idempotent — duplicates are skipped, not re-inserted.
+        `quantity × price` when omitted.
+
+        **De-dup:** supplying `event_id` makes the write idempotent —
+        duplicates are skipped, not re-inserted. Writers can also just
+        pass the Robinhood `order_id` through: when `event_id` is absent
+        it is derived as `{order_id}:{status}`, so each order lifecycle
+        transition (submitted / filled / cancelled…) logs exactly once
+        across retries. An explicit `event_id` always wins over
+        derivation. Events with neither field always insert (no de-dup).
       security:
         - bearerAuth: []
         - apiKeyAuth: []
@@ -539,6 +550,7 @@ components:
       properties:
         id: { type: integer }
         event_id: { type: string, nullable: true }
+        order_id: { type: string, nullable: true, description: Robinhood order id this event relates to }
         event_type: { type: string, example: BUY_ORDER }
         status: { type: string, example: submitted }
         symbol: { type: string, nullable: true }
@@ -555,12 +567,15 @@ components:
       type: object
       description: |
         Event in either dialect. Aliases accepted: `type` → event_type,
-        `dryRun` → dry_run, `timestamp` → created_at, `id` → event_id.
-        `total` is derived from quantity × price when omitted; `event_id`
-        makes the write idempotent.
+        `dryRun` → dry_run, `timestamp` → created_at, `id` → event_id,
+        `orderId` → order_id. `total` is derived from quantity × price
+        when omitted. De-dup key: explicit `event_id`, else derived
+        `{order_id}:{status}` when order_id is present.
       properties:
         event_id: { type: string }
         id: { type: string, description: Alias for event_id }
+        order_id: { type: string, description: Robinhood order id — pass it through and the de-dup key is derived automatically }
+        orderId: { type: string, description: Alias for order_id }
         event_type: { type: string }
         type: { type: string, description: Alias for event_type }
         status: { type: string }

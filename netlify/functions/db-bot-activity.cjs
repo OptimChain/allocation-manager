@@ -2,13 +2,16 @@
 // Netlify DB (Neon Postgres) backed bot activity log — replaces the in-memory
 // action log in robinhood-bot.cjs that reset on every cold start.
 //
-//   GET  /.netlify/functions/db-bot-activity?limit=50&type=BUY_ORDER&status=submitted&symbol=TSLA&since=<ISO>
+//   GET  /.netlify/functions/db-bot-activity?limit=50&type=BUY_ORDER&status=submitted&symbol=TSLA&order_id=<id>&since=<ISO>
 //   POST /.netlify/functions/db-bot-activity     — append events (Robinhood MCP write path)
 //
 // POST accepts { events: [...] }, a bare array, or a single event object.
 // Events may use snake_case or camelCase (dry_run/dryRun, event_type/type,
-// created_at/timestamp). Supplying event_id makes the write idempotent —
-// duplicates are skipped, not re-inserted.
+// created_at/timestamp). De-dup: supplying event_id makes the write
+// idempotent — duplicates are skipped, not re-inserted. Writers can also
+// just pass the Robinhood order_id through: when event_id is absent, it is
+// derived as `{order_id}:{status}`, so each order lifecycle transition
+// (submitted/filled/cancelled…) logs exactly once across retries.
 //
 // All responses use the shared envelope: { ok, resource, action, source, as_of, count, data, error }
 
@@ -21,19 +24,21 @@ const FETCH_CEILING = 500;
 
 async function handleGet(db, event) {
   const params = event.queryStringParameters || {};
-  const limit  = Math.min(Math.max(parseInt(params.limit || '50', 10) || 50, 1), FETCH_CEILING);
-  const type   = params.type   || null;
-  const status = params.status || null;
-  const symbol = (params.symbol || '').toUpperCase() || null;
-  const since  = t.toIso(params.since);
+  const limit   = Math.min(Math.max(parseInt(params.limit || '50', 10) || 50, 1), FETCH_CEILING);
+  const type    = params.type   || null;
+  const status  = params.status || null;
+  const symbol  = (params.symbol || '').toUpperCase() || null;
+  const orderId = params.order_id || null;
+  const since   = t.toIso(params.since);
 
   // Fetch a full page, filter in JS, then trim to the requested limit
   const rows = await t.fetchBotEvents(db, FETCH_CEILING);
   const events = rows.map(t.rowToBotEvent).filter(e =>
-    (!type   || e.event_type === type) &&
-    (!status || e.status === status) &&
-    (!symbol || e.symbol === symbol) &&
-    (!since  || (e.created_at && e.created_at >= since))
+    (!type    || e.event_type === type) &&
+    (!status  || e.status === status) &&
+    (!symbol  || e.symbol === symbol) &&
+    (!orderId || e.order_id === orderId) &&
+    (!since   || (e.created_at && e.created_at >= since))
   ).slice(0, limit);
 
   return t.respond(200, t.envelope({
