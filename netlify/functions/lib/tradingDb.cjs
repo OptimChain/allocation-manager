@@ -29,12 +29,36 @@ let neonClient   = null;
 let schemaReady  = null;
 let activeSource = 'netlify-db';
 
+/** Neon endpoints use the serverless HTTP driver; anything else (e.g. a
+ *  Render Postgres) is plain Postgres over TCP via node-postgres. */
+function isNeonUrl(url) {
+  try { return new URL(url).hostname.endsWith('.neon.tech'); } catch { return false; }
+}
+
+function createUrlClient(url) {
+  if (isNeonUrl(url)) {
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(url);
+    return { query: (text, params = []) => sql.query(text, params) };
+  }
+  const { Pool } = require('pg');
+  const host = (() => { try { return new URL(url).hostname; } catch { return ''; } })();
+  const isLocal = host === 'localhost' || host === '127.0.0.1';
+  const pool = new Pool({
+    connectionString: url,
+    max: 2,
+    idleTimeoutMillis: 10_000,
+    ssl: isLocal ? undefined : { rejectUnauthorized: false },
+  });
+  return { query: async (text, params = []) => (await pool.query(text, params)).rows };
+}
+
 /**
  * Returns a `{ query(text, params) → Promise<rows> }` client, or null if no
  * DB is configured. A real database URL always wins over TRADING_DB_MEMORY,
  * so a site deployed in memory mode self-heals once a database is attached.
- * NETLIFY_DATABASE_URL comes from the Neon extension flow; NETLIFY_DB_URL is
- * set by the newer built-in Netlify Database platform.
+ * NETLIFY_DATABASE_URL comes from the Neon extension flow / manual setup;
+ * NETLIFY_DB_URL is set by the newer built-in Netlify Database platform.
  */
 function getDb() {
   if (testClient) { activeSource = 'netlify-db'; return testClient; }
@@ -43,11 +67,7 @@ function getDb() {
     || process.env.NETLIFY_DB_URL
     || process.env.DATABASE_URL;
   if (url) {
-    if (!neonClient) {
-      const { neon } = require('@neondatabase/serverless');
-      const sql = neon(url);
-      neonClient = { query: (text, params = []) => sql.query(text, params) };
-    }
+    if (!neonClient) neonClient = createUrlClient(url);
     activeSource = 'netlify-db';
     return neonClient;
   }
@@ -298,7 +318,9 @@ async function insertBotEvent(db, ev) {
     [ev.event_id, ev.event_type, ev.status, ev.symbol, ev.quantity, ev.price, ev.total,
      ev.message, ev.details, ev.dry_run, JSON.stringify(ev.metadata), ev.created_at]
   );
-  return rows.length ? rows[0].id : null;
+  if (!rows.length) return null;
+  // node-postgres returns BIGSERIAL as a string; Neon HTTP returns a number
+  return typeof rows[0].id === 'string' ? parseInt(rows[0].id, 10) : rows[0].id;
 }
 
 // ── Reads ─────────────────────────────────────────────────────────────────────

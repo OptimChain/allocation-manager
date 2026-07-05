@@ -23,14 +23,20 @@ Point codegen or the MCP client at `/openapi.yaml`.
 
 ## Provisioning
 
-```bash
-netlify db init          # provisions Neon Postgres, sets NETLIFY_DATABASE_URL
-```
+**Current backing (since 2026-07-05): Render Postgres** — instance
+`allocation-manager-db` (`dpg-d950tobtqb8s73e9all0-a`, basic_256mb, oregon,
+Postgres 16) in the "My Workspace" Render team. Its external connection
+string is set as `NETLIFY_DATABASE_URL` on the Netlify site. Dashboard:
+https://dashboard.render.com/d/dpg-d950tobtqb8s73e9all0-a
 
-Or claim the database from the Netlify dashboard (Site → Extensions → Neon).
-The functions read `NETLIFY_DATABASE_URL` (fallbacks:
-`NETLIFY_DATABASE_URL_UNPOOLED`, `DATABASE_URL`). Schema is created
-automatically on first request — no migration step.
+The driver is picked from the URL: `*.neon.tech` hosts use the Neon
+serverless HTTP driver; anything else (Render, RDS, local) uses
+node-postgres (`pg`) over TCP with SSL.
+
+Env var resolution order: `NETLIFY_DATABASE_URL` →
+`NETLIFY_DATABASE_URL_UNPOOLED` → `NETLIFY_DB_URL` (built-in Netlify
+Database) → `DATABASE_URL`. A real URL always beats `TRADING_DB_MEMORY`.
+Schema is created automatically on first request — no migration step.
 
 Optional: set `TRADING_DB_TOKEN` in site env vars to require
 `Authorization: Bearer <token>` (or `X-Api-Key`) on POST/DELETE.
