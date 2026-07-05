@@ -415,6 +415,10 @@ export interface EnrichedPortfolio {
 
 export interface EnrichedSnapshot {
   timestamp: string;
+  /** Where the order book came from: 'db' (trading DB overlay) or 'blob' */
+  orders_source?: 'db' | 'blob';
+  /** Freshness of the order data (DB overlays are as-of request time) */
+  orders_as_of?: string;
   market_data: MarketData | null;
   order_book: SnapshotOrder[];
   recent_orders: SnapshotOrder[];
