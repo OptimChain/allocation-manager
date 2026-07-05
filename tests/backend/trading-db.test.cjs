@@ -323,6 +323,50 @@ describe('db-pnl', () => {
       .toEqual([2, 4, 6, 8, 10, 12]);
   });
 
+  test('option P&L includes debit (cost) and credit (income) with correct signs', async () => {
+    await dbOrders.handler(makeEvent({
+      method: 'POST',
+      body: { option_orders: [
+        { order_id: 'od-1', chain_symbol: 'CRWD', direction: 'debit',  state: 'filled', quantity: 1, processed_premium: 300, created_at: NOW },
+        { order_id: 'oc-1', chain_symbol: 'CRWD', direction: 'credit', state: 'filled', quantity: 1, processed_premium: 550, created_at: NOW },
+        { order_id: 'oc-2', chain_symbol: 'NVDA', direction: 'credit', state: 'filled', quantity: 2, price: 1.5, created_at: NOW }, // premium derived: 1.5×2×100
+      ] },
+    }));
+
+    const week = parse(await dbPnl.handler(makeEvent({ params: { period: '1W' } }))).data.periods['1W'];
+    expect(week.option.total_realized_pnl).toBe(550 - 300 + 300); // CRWD net +250, NVDA +300
+    const bySymbol = Object.fromEntries(week.option.symbols.map(s => [s.symbol, s.realized_pnl]));
+    expect(bySymbol).toEqual({ CRWD: 250, NVDA: 300 });
+    expect(week.combined_realized_pnl).toBe(550); // stock 0 + options 550
+  });
+
+  test('?symbol= filters P&L to one underlying across stock AND option orders', async () => {
+    await dbOrders.handler(makeEvent({
+      method: 'POST',
+      body: {
+        orders: [
+          { order_id: 's-crwd-b', symbol: 'CRWD', side: 'BUY',  state: 'filled', quantity: 2, average_price: 100, created_at: NOW },
+          { order_id: 's-crwd-s', symbol: 'CRWD', side: 'SELL', state: 'filled', quantity: 2, average_price: 130, created_at: NOW },
+          { order_id: 's-tsla-b', symbol: 'TSLA', side: 'BUY',  state: 'filled', quantity: 1, average_price: 200, created_at: NOW },
+          { order_id: 's-tsla-s', symbol: 'TSLA', side: 'SELL', state: 'filled', quantity: 1, average_price: 900, created_at: NOW },
+        ],
+        option_orders: [
+          { order_id: 'o-crwd', chain_symbol: 'CRWD', direction: 'credit', state: 'filled', quantity: 1, processed_premium: 400, created_at: NOW },
+          { order_id: 'o-tsla', chain_symbol: 'TSLA', direction: 'credit', state: 'filled', quantity: 1, processed_premium: 999, created_at: NOW },
+        ],
+      },
+    }));
+
+    const body = parse(await dbPnl.handler(makeEvent({ params: { period: '1W', symbol: 'CRWD' } })));
+    expect(body.data.symbol).toBe('CRWD');
+    const week = body.data.periods['1W'];
+    expect(week.stock.total_realized_pnl).toBe(60);   // (130−100)×2 — TSLA excluded
+    expect(week.option.total_realized_pnl).toBe(400); // CRWD credit only
+    expect(week.combined_realized_pnl).toBe(460);
+    expect(week.stock.symbols.map(s => s.symbol)).toEqual(['CRWD']);
+    expect(week.option.symbols.map(s => s.symbol)).toEqual(['CRWD']);
+  });
+
   test('single period query and bad period validation', async () => {
     const single = parse(await dbPnl.handler(makeEvent({ params: { period: '1M' } })));
     expect(Object.keys(single.data.periods)).toEqual(['1M']);
@@ -330,6 +374,62 @@ describe('db-pnl', () => {
     const bad = await dbPnl.handler(makeEvent({ params: { period: 'XX' } }));
     expect(bad.statusCode).toBe(400);
     expect(parse(bad).error.code).toBe('BAD_PERIOD');
+  });
+});
+
+// ── Additional hardening ─────────────────────────────────────────────────────
+
+describe('hardening', () => {
+  test('db-orders GET ?symbol= filters both stock and option orders', async () => {
+    await dbOrders.handler(makeEvent({ method: 'POST', body: {
+      orders: [
+        { order_id: 'f-1', symbol: 'TSLA', side: 'BUY', state: 'queued', quantity: 1, limit_price: 100, created_at: NOW },
+        { order_id: 'f-2', symbol: 'NVDA', side: 'BUY', state: 'queued', quantity: 1, limit_price: 100, created_at: NOW },
+      ],
+      option_orders: [
+        { order_id: 'f-3', chain_symbol: 'TSLA', direction: 'debit', state: 'confirmed', quantity: 1, price: 2, created_at: NOW },
+      ],
+    } }));
+    const get = parse(await dbOrders.handler(makeEvent({ params: { symbol: 'tsla' } }))); // case-insensitive
+    expect(get.data.open_orders.map(o => o.order_id)).toEqual(['f-1']);
+    expect(get.data.open_option_orders.map(o => o.order_id)).toEqual(['f-3']);
+    expect(get.count).toBe(2);
+  });
+
+  test('db-orders POST rejects malformed JSON with BAD_JSON', async () => {
+    const res = await dbOrders.handler({ httpMethod: 'POST', headers: {}, queryStringParameters: null, body: '{not json' });
+    expect(res.statusCode).toBe(400);
+    expect(parse(res).error.code).toBe('BAD_JSON');
+  });
+
+  test('db-bot-activity paginates with offset', async () => {
+    const events = Array.from({ length: 4 }, (_, i) => ({
+      event_id: `pg-evt-${i}`, type: 'BUY_ORDER', status: 'submitted', symbol: 'TSLA',
+      created_at: new Date(Date.parse(NOW) - i * 60_000).toISOString(),
+    }));
+    await dbBotActivity.handler(makeEvent({ method: 'POST', body: { events } }));
+
+    const page1 = parse(await dbBotActivity.handler(makeEvent({ params: { limit: '2', offset: '0' } })));
+    const page2 = parse(await dbBotActivity.handler(makeEvent({ params: { limit: '2', offset: '2' } })));
+    expect(page1.data.events.map(e => e.event_id)).toEqual(['pg-evt-0', 'pg-evt-1']);
+    expect(page2.data.events.map(e => e.event_id)).toEqual(['pg-evt-2', 'pg-evt-3']);
+    expect(page1.data.page).toEqual({ limit: 2, offset: 0, has_more: true });
+    expect(page2.data.page.has_more).toBe(true); // full page returned
+  });
+
+  test('X-Api-Key is accepted as the write credential', async () => {
+    process.env.TRADING_DB_TOKEN = 'secret-token';
+    const res = await dbOrders.handler(makeEvent({
+      method: 'POST',
+      body: { orders: [{ order_id: 'key-1', symbol: 'TSLA', state: 'queued', created_at: NOW }] },
+      headers: { 'x-api-key': 'secret-token' },
+    }));
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('db-pnl reports truncated=false under the computation cap', async () => {
+    const body = parse(await dbPnl.handler(makeEvent({ params: { period: '1W' } })));
+    expect(body.data.truncated).toBe(false);
   });
 });
 

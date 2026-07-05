@@ -152,6 +152,12 @@ const SCHEMA_STATEMENTS = [
   `ALTER TABLE bot_activity ADD COLUMN IF NOT EXISTS order_id TEXT`,
   `CREATE INDEX IF NOT EXISTS bot_activity_created_at_idx ON bot_activity (created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS bot_activity_order_id_idx ON bot_activity (order_id)`,
+  `CREATE TABLE IF NOT EXISTS market_cache (
+     cache_key  TEXT PRIMARY KEY,
+     endpoint   TEXT NOT NULL,
+     payload    JSONB NOT NULL,
+     fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
 ];
 
 async function ensureSchema(db) {
@@ -414,6 +420,31 @@ function rowToBotEvent(r) {
   };
 }
 
+// ── Market data cache (shared across all lambda instances and browsers) ──────
+
+async function getMarketCache(db, cacheKey) {
+  const rows = await db.query(
+    `SELECT payload, fetched_at FROM market_cache WHERE cache_key = $1`,
+    [cacheKey]
+  );
+  if (!rows.length) return null;
+  const fetchedAt = new Date(rows[0].fetched_at).getTime();
+  return {
+    payload: safeParse(rows[0].payload, null),
+    age_ms: Date.now() - fetchedAt,
+  };
+}
+
+async function setMarketCache(db, cacheKey, endpoint, payload) {
+  await db.query(
+    `INSERT INTO market_cache (cache_key, endpoint, payload, fetched_at)
+     VALUES ($1, $2, $3::jsonb, now())
+     ON CONFLICT (cache_key) DO UPDATE SET
+       endpoint = EXCLUDED.endpoint, payload = EXCLUDED.payload, fetched_at = now()`,
+    [cacheKey, endpoint, JSON.stringify(payload)]
+  );
+}
+
 // ── Response envelope ─────────────────────────────────────────────────────────
 // Every db-* endpoint returns this object. External callers (Robinhood MCP)
 // should branch on `ok`, read payload from `data`, and diagnostics from `error`.
@@ -466,6 +497,7 @@ function createMemoryClient() {
   const stockOrders  = new Map();
   const optionOrders = new Map();
   const botEvents    = [];
+  const marketCache  = new Map();
   let seq = 0;
 
   const byCreatedDesc = (a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
@@ -528,6 +560,16 @@ function createMemoryClient() {
         return existed ? [{ order_id: params[0] }] : [];
       }
 
+      if (/^SELECT payload, fetched_at FROM market_cache/i.test(sql)) {
+        const row = marketCache.get(params[0]);
+        return row ? [row] : [];
+      }
+      if (/^INSERT INTO market_cache/i.test(sql)) {
+        const [cache_key, endpoint, payload] = params;
+        marketCache.set(cache_key, { cache_key, endpoint, payload, fetched_at: new Date(Date.now()).toISOString() });
+        return [];
+      }
+
       throw new Error(`Memory client: unhandled SQL: ${sql.slice(0, 80)}`);
     },
   };
@@ -551,6 +593,8 @@ module.exports = {
   fetchStockOrders,
   fetchOptionOrders,
   fetchBotEvents,
+  getMarketCache,
+  setMarketCache,
   rowToStockOrder,
   rowToOptionOrder,
   rowToBotEvent,

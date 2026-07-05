@@ -1,7 +1,7 @@
 // Weekend Momentum Strategy Service
 // Fetches BTC/USD daily history and computes weekend metrics
 
-const TWELVE_DATA_API = 'https://api.twelvedata.com';
+import { tdProxyUrl } from './tdProxy';
 
 interface DailyBar {
   datetime: string;
@@ -50,26 +50,16 @@ export interface WeekendMetrics {
   mondayRecoveryPositivePct: number;
 }
 
-const getApiKey = (): string => {
-  const key = import.meta.env.VITE_TWELVE_DATA_API_KEY;
-  if (!key) {
-    throw new Error('VITE_TWELVE_DATA_API_KEY environment variable is not set');
-  }
-  return key;
-};
-
 function getDayOfWeek(dateStr: string): number {
   const d = new Date(dateStr + 'T00:00:00');
   return d.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
 }
 
 async function fetchHourlyBars(symbol: string, outputsize: number): Promise<HourlyBar[]> {
-  const apiKey = getApiKey();
-  const url = new URL(`${TWELVE_DATA_API}/time_series`);
+  const url = tdProxyUrl('time_series');
   url.searchParams.set('symbol', symbol);
   url.searchParams.set('interval', '1h');
   url.searchParams.set('outputsize', outputsize.toString());
-  url.searchParams.set('apikey', apiKey);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -98,12 +88,10 @@ async function fetchHourlyBars(symbol: string, outputsize: number): Promise<Hour
 }
 
 async function fetchDailyBars(symbol: string, outputsize: number): Promise<DailyBar[]> {
-  const apiKey = getApiKey();
-  const url = new URL(`${TWELVE_DATA_API}/time_series`);
+  const url = tdProxyUrl('time_series');
   url.searchParams.set('symbol', symbol);
   url.searchParams.set('interval', '1day');
   url.searchParams.set('outputsize', outputsize.toString());
-  url.searchParams.set('apikey', apiKey);
 
   const response = await fetch(url.toString());
   if (!response.ok) {

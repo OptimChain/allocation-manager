@@ -148,7 +148,11 @@ Returns `data: { "inserted": 2, "skipped": 0, "ids": [1, 2] }`.
 
 ### `GET /db-pnl`
 
-Query params: `period=1W|1M|3M|6M|1Y|5Y|all` (default `all`). Realized P&L is
+Query params: `period=1W|1M|3M|6M|1Y|5Y|all` (default `all`),
+`symbol=<ticker>` (filters to one underlying — matches stock `symbol` AND
+option `chain_symbol`, so the result is that ticker's combined stock +
+options P&L; echoed back as `data.symbol`). Option P&L is included in every
+period (`periods[p].option`) and in `combined_realized_pnl`. Realized P&L is
 computed server-side from filled DB orders with the same math as
 enriched-snapshot (`computeStockPnl` / `computeOptionPnl`); option P&L is
 additionally filtered to the period cutoff.
@@ -204,3 +208,27 @@ curl -s 'localhost:9000/db-pnl?period=1W' | jq
 for endpoint testing only. Backend jest tests
 (`tests/backend/trading-db.test.cjs`) run against the same in-memory client:
 `npx jest --selectProjects backend`.
+
+## `GET /twelvedata/{endpoint}` — market data proxy
+
+All dashboard TwelveData pulls go through this proxy instead of
+api.twelvedata.com. The API key lives server-side (`TWELVE_DATA_API_KEY`,
+falls back to `VITE_TWELVE_DATA_API_KEY`) and responses are cached in the
+shared `market_cache` table — identical requests across every browser and
+lambda instance cost one upstream credit per TTL window.
+
+- Endpoints: `time_series`, `quote`, `price`, `exchange_rate`
+- Response body: **verbatim TwelveData JSON** (not the trading-DB envelope)
+- `X-Cache: hit|miss|stale` — `stale` means upstream failed (e.g. 429) and
+  the last good payload was served
+- TTLs: quote/price/exchange_rate 60s; time_series 2min (1min bars) →
+  60min (weekly bars); `?refresh=1` forces a refetch, floored at once/15s
+- Client-supplied `apikey` params are ignored
+
+```bash
+curl "https://5thstreetcapital.netlify.app/.netlify/functions/twelvedata/quote?symbol=BTC/USD"
+curl "https://5thstreetcapital.netlify.app/.netlify/functions/twelvedata/time_series?symbol=SPY&interval=1day&outputsize=402"
+```
+
+Other services (e.g. the allocation-engine worker) can point at this proxy
+instead of holding their own TwelveData key.

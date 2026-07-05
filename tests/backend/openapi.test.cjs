@@ -21,7 +21,7 @@ describe('openapi.yaml', () => {
   });
 
   test('documents exactly the implemented endpoints and methods', () => {
-    expect(Object.keys(spec.paths).sort()).toEqual(['/db-bot-activity', '/db-orders', '/db-pnl']);
+    expect(Object.keys(spec.paths).sort()).toEqual(['/db-bot-activity', '/db-orders', '/db-pnl', '/twelvedata/{endpoint}']);
     expect(Object.keys(spec.paths['/db-orders']).sort()).toEqual(['delete', 'get', 'post']);
     expect(Object.keys(spec.paths['/db-bot-activity']).sort()).toEqual(['get', 'post']);
     expect(Object.keys(spec.paths['/db-pnl'])).toEqual(['get']);

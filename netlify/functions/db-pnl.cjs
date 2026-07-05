@@ -44,14 +44,19 @@ async function handleGet(db, event) {
       `Unknown period "${params.period}". Valid: ${Object.keys(PERIOD_DAYS).join(', ')}, all`));
   }
   const periods = requested === 'ALL' ? Object.keys(PERIOD_DAYS) : [requested];
+  // Optional per-underlying filter — matches stock symbol AND option chain_symbol,
+  // so ?symbol=CRWD returns that ticker's combined stock + options P&L
+  const symbol = (params.symbol || '').toUpperCase() || null;
 
   const [stockRows, optionRows] = await Promise.all([
     t.fetchStockOrders(db, ORDER_FETCH_LIMIT),
     t.fetchOptionOrders(db, ORDER_FETCH_LIMIT),
   ]);
 
-  const stockOrders  = stockRows.map(t.rowToStockOrder);
-  const optionOrders = optionRows.map(t.rowToOptionOrder);
+  const stockOrders  = stockRows.map(t.rowToStockOrder)
+    .filter(o => !symbol || o.symbol === symbol);
+  const optionOrders = optionRows.map(t.rowToOptionOrder)
+    .filter(o => !symbol || o.chain_symbol === symbol);
 
   const filledOptionOrders = optionOrders.filter(o => o.state === 'filled').map(toOptionPnlInput);
 
@@ -71,6 +76,7 @@ async function handleGet(db, event) {
   const openOptionOrders = optionOrders.filter(o => t.OPEN_STATES.has(o.state));
 
   const data = {
+    symbol,
     periods: periodResults,
     open_orders: openOrders,
     open_option_orders: openOptionOrders,

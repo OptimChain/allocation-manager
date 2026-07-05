@@ -30,6 +30,8 @@ tags:
     description: Durable bot action log
   - name: pnl
     description: Realized P&L computed from DB orders
+  - name: market-data
+    description: TwelveData proxy with a shared server-side cache
 
 security: []
 
@@ -307,6 +309,13 @@ paths:
             type: string
             enum: ['1W', '1M', '3M', '6M', '1Y', '5Y', 'all']
             default: all
+        - name: symbol
+          in: query
+          description: >-
+            Filter to one underlying — matches stock `symbol` AND option
+            `chain_symbol`, so the result is that ticker's combined
+            stock + options P&L.
+          schema: { type: string, example: CRWD }
       responses:
         '200':
           description: P&L per period
@@ -320,6 +329,52 @@ paths:
                       data: { $ref: '#/components/schemas/PnlData' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '503': { $ref: '#/components/responses/DbNotConfigured' }
+
+  /twelvedata/{endpoint}:
+    get:
+      tags: [market-data]
+      operationId: twelveDataProxy
+      summary: TwelveData proxy — verbatim upstream JSON, cached server-side
+      description: |
+        Proxies api.twelvedata.com with the API key held server-side and
+        responses cached in the shared trading DB, so identical requests
+        across all browsers cost one upstream credit per TTL window
+        (quote/price: 60s; time_series: 2–60min by interval). The response
+        body is the **verbatim TwelveData JSON** for the endpoint — not the
+        trading-DB envelope. `X-Cache: hit|miss|stale` reports cache state;
+        `stale` means the upstream failed (e.g. 429) and the last good
+        payload was served instead. Any client-supplied `apikey` is ignored.
+      parameters:
+        - name: endpoint
+          in: path
+          required: true
+          schema: { type: string, enum: [time_series, quote, price, exchange_rate] }
+        - name: symbol
+          in: query
+          schema: { type: string, example: BTC/USD }
+        - name: interval
+          in: query
+          description: time_series only (1min…1month)
+          schema: { type: string, example: 1day }
+        - name: outputsize
+          in: query
+          schema: { type: integer, example: 402 }
+        - name: end_date
+          in: query
+          schema: { type: string }
+        - name: refresh
+          in: query
+          description: "refresh=1 forces a refetch (floor: once per 15s per key)"
+          schema: { type: string, enum: ['1'] }
+      responses:
+        '200':
+          description: Verbatim TwelveData response (from cache or upstream)
+          headers:
+            X-Cache:
+              schema: { type: string, enum: [hit, miss, stale] }
+        '400': { description: Endpoint not in the whitelist }
+        '502': { description: Upstream failed and no cached payload exists }
+        '503': { description: TWELVE_DATA_API_KEY not configured }
 
 components:
   securitySchemes:
@@ -653,6 +708,10 @@ components:
     PnlData:
       type: object
       properties:
+        symbol:
+          type: string
+          nullable: true
+          description: Echo of the ?symbol= filter (null when unfiltered)
         periods:
           type: object
           description: Keyed by 1W/1M/3M/6M/1Y/5Y (only the requested period when ?period= is set)
