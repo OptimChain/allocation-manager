@@ -86,11 +86,27 @@ async function fetchSnapshot() {
     throw new Error('No state-logs snapshots found');
   }
 
-  // Keys are timestamps (e.g. "2026-02-15T02-07-07"), sort descending (newest first)
-  const sortedKeys = allKeys.sort().reverse();
+  // Keys are timestamps (e.g. "2026-02-15T02-07-07") plus an optional 'latest'
+  // pointer. Sort the timestamped keys descending; non-timestamp keys like
+  // 'latest' would otherwise win the lexicographic sort ('l' > '2').
+  const sortedKeys = allKeys.filter(k => /^\d{4}-/.test(k)).sort().reverse();
 
-  // Fetch the latest blob — always used for portfolio + order_book
-  const latest = await fetchBlob(token, sortedKeys[0], activeStore);
+  // Fetch the newest timestamped blob and the 'latest' pointer (if present),
+  // then serve whichever payload is actually newer — robust to either the
+  // engine or the snapshot-refresh job having written last.
+  let latest = null;
+  if (sortedKeys.length) {
+    latest = await fetchBlob(token, sortedKeys[0], activeStore);
+  }
+  if (allKeys.includes('latest')) {
+    try {
+      const pointer = await fetchBlob(token, 'latest', activeStore);
+      if (!latest || String(pointer.timestamp) > String(latest.timestamp)) latest = pointer;
+    } catch (e) {
+      console.error('latest pointer fetch failed:', e.message);
+    }
+  }
+  if (!latest) throw new Error('No usable snapshot blob found');
 
   // Build market_data from the latest blob with complete BTC metrics
   let marketData = null;
