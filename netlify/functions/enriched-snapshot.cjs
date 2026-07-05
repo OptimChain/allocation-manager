@@ -283,8 +283,10 @@ function enrichSnapshot(raw) {
     timestamp:   raw.timestamp,
     market_data: raw.market_data,
     order_book:  raw.order_book,
-    recent_orders:        [...recentOrders].sort((a, b) => b.created_at.localeCompare(a.created_at)),
-    recent_option_orders: [...recentOptionOrders].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    // Null-safe: RH occasionally returns orders without created_at; a single
+    // null must not 500 the whole snapshot (nulls sort last)
+    recent_orders:        [...recentOrders].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    recent_option_orders: [...recentOptionOrders].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
     recent_pnl:      recentPnl,
     option_pnl:      optionPnl,
     combined_7d_pnl: r2(recentPnl.total_realized_pnl + optionPnl.total_realized_pnl),

@@ -296,7 +296,8 @@ async function upsertStockOrder(db, order, rawSource) {
        trigger_type = EXCLUDED.trigger_type, state = EXCLUDED.state, quantity = EXCLUDED.quantity,
        limit_price = EXCLUDED.limit_price, stop_price = EXCLUDED.stop_price,
        filled_quantity = EXCLUDED.filled_quantity, average_price = EXCLUDED.average_price,
-       created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at,
+       created_at = COALESCE(EXCLUDED.created_at, stock_orders.created_at),
+       updated_at = COALESCE(EXCLUDED.updated_at, stock_orders.updated_at),
        raw = EXCLUDED.raw, ingested_at = now()`,
     [order.order_id, order.symbol, order.side, order.order_type, order.trigger, order.state,
      order.quantity, order.limit_price, order.stop_price, order.filled_quantity,
@@ -316,7 +317,8 @@ async function upsertOptionOrder(db, order, rawSource) {
        state = EXCLUDED.state, quantity = EXCLUDED.quantity, price = EXCLUDED.price,
        processed_premium = EXCLUDED.processed_premium, order_type = EXCLUDED.order_type,
        opening_strategy = EXCLUDED.opening_strategy, legs = EXCLUDED.legs,
-       created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at,
+       created_at = COALESCE(EXCLUDED.created_at, option_orders.created_at),
+       updated_at = COALESCE(EXCLUDED.updated_at, option_orders.updated_at),
        raw = EXCLUDED.raw, ingested_at = now()`,
     [order.order_id, order.chain_symbol, order.direction, order.state, order.quantity,
      order.price, order.processed_premium, order.order_type, order.opening_strategy,
@@ -511,9 +513,13 @@ function createMemoryClient() {
       if (/^INSERT INTO stock_orders/i.test(sql)) {
         const [order_id, symbol, side, order_type, trigger_type, state, quantity, limit_price,
                stop_price, filled_quantity, average_price, created_at, updated_at, raw] = params;
+        const prev = stockOrders.get(order_id) || {};
         stockOrders.set(order_id, {
           order_id, symbol, side, order_type, trigger_type, state, quantity, limit_price,
-          stop_price, filled_quantity, average_price, created_at, updated_at, raw,
+          stop_price, filled_quantity, average_price,
+          created_at: created_at ?? prev.created_at ?? null,
+          updated_at: updated_at ?? prev.updated_at ?? null,
+          raw,
         });
         return [];
       }
@@ -521,9 +527,13 @@ function createMemoryClient() {
       if (/^INSERT INTO option_orders/i.test(sql)) {
         const [order_id, chain_symbol, direction, state, quantity, price, processed_premium,
                order_type, opening_strategy, legs, created_at, updated_at, raw] = params;
+        const prev = optionOrders.get(order_id) || {};
         optionOrders.set(order_id, {
           order_id, chain_symbol, direction, state, quantity, price, processed_premium,
-          order_type, opening_strategy, legs, created_at, updated_at, raw,
+          order_type, opening_strategy, legs,
+          created_at: created_at ?? prev.created_at ?? null,
+          updated_at: updated_at ?? prev.updated_at ?? null,
+          raw,
         });
         return [];
       }
