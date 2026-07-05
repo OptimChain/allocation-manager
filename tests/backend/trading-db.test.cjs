@@ -166,6 +166,20 @@ describe('db-orders', () => {
     expect(page3.data.page.has_more).toBe(false);
   });
 
+  test('re-upsert without timestamps preserves known created_at/updated_at (regression)', async () => {
+    await dbOrders.handler(makeEvent({ method: 'POST', body: { orders: [
+      { order_id: 'keep-ts', symbol: 'SNDK', side: 'BUY', state: 'queued', quantity: 1, limit_price: 100, created_at: NOW, updated_at: NOW },
+    ] } }));
+    // A sparse writer (e.g. the MCP) re-sends the order without timestamps
+    await dbOrders.handler(makeEvent({ method: 'POST', body: { orders: [
+      { order_id: 'keep-ts', symbol: 'SNDK', side: 'BUY', state: 'confirmed', quantity: 1, limit_price: 100 },
+    ] } }));
+    const order = parse(await dbOrders.handler(makeEvent())).data.open_orders[0];
+    expect(order.state).toBe('confirmed');   // update applied
+    expect(order.created_at).toBe(NOW);      // timestamp NOT erased
+    expect(order.updated_at).toBe(NOW);
+  });
+
   test('rejects bodies with no orders', async () => {
     const res = await dbOrders.handler(makeEvent({ method: 'POST', body: { nothing: true } }));
     expect(res.statusCode).toBe(400);

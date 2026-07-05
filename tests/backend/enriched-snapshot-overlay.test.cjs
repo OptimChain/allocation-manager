@@ -89,6 +89,20 @@ describe('enriched-snapshot DB overlay', () => {
     expect(body.portfolio.open_orders.map(o => o.order_id)).toEqual(['blob-open-1']);
   });
 
+  test('orders with null created_at do not 500 the snapshot (regression)', async () => {
+    await seedDb();
+    const db = t.getDb();
+    await t.upsertStockOrder(db, t.normalizeStockOrder(
+      { order_id: 'db-null-ts', symbol: 'X', side: 'BUY', state: 'filled', quantity: 1, average_price: 5 }), {});
+    const res = await es.handler({ httpMethod: 'GET' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    const ids = body.recent_orders.map(o => o.order_id);
+    expect(ids).toContain('db-null-ts');
+    // nulls sort last, real timestamps stay newest-first
+    expect(ids[ids.length - 1]).toBe('db-null-ts');
+  });
+
   test('DB failure degrades gracefully to blob orders', async () => {
     t.__setTestClient({ query: () => Promise.reject(new Error('db down')) });
     const res = await es.handler({ httpMethod: 'GET' });
