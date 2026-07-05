@@ -30,7 +30,7 @@ describe('openapi.yaml', () => {
   test('envelope schema matches the shared envelope contract', () => {
     const envelope = spec.components.schemas.Envelope;
     expect(envelope.required.sort()).toEqual(['action', 'as_of', 'data', 'error', 'ok', 'resource', 'source']);
-    expect(envelope.properties.source.enum).toEqual(['netlify-db']);
+    expect(envelope.properties.source.enum).toEqual(['netlify-db', 'memory']);
   });
 
   test('error codes stay in sync with lib/tradingDb error responses', () => {

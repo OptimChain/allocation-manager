@@ -336,7 +336,10 @@ components:
         ok: { type: boolean }
         resource: { type: string, enum: [orders, bot-activity, pnl] }
         action: { type: string, enum: [list, upsert, delete, append, compute, write, unavailable, unknown, error] }
-        source: { type: string, enum: [netlify-db] }
+        source:
+          type: string
+          enum: [netlify-db, memory]
+          description: Actual backend — `memory` when running with TRADING_DB_MEMORY=1 (testing only, non-durable)
         as_of: { type: string, format: date-time }
         count: { type: integer, nullable: true }
         data: { nullable: true }

@@ -27,24 +27,36 @@ let testClient   = null;
 let memoryClient = null;
 let neonClient   = null;
 let schemaReady  = null;
+let activeSource = 'netlify-db';
 
-/** Returns a `{ query(text, params) → Promise<rows> }` client, or null if no DB is configured. */
+/**
+ * Returns a `{ query(text, params) → Promise<rows> }` client, or null if no
+ * DB is configured. A real database URL always wins over TRADING_DB_MEMORY,
+ * so a site deployed in memory mode self-heals once a database is attached.
+ * NETLIFY_DATABASE_URL comes from the Neon extension flow; NETLIFY_DB_URL is
+ * set by the newer built-in Netlify Database platform.
+ */
 function getDb() {
-  if (testClient) return testClient;
-  if (process.env.TRADING_DB_MEMORY === '1') {
-    if (!memoryClient) memoryClient = createMemoryClient();
-    return memoryClient;
-  }
+  if (testClient) { activeSource = 'netlify-db'; return testClient; }
   const url = process.env.NETLIFY_DATABASE_URL
     || process.env.NETLIFY_DATABASE_URL_UNPOOLED
+    || process.env.NETLIFY_DB_URL
     || process.env.DATABASE_URL;
-  if (!url) return null;
-  if (!neonClient) {
-    const { neon } = require('@neondatabase/serverless');
-    const sql = neon(url);
-    neonClient = { query: (text, params = []) => sql.query(text, params) };
+  if (url) {
+    if (!neonClient) {
+      const { neon } = require('@neondatabase/serverless');
+      const sql = neon(url);
+      neonClient = { query: (text, params = []) => sql.query(text, params) };
+    }
+    activeSource = 'netlify-db';
+    return neonClient;
   }
-  return neonClient;
+  if (process.env.TRADING_DB_MEMORY === '1') {
+    if (!memoryClient) memoryClient = createMemoryClient();
+    activeSource = 'memory';
+    return memoryClient;
+  }
+  return null;
 }
 
 function __setTestClient(client) {
@@ -57,6 +69,7 @@ function __resetForTests() {
   memoryClient = null;
   neonClient   = null;
   schemaReady  = null;
+  activeSource = 'netlify-db';
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -375,7 +388,7 @@ function envelope({ resource, action, data = null, count = null, error = null })
     ok:       !error,
     resource,
     action,
-    source:   'netlify-db',
+    source:   activeSource, // 'netlify-db', or 'memory' when TRADING_DB_MEMORY=1
     as_of:    new Date().toISOString(),
     count,
     data,
