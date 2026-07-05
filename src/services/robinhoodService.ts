@@ -370,6 +370,80 @@ export async function getRedisOrders(): Promise<RedisOrders> {
   return { openOrders, openOptionOrders, historicalOrders, historicalOptionOrders };
 }
 
+// ── Netlify DB (Neon Postgres) endpoints ─────────────────────────────────────
+// db-orders / db-bot-activity / db-pnl all return this envelope. The same
+// endpoints are the write path for the Robinhood MCP service.
+
+export interface DbEnvelope<T> {
+  ok: boolean;
+  resource: string;
+  action: string;
+  source: string;
+  as_of: string;
+  count: number | null;
+  data: T;
+  error: { code: string; message: string } | null;
+}
+
+export interface DbOrders {
+  open_orders: SnapshotOrder[];
+  open_option_orders: SnapshotOptionOrder[];
+  historical_orders: SnapshotOrder[];
+  historical_option_orders: SnapshotOptionOrder[];
+  counts?: Record<string, number>;
+}
+
+export interface DbBotEvent {
+  id: number;
+  event_id: string | null;
+  event_type: string;
+  status: string;
+  symbol: string | null;
+  quantity: number | null;
+  price: number | null;
+  total: number | null;
+  message: string | null;
+  details: string | null;
+  dry_run: boolean;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+async function fetchDb<T>(endpoint: string): Promise<DbEnvelope<T>> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const body = await response.json().catch(() => null) as DbEnvelope<T> | null;
+  if (!response.ok || !body || body.ok === false) {
+    throw new Error(body?.error?.message || `Request failed: ${response.status}`);
+  }
+  return body;
+}
+
+export async function getDbOrders(scope: 'open' | 'historical' | 'all' = 'all'): Promise<DbOrders> {
+  const env = await fetchDb<DbOrders>(`/db-orders?scope=${scope}`);
+  return env.data;
+}
+
+/** Bot activity from Netlify DB, mapped onto the existing BotAction shape. */
+export async function getDbBotActivity(limit: number = 50): Promise<{ actions: BotAction[]; total: number }> {
+  const env = await fetchDb<{ events: DbBotEvent[] }>(`/db-bot-activity?limit=${limit}`);
+  const actions: BotAction[] = env.data.events.map(e => ({
+    id: String(e.id ?? e.event_id),
+    timestamp: e.created_at,
+    type: e.event_type,
+    status: e.status,
+    symbol: e.symbol ?? undefined,
+    quantity: e.quantity ?? undefined,
+    price: e.price ?? undefined,
+    total: e.total ?? undefined,
+    message: e.message ?? undefined,
+    details: e.details ?? undefined,
+    dryRun: e.dry_run,
+  }));
+  return { actions, total: actions.length };
+}
+
 export function sendSlackAlert(message: string, error?: string) {
   fetch(`${API_BASE}/alert-slack`, {
     method: 'POST',
@@ -530,6 +604,31 @@ export interface EnrichedSnapshot {
 
 export async function getEnrichedSnapshot(): Promise<EnrichedSnapshot> {
   return fetchApi<EnrichedSnapshot>('/enriched-snapshot');
+}
+
+// ── Netlify DB P&L (db-pnl) ───────────────────────────────────────────────────
+
+export interface DbPnlPeriod {
+  stock: StockPnLResult;
+  option: OptionPnLResult;
+  combined_realized_pnl: number;
+}
+
+export interface DbPnlData {
+  periods: Record<PnLPeriod, DbPnlPeriod>;
+  open_orders: SnapshotOrder[];
+  open_option_orders: SnapshotOptionOrder[];
+  counts: {
+    stock_orders: number;
+    option_orders: number;
+    open_orders: number;
+    open_option_orders: number;
+  };
+}
+
+export async function getDbPnl(): Promise<DbPnlData> {
+  const env = await fetchDb<DbPnlData>('/db-pnl');
+  return env.data;
 }
 
 // Auth functions

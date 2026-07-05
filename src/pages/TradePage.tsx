@@ -26,6 +26,9 @@ import {
 import {
   getEnrichedSnapshot,
   getBotActions,
+  getDbOrders,
+  getDbBotActivity,
+  DbOrders,
   EnrichedSnapshot,
   EnrichedPortfolio,
   StockPnLResult,
@@ -232,7 +235,7 @@ function PositionsTable({ portfolio }: { portfolio: EnrichedPortfolio }) {
 
 // ─── BotActionsLog ────────────────────────────────────────────────────────────
 
-function BotActionsLog({ actions }: { actions: BotAction[] }) {
+function BotActionsLog({ actions, source }: { actions: BotAction[]; source?: 'db' | 'memory' }) {
   const statusIcon = (s: string) => {
     if (s === 'completed' || s === 'submitted') return <CheckCircle className="w-4 h-4 text-gray-700 dark:text-gray-300" />;
     if (s === 'failed' || s === 'error')        return <XCircle    className="w-4 h-4 text-gray-700 dark:text-gray-300" />;
@@ -250,6 +253,11 @@ function BotActionsLog({ actions }: { actions: BotAction[] }) {
       <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
         <Bot className="w-5 h-5 text-gray-500" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Bot Activity</h3>
+        {source && (
+          <span className="ml-auto px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 rounded" title="Data source">
+            {source === 'db' ? 'Netlify DB' : 'in-memory'}
+          </span>
+        )}
       </div>
       <div className="max-h-[400px] overflow-y-auto">
         {actions.length === 0 ? (
@@ -406,11 +414,16 @@ function OptionsPositions({ options, summary }: {
 
 // ─── OrderBookSnapshotView ────────────────────────────────────────────────────
 
-function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
+function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnapshot; dbOrders?: DbOrders | null }) {
   const { portfolio, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
 
-  const openOrders       = portfolio.open_orders.length > 0 ? portfolio.open_orders : snapshot.order_book;
-  const openOptionOrders = portfolio.open_option_orders;
+  // Netlify DB is the primary source for open orders; fall back to the blob
+  // snapshot while the DB is empty or unconfigured.
+  const dbHasOpenOrders = (dbOrders?.open_orders.length ?? 0) > 0 || (dbOrders?.open_option_orders.length ?? 0) > 0;
+  const openOrders = dbHasOpenOrders
+    ? dbOrders!.open_orders
+    : portfolio.open_orders.length > 0 ? portfolio.open_orders : snapshot.order_book;
+  const openOptionOrders = dbHasOpenOrders ? dbOrders!.open_option_orders : portfolio.open_option_orders;
 
   // Pre-computed by backend — no client-side math
   const recentPnl = snapshot.recent_pnl;
@@ -537,7 +550,10 @@ function OrderBookSnapshotView({ snapshot }: { snapshot: EnrichedSnapshot }) {
             <div className="px-4 py-3 border-b border-gray-200 dark:border-zinc-700 flex items-center gap-2">
               <Receipt className="w-5 h-5 text-gray-500" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Open Orders</h3>
-              <span className="text-sm text-gray-400 ml-auto">{openOrders.length + openOptionOrders.length}</span>
+              <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 rounded ml-auto" title="Data source">
+                {dbHasOpenOrders ? 'Netlify DB' : 'snapshot'}
+              </span>
+              <span className="text-sm text-gray-400">{openOrders.length + openOptionOrders.length}</span>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
               {openOrders.length === 0 && openOptionOrders.length === 0 ? (
@@ -826,7 +842,9 @@ export function PnLBySymbolTable({ stock, option }: { stock: StockPnLResult; opt
 
 export default function TradePage() {
   const [snapshot,   setSnapshot]   = useState<EnrichedSnapshot | null>(null);
+  const [dbOrders,   setDbOrders]   = useState<DbOrders | null>(null);
   const [botActions, setBotActions] = useState<BotAction[]>([]);
+  const [botSource,  setBotSource]  = useState<'db' | 'memory'>('memory');
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -835,13 +853,32 @@ export default function TradePage() {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     setError(null);
 
-    const [snapshotResult, actionsResult] = await Promise.allSettled([
+    // Netlify DB endpoints are primary; blob snapshot / in-memory bot log are fallbacks
+    const [snapshotResult, dbOrdersResult, dbActivityResult] = await Promise.allSettled([
       getEnrichedSnapshot(),
-      getBotActions(50),
+      getDbOrders('all'),
+      getDbBotActivity(50),
     ]);
 
     if (snapshotResult.status === 'fulfilled') setSnapshot(snapshotResult.value);
-    if (actionsResult.status  === 'fulfilled') setBotActions(actionsResult.value.actions);
+    setDbOrders(dbOrdersResult.status === 'fulfilled' ? dbOrdersResult.value : null);
+
+    if (dbActivityResult.status === 'fulfilled' && dbActivityResult.value.actions.length > 0) {
+      setBotActions(dbActivityResult.value.actions);
+      setBotSource('db');
+    } else {
+      let legacyActions: BotAction[] = [];
+      try {
+        legacyActions = (await getBotActions(50)).actions;
+      } catch { /* legacy endpoint unavailable — nothing to show */ }
+      if (legacyActions.length > 0) {
+        setBotActions(legacyActions);
+        setBotSource('memory');
+      } else {
+        setBotActions([]);
+        setBotSource(dbActivityResult.status === 'fulfilled' ? 'db' : 'memory');
+      }
+    }
 
     if (snapshotResult.status === 'rejected') {
       setError(snapshotResult.reason instanceof Error ? snapshotResult.reason.message : 'Failed to fetch snapshot');
@@ -917,12 +954,12 @@ export default function TradePage() {
 
       {snapshot && (
         <>
-          <OrderBookSnapshotView snapshot={snapshot} />
+          <OrderBookSnapshotView snapshot={snapshot} dbOrders={dbOrders} />
 
           <PortfolioSummary portfolio={snapshot.portfolio} />
 
           <div className="mb-6">
-            <BotActionsLog actions={botActions} />
+            <BotActionsLog actions={botActions} source={botSource} />
           </div>
 
           <PositionsTable portfolio={snapshot.portfolio} />

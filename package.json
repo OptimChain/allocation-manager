@@ -20,6 +20,7 @@
     "functions": "node scripts/local-functions.cjs"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@netlify/blobs": "^10.5.0",
     "lucide-react": "^0.263.1",
     "plaid": "^41.2.0",
