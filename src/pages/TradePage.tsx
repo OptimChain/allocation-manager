@@ -444,12 +444,17 @@ function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnaps
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Order Book Snapshot</h2>
-          <p className="text-xs text-gray-400">
-            Last updated: {fmtTime(timestamp)}
-            {snapshot.orders_as_of && snapshot.orders_source === 'db' && (
-              <> {'· orders as of '}{fmtTime(snapshot.orders_as_of)} (db)</>
-            )}
-          </p>
+          {/* Orders refresh from the trading DB on every request; positions/cash
+              only update when the engine publishes a blob snapshot. Lead with
+              whichever timestamp reflects the order book being shown. */}
+          {snapshot.orders_source === 'db' && snapshot.orders_as_of ? (
+            <p className="text-xs text-gray-400">
+              Last updated: {fmtTime(snapshot.orders_as_of)} (orders, db)
+              {' · '}positions from engine snapshot {fmtTime(timestamp)}
+            </p>
+          ) : (
+            <p className="text-xs text-gray-400">Last updated: {fmtTime(timestamp)}</p>
+          )}
         </div>
         {btcState && (
           <div className="flex items-center gap-2">
