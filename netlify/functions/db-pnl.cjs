@@ -1,5 +1,5 @@
 // db-pnl.cjs
-// Realized P&L computed server-side from Netlify DB orders, for the
+// Realized P&L computed server-side from trading DB orders, for the
 // "Order P&L" / "Realized P&L" sections of the P&L & Asset Allocation page.
 //
 //   GET /.netlify/functions/db-pnl              — all periods (1W…5Y)
@@ -19,7 +19,11 @@ const { computeStockPnl, computeOptionPnl } = require('./enriched-snapshot.cjs')
 
 const RESOURCE = 'pnl';
 const PERIOD_DAYS = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 1825 };
-const ORDER_FETCH_LIMIT = 1000;
+// P&L is an aggregate over ALL filled orders in the window, so this is a
+// safety cap, not pagination. ~500B/row → 5000 rows ≈ 2.5MB, well within a
+// lambda. `truncated: true` in the response means the oldest orders fell
+// outside the cap and long-window P&L may be incomplete.
+const ORDER_FETCH_LIMIT = 5000;
 
 function periodCutoff(period) {
   return new Date(Date.now() - (PERIOD_DAYS[period] ?? 365) * 86_400_000);
@@ -76,6 +80,7 @@ async function handleGet(db, event) {
       open_orders:        openOrders.length,
       open_option_orders: openOptionOrders.length,
     },
+    truncated: stockRows.length === ORDER_FETCH_LIMIT || optionRows.length === ORDER_FETCH_LIMIT,
   };
 
   return t.respond(200, t.envelope({ resource: RESOURCE, action: 'compute', data, count: periods.length }));
@@ -87,7 +92,7 @@ exports.handler = async (event) => {
   const db = t.getDb();
   if (!db) {
     return t.respond(503, t.errorEnvelope(RESOURCE, 'unavailable', 'DB_NOT_CONFIGURED',
-      'NETLIFY_DATABASE_URL is not set. Point it at the Render Postgres (allocation-manager-db) external connection string — see docs/netlify-db.md.'));
+      'NETLIFY_DATABASE_URL is not set. Point it at the Render Postgres (allocation-manager-db) external connection string — see docs/db.md.'));
   }
 
   try {

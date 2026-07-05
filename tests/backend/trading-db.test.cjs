@@ -1,4 +1,4 @@
-// Tests for the Netlify DB backed endpoints (db-orders, db-bot-activity, db-pnl)
+// Tests for the Postgres-backed trading endpoints (db-orders, db-bot-activity, db-pnl)
 // using the in-memory client from lib/tradingDb.cjs — same code path as
 // TRADING_DB_MEMORY=1 local runs, no live Neon instance needed.
 
@@ -45,7 +45,7 @@ describe('response envelope', () => {
       const body = parse(res);
       expect(body.ok).toBe(false);
       expect(body.error.code).toBe('DB_NOT_CONFIGURED');
-      expect(body.source).toBe('netlify-db');
+      expect(body.source).toBe('db');
     }
   });
 
@@ -57,7 +57,7 @@ describe('response envelope', () => {
       ok: true,
       resource: 'orders',
       action: 'list',
-      source: 'netlify-db',
+      source: 'db',
       count: 0,
       error: null,
     }));
@@ -148,6 +148,22 @@ describe('db-orders', () => {
     expect(get.data.historical_orders[0]).toEqual(expect.objectContaining({
       order_id: 'ord-x', state: 'filled', average_price: 99.9,
     }));
+  });
+
+  test('paginates with limit/offset and reports has_more', async () => {
+    const orders = Array.from({ length: 5 }, (_, i) => ({
+      order_id: `pg-${i}`, symbol: 'TSLA', side: 'BUY', state: 'filled', quantity: 1,
+      average_price: 100 + i, created_at: new Date(Date.now() - i * 60_000).toISOString(),
+    }));
+    await dbOrders.handler(makeEvent({ method: 'POST', body: { orders } }));
+
+    const page1 = parse(await dbOrders.handler(makeEvent({ params: { limit: '2', offset: '0' } })));
+    expect(page1.data.historical_orders.map(o => o.order_id)).toEqual(['pg-0', 'pg-1']);
+    expect(page1.data.page).toEqual({ limit: 2, offset: 0, has_more: true });
+
+    const page3 = parse(await dbOrders.handler(makeEvent({ params: { limit: '2', offset: '4' } })));
+    expect(page3.data.historical_orders.map(o => o.order_id)).toEqual(['pg-4']);
+    expect(page3.data.page.has_more).toBe(false);
   });
 
   test('rejects bodies with no orders', async () => {
@@ -283,6 +299,28 @@ describe('db-pnl', () => {
     // Open orders surfaced for the Open Orders / notional card
     expect(body.data.open_orders.map(o => o.order_id)).toEqual(['open-1']);
     expect(body.data.counts).toEqual(expect.objectContaining({ open_orders: 1, stock_orders: 3, option_orders: 1 }));
+  });
+
+  test('period cutoffs bucket orders correctly (1W/1M/3M/6M/1Y/5Y)', async () => {
+    const daysAgo = d => new Date(Date.now() - d * 86_400_000).toISOString();
+    // One round-trip trade (buy+sell same day, +$10 realized) placed inside
+    // each successive window band: 3d→1W+, 20d→1M+, 60d→3M+, 150d→6M+, 300d→1Y+, 1000d→5Y only
+    const bands = [[3, 'a'], [20, 'b'], [60, 'c'], [150, 'd'], [300, 'e'], [1000, 'f']];
+    const orders = bands.flatMap(([days, tag]) => [
+      { order_id: `${tag}-buy`,  symbol: 'XX', side: 'BUY',  state: 'filled', quantity: 1, average_price: 100, created_at: daysAgo(days) },
+      { order_id: `${tag}-sell`, symbol: 'XX', side: 'SELL', state: 'filled', quantity: 1, average_price: 110, created_at: daysAgo(days - 0.01) },
+    ]);
+    await dbOrders.handler(makeEvent({ method: 'POST', body: { orders } }));
+
+    const body = parse(await dbPnl.handler(makeEvent()));
+    const pnl = p => body.data.periods[p].stock.total_realized_pnl;
+    const fills = p => body.data.periods[p].stock.filled_count;
+
+    // Each longer window adds exactly one more $10 round trip
+    expect([pnl('1W'), pnl('1M'), pnl('3M'), pnl('6M'), pnl('1Y'), pnl('5Y')])
+      .toEqual([10, 20, 30, 40, 50, 60]);
+    expect([fills('1W'), fills('1M'), fills('3M'), fills('6M'), fills('1Y'), fills('5Y')])
+      .toEqual([2, 4, 6, 8, 10, 12]);
   });
 
   test('single period query and bad period validation', async () => {

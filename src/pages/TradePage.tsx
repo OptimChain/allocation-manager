@@ -255,7 +255,7 @@ function BotActionsLog({ actions, source }: { actions: BotAction[]; source?: 'db
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Bot Activity</h3>
         {source && (
           <span className="ml-auto px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 rounded" title="Data source">
-            {source === 'db' ? 'Netlify DB' : 'in-memory'}
+            {source === 'db' ? 'db' : 'memory'}
           </span>
         )}
       </div>
@@ -417,7 +417,7 @@ function OptionsPositions({ options, summary }: {
 function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnapshot; dbOrders?: DbOrders | null }) {
   const { portfolio, market_data, timestamp, recent_orders, recent_option_orders } = snapshot;
 
-  // Netlify DB is the primary source for open orders; fall back to the blob
+  // The trading DB is the primary source for open orders; fall back to the blob
   // snapshot while the DB is empty or unconfigured.
   const dbHasOpenOrders = (dbOrders?.open_orders.length ?? 0) > 0 || (dbOrders?.open_option_orders.length ?? 0) > 0;
   const openOrders = dbHasOpenOrders
@@ -551,7 +551,7 @@ function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnaps
               <Receipt className="w-5 h-5 text-gray-500" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Open Orders</h3>
               <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 rounded ml-auto" title="Data source">
-                {dbHasOpenOrders ? 'Netlify DB' : 'snapshot'}
+                {dbHasOpenOrders ? 'db' : 'snapshot'}
               </span>
               <span className="text-sm text-gray-400">{openOrders.length + openOptionOrders.length}</span>
             </div>
@@ -853,10 +853,12 @@ export default function TradePage() {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     setError(null);
 
-    // Netlify DB endpoints are primary; blob snapshot / in-memory bot log are fallbacks
+    // Trading DB endpoints are primary; blob snapshot / in-memory bot log are fallbacks
     const [snapshotResult, dbOrdersResult, dbActivityResult] = await Promise.allSettled([
       getEnrichedSnapshot(),
-      getDbOrders('all'),
+      // scope=open keeps the payload small — the page only renders open
+      // orders from the DB; history comes from the blob snapshot
+      getDbOrders('open'),
       getDbBotActivity(50),
     ]);
 

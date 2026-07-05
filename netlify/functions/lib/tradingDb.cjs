@@ -1,5 +1,5 @@
 // tradingDb.cjs
-// Shared library for the Netlify DB (Neon Postgres) backed trading endpoints:
+// Shared library for the Postgres-backed trading endpoints:
 //   db-orders.cjs, db-bot-activity.cjs, db-pnl.cjs
 //
 // Responsibilities:
@@ -27,7 +27,7 @@ let testClient   = null;
 let memoryClient = null;
 let neonClient   = null;
 let schemaReady  = null;
-let activeSource = 'netlify-db';
+let activeSource = 'db';
 
 /** Neon endpoints use the serverless HTTP driver; anything else (e.g. a
  *  Render Postgres) is plain Postgres over TCP via node-postgres. */
@@ -61,14 +61,14 @@ function createUrlClient(url) {
  * NETLIFY_DB_URL is set by the newer built-in Netlify Database platform.
  */
 function getDb() {
-  if (testClient) { activeSource = 'netlify-db'; return testClient; }
+  if (testClient) { activeSource = 'db'; return testClient; }
   const url = process.env.NETLIFY_DATABASE_URL
     || process.env.NETLIFY_DATABASE_URL_UNPOOLED
     || process.env.NETLIFY_DB_URL
     || process.env.DATABASE_URL;
   if (url) {
     if (!neonClient) neonClient = createUrlClient(url);
-    activeSource = 'netlify-db';
+    activeSource = 'db';
     return neonClient;
   }
   if (process.env.TRADING_DB_MEMORY === '1') {
@@ -89,7 +89,7 @@ function __resetForTests() {
   memoryClient = null;
   neonClient   = null;
   schemaReady  = null;
-  activeSource = 'netlify-db';
+  activeSource = 'db';
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -215,7 +215,8 @@ function normalizeStockOrder(o) {
     quantity:        toNum(o.quantity) ?? 0,
     limit_price:     toNum(o.limit_price ?? o.price) ?? 0,
     stop_price:      toNum(o.stop_price),
-    filled_quantity: toNum(o.filled_quantity ?? o.cumulative_quantity) ?? 0,
+    // null (not 0) when absent — P&L math falls back to quantity via ??
+    filled_quantity: toNum(o.filled_quantity ?? o.cumulative_quantity),
     average_price:   toNum(o.average_price),
     created_at:      toIso(o.created_at),
     updated_at:      toIso(o.updated_at),
@@ -336,24 +337,24 @@ async function insertBotEvent(db, ev) {
 
 // ── Reads ─────────────────────────────────────────────────────────────────────
 
-async function fetchStockOrders(db, limit) {
+async function fetchStockOrders(db, limit, offset = 0) {
   return db.query(
-    `SELECT * FROM stock_orders ORDER BY created_at DESC NULLS LAST LIMIT $1`,
-    [limit]
+    `SELECT * FROM stock_orders ORDER BY created_at DESC NULLS LAST LIMIT $1 OFFSET $2`,
+    [limit, offset]
   );
 }
 
-async function fetchOptionOrders(db, limit) {
+async function fetchOptionOrders(db, limit, offset = 0) {
   return db.query(
-    `SELECT * FROM option_orders ORDER BY created_at DESC NULLS LAST LIMIT $1`,
-    [limit]
+    `SELECT * FROM option_orders ORDER BY created_at DESC NULLS LAST LIMIT $1 OFFSET $2`,
+    [limit, offset]
   );
 }
 
-async function fetchBotEvents(db, limit) {
+async function fetchBotEvents(db, limit, offset = 0) {
   return db.query(
-    `SELECT * FROM bot_activity ORDER BY created_at DESC, id DESC LIMIT $1`,
-    [limit]
+    `SELECT * FROM bot_activity ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2`,
+    [limit, offset]
   );
 }
 
@@ -370,7 +371,7 @@ function rowToStockOrder(r) {
     quantity:        toNum(r.quantity) ?? 0,
     limit_price:     toNum(r.limit_price) ?? 0,
     stop_price:      toNum(r.stop_price),
-    filled_quantity: toNum(r.filled_quantity) ?? 0,
+    filled_quantity: toNum(r.filled_quantity),
     average_price:   toNum(r.average_price),
     created_at:      toIso(r.created_at),
     updated_at:      toIso(r.updated_at),
@@ -422,7 +423,7 @@ function envelope({ resource, action, data = null, count = null, error = null })
     ok:       !error,
     resource,
     action,
-    source:   activeSource, // 'netlify-db', or 'memory' when TRADING_DB_MEMORY=1
+    source:   activeSource, // 'db', or 'memory' when TRADING_DB_MEMORY=1
     as_of:    new Date().toISOString(),
     count,
     data,
@@ -506,13 +507,16 @@ function createMemoryClient() {
       }
 
       if (/^SELECT \* FROM stock_orders/i.test(sql)) {
-        return [...stockOrders.values()].sort(byCreatedDesc).slice(0, params[0] ?? 500);
+        const [limit = 500, offset = 0] = params;
+        return [...stockOrders.values()].sort(byCreatedDesc).slice(offset, offset + limit);
       }
       if (/^SELECT \* FROM option_orders/i.test(sql)) {
-        return [...optionOrders.values()].sort(byCreatedDesc).slice(0, params[0] ?? 500);
+        const [limit = 500, offset = 0] = params;
+        return [...optionOrders.values()].sort(byCreatedDesc).slice(offset, offset + limit);
       }
       if (/^SELECT \* FROM bot_activity/i.test(sql)) {
-        return [...botEvents].sort((a, b) => byCreatedDesc(a, b) || b.id - a.id).slice(0, params[0] ?? 500);
+        const [limit = 500, offset = 0] = params;
+        return [...botEvents].sort((a, b) => byCreatedDesc(a, b) || b.id - a.id).slice(offset, offset + limit);
       }
 
       if (/^DELETE FROM stock_orders/i.test(sql)) {

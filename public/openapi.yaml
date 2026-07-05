@@ -3,7 +3,7 @@ info:
   title: 5th Street Capital — Trading DB API
   version: 1.0.0
   description: |
-    Netlify DB (Neon Postgres) backed endpoints for open orders, bot activity,
+    Postgres-backed trading endpoints for open orders, bot activity,
     and realized P&L. The Robinhood MCP service writes through the same
     endpoints the frontend reads from.
 
@@ -16,7 +16,7 @@ info:
     `BUY`/`buy`, leg `strike`/`strike_price`, `expiration`/`expiration_date`);
     they are normalized server-side. Naive timestamps are treated as UTC.
 
-    Human-readable guide: `docs/netlify-db.md` in the repository.
+    Human-readable guide: `docs/db.md` in the repository.
 servers:
   - url: https://5thstreetcapital.netlify.app/.netlify/functions
     description: Production
@@ -53,6 +53,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 1000, default: 500 }
+        - name: offset
+          in: query
+          description: Pages over each table's rows (newest first) before bucketing
+          schema: { type: integer, minimum: 0, default: 0 }
       responses:
         '200':
           description: Bucketed orders
@@ -180,6 +184,13 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - name: offset
+          in: query
+          description: >-
+            Skip this many events (newest first). With filters set, offset
+            positions the 500-row scan window instead — advance it by 500 to
+            page through filtered history.
+          schema: { type: integer, minimum: 0, default: 0 }
         - name: type
           in: query
           description: Filter by event_type
@@ -214,6 +225,7 @@ paths:
                           events:
                             type: array
                             items: { $ref: '#/components/schemas/BotEvent' }
+                          page: { $ref: '#/components/schemas/Page' }
         '503': { $ref: '#/components/responses/DbNotConfigured' }
     post:
       tags: [bot-activity]
@@ -336,7 +348,7 @@ components:
       description: >-
         NETLIFY_DATABASE_URL is not set on the site. Point it at the Render
         Postgres (allocation-manager-db) external connection string — see
-        docs/netlify-db.md.
+        docs/db.md.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
@@ -352,7 +364,7 @@ components:
         action: { type: string, enum: [list, upsert, delete, append, compute, write, unavailable, unknown, error] }
         source:
           type: string
-          enum: [netlify-db, memory]
+          enum: [db, memory]
           description: Actual backend — `memory` when running with TRADING_DB_MEMORY=1 (testing only, non-durable)
         as_of: { type: string, format: date-time }
         count: { type: integer, nullable: true }
@@ -396,6 +408,14 @@ components:
         counts:
           type: object
           additionalProperties: { type: integer }
+        page: { $ref: '#/components/schemas/Page' }
+
+    Page:
+      type: object
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean, description: A full page was returned — request the next offset }
 
     StockOrder:
       type: object
@@ -650,3 +670,8 @@ components:
             option_orders: { type: integer }
             open_orders: { type: integer }
             open_option_orders: { type: integer }
+        truncated:
+          type: boolean
+          description: >-
+            The 5000-orders-per-table computation cap was hit; the oldest
+            orders were excluded and long-window P&L may be incomplete.

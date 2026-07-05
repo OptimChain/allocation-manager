@@ -168,14 +168,14 @@ SafeCashBot (RH API) → blob_logger.py → Netlify Blob store (state-logs)
 → enriched-snapshot.cjs (Netlify function) → TradePage.tsx
 ```
 
-### Netlify DB (Neon) Trading Endpoints
+### Trading DB Endpoints
 
-Open orders, bot activity, and realized P&L are served from a Netlify DB
-(Neon Postgres) instance via the `db-orders`, `db-bot-activity`, and `db-pnl`
+Open orders, bot activity, and realized P&L are served from a Postgres
+trading DB via the `db-orders`, `db-bot-activity`, and `db-pnl`
 functions; the Robinhood MCP writes through the same endpoints. The frontend
 falls back to the blob snapshot while the DB is empty. OpenAPI spec:
 `public/openapi.yaml`, served at `/openapi.yaml` and rendered at `/docs`
-(Redoc) on the site. Full API guide: `docs/netlify-db.md`.
+(Redoc) on the site. Full API guide: `docs/db.md`.
 Backing store: Render Postgres `allocation-manager-db`
 (`dpg-d950tobtqb8s73e9all0-a`, basic_256mb, oregon) — its external
 connection string is set as `NETLIFY_DATABASE_URL` on the Netlify site.

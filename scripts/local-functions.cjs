@@ -16,7 +16,7 @@ const functions = {
   'robinhood-auth': require('../netlify/functions/robinhood-auth.cjs'),
   'robinhood-portfolio': require('../netlify/functions/robinhood-portfolio.cjs'),
   'robinhood-bot': require('../netlify/functions/robinhood-bot.cjs'),
-  // Netlify DB endpoints — run with TRADING_DB_MEMORY=1 for a no-DB local stand-up
+  // Trading DB endpoints — run with TRADING_DB_MEMORY=1 for a no-DB local stand-up
   'db-orders': require('../netlify/functions/db-orders.cjs'),
   'db-bot-activity': require('../netlify/functions/db-bot-activity.cjs'),
   'db-pnl': require('../netlify/functions/db-pnl.cjs'),

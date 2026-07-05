@@ -23,7 +23,7 @@ export default function PnLAllocationPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [pnlPeriod,  setPnlPeriod]  = useState<PnLPeriod>('1Y');
 
-  // Netlify DB is the primary P&L source once it holds filled orders; fall
+  // The trading DB is the primary P&L source once it holds filled orders; fall
   // back to the blob snapshot's pre-computed pnl_by_period until then.
   const dbHasFills = dbPnl != null && Object.values(dbPnl.periods).some(
     p => p.stock.filled_count + p.option.filled_count > 0
@@ -120,7 +120,7 @@ export default function PnLAllocationPage() {
               <p className="text-gray-500 mt-1">
                 Realized profit &amp; loss from filled orders
                 <span className="ml-2 px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 rounded" title="Data source">
-                  {dbHasFills ? 'Netlify DB' : 'snapshot'}
+                  {dbHasFills ? 'db' : 'snapshot'}
                 </span>
               </p>
             </div>

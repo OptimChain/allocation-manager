@@ -1,12 +1,12 @@
-# Netlify DB Trading Endpoints
+# Trading DB Endpoints
 
-Open orders, bot activity, and realized P&L are backed by a free-tier
-**Netlify DB** instance (Neon Postgres). Three Netlify functions expose it;
+Open orders, bot activity, and realized P&L are backed by a Postgres
+database (currently a Render instance). Three Netlify functions expose it;
 the Robinhood MCP service writes through the same endpoints the frontend
 reads from.
 
 ```
-Robinhood MCP ──POST──▶ db-orders / db-bot-activity ──▶ Netlify DB (Neon)
+Robinhood MCP ──POST──▶ db-orders / db-bot-activity ──▶ Trading DB (Postgres)
                                                           │
 TradePage / PnLAllocationPage ◀──GET── db-orders / db-bot-activity / db-pnl
 ```
@@ -52,7 +52,7 @@ from `data`:
   "ok": true,
   "resource": "orders",            // orders | bot-activity | pnl
   "action": "list",                // list | upsert | delete | append | compute
-  "source": "netlify-db",
+  "source": "db",
   "as_of": "2026-07-05T07:16:04.585Z",
   "count": 5,
   "data": { ... },
@@ -71,7 +71,9 @@ Base: `https://5thstreetcapital.netlify.app/.netlify/functions`
 ### `GET /db-orders`
 
 Query params: `scope=open|historical|all` (default `all`),
-`type=stock|option|all`, `symbol=TSLA`, `limit` (≤1000, default 500).
+`type=stock|option|all`, `symbol=TSLA`, `limit` (≤1000, default 500),
+`offset` (pages over each table's rows, newest first; `data.page.has_more`
+signals another page).
 
 `data`:
 

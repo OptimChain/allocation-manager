@@ -1,5 +1,5 @@
 // db-bot-activity.cjs
-// Netlify DB (Neon Postgres) backed bot activity log — replaces the in-memory
+// Postgres-backed bot activity log — replaces the in-memory
 // action log in robinhood-bot.cjs that reset on every cold start.
 //
 //   GET  /.netlify/functions/db-bot-activity?limit=50&type=BUY_ORDER&status=submitted&symbol=TSLA&order_id=<id>&since=<ISO>
@@ -25,14 +25,21 @@ const FETCH_CEILING = 500;
 async function handleGet(db, event) {
   const params = event.queryStringParameters || {};
   const limit   = Math.min(Math.max(parseInt(params.limit || '50', 10) || 50, 1), FETCH_CEILING);
+  const offset  = Math.max(parseInt(params.offset || '0', 10) || 0, 0);
   const type    = params.type   || null;
   const status  = params.status || null;
   const symbol  = (params.symbol || '').toUpperCase() || null;
   const orderId = params.order_id || null;
   const since   = t.toIso(params.since);
+  const hasFilters = Boolean(type || status || symbol || orderId || since);
 
-  // Fetch a full page, filter in JS, then trim to the requested limit
-  const rows = await t.fetchBotEvents(db, FETCH_CEILING);
+  // Unfiltered: paginate in SQL (arbitrary depth). Filtered: filter in JS over
+  // a window starting at offset, so offset still pages through filtered results
+  // one FETCH_CEILING window at a time.
+  const rows = hasFilters
+    ? await t.fetchBotEvents(db, FETCH_CEILING, offset)
+    : await t.fetchBotEvents(db, limit, offset);
+
   const events = rows.map(t.rowToBotEvent).filter(e =>
     (!type    || e.event_type === type) &&
     (!status  || e.status === status) &&
@@ -43,7 +50,8 @@ async function handleGet(db, event) {
 
   return t.respond(200, t.envelope({
     resource: RESOURCE, action: 'list',
-    data: { events }, count: events.length,
+    data: { events, page: { limit, offset, has_more: rows.length === (hasFilters ? FETCH_CEILING : limit) } },
+    count: events.length,
   }));
 }
 
@@ -84,7 +92,7 @@ exports.handler = async (event) => {
   const db = t.getDb();
   if (!db) {
     return t.respond(503, t.errorEnvelope(RESOURCE, 'unavailable', 'DB_NOT_CONFIGURED',
-      'NETLIFY_DATABASE_URL is not set. Point it at the Render Postgres (allocation-manager-db) external connection string — see docs/netlify-db.md.'));
+      'NETLIFY_DATABASE_URL is not set. Point it at the Render Postgres (allocation-manager-db) external connection string — see docs/db.md.'));
   }
 
   try {

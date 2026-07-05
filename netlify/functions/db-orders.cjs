@@ -1,5 +1,5 @@
 // db-orders.cjs
-// Netlify DB (Neon Postgres) backed order store.
+// Postgres-backed order store.
 //
 //   GET    /.netlify/functions/db-orders?scope=open|historical|all&type=stock|option|all&symbol=TSLA&limit=500
 //   POST   /.netlify/functions/db-orders          — upsert orders (Robinhood MCP write path)
@@ -32,10 +32,12 @@ async function handleGet(db, event) {
   const type   = (params.type  || 'all').toLowerCase();
   const symbol = (params.symbol || '').toUpperCase();
   const limit  = Math.min(Math.max(parseInt(params.limit || '500', 10) || 500, 1), 1000);
+  // offset pages over each table's rows (newest first) before bucketing
+  const offset = Math.max(parseInt(params.offset || '0', 10) || 0, 0);
 
   const [stockRows, optionRows] = await Promise.all([
-    type === 'option' ? [] : t.fetchStockOrders(db, limit),
-    type === 'stock'  ? [] : t.fetchOptionOrders(db, limit),
+    type === 'option' ? [] : t.fetchStockOrders(db, limit, offset),
+    type === 'stock'  ? [] : t.fetchOptionOrders(db, limit, offset),
   ]);
 
   const data = {
@@ -65,6 +67,8 @@ async function handleGet(db, event) {
     historical_orders:        data.historical_orders.length,
     historical_option_orders: data.historical_option_orders.length,
   };
+  // has_more: either table returned a full page, so another page exists
+  data.page = { limit, offset, has_more: stockRows.length === limit || optionRows.length === limit };
 
   const count = data.open_orders.length + data.open_option_orders.length
               + data.historical_orders.length + data.historical_option_orders.length;
@@ -150,7 +154,7 @@ exports.handler = async (event) => {
   const db = t.getDb();
   if (!db) {
     return t.respond(503, t.errorEnvelope(RESOURCE, 'unavailable', 'DB_NOT_CONFIGURED',
-      'NETLIFY_DATABASE_URL is not set. Point it at the Render Postgres (allocation-manager-db) external connection string — see docs/netlify-db.md.'));
+      'NETLIFY_DATABASE_URL is not set. Point it at the Render Postgres (allocation-manager-db) external connection string — see docs/db.md.'));
   }
 
   try {
