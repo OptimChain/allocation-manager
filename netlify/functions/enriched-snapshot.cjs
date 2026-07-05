@@ -17,6 +17,8 @@
 
 'use strict';
 
+const t = require('./lib/tradingDb.cjs');
+
 // ── Data source: delegate blob-reading to order-book-snapshot ────────────────
 // Netlify sets URL to the current deploy's base URL (e.g. https://xxx--site.netlify.app)
 
@@ -316,6 +318,46 @@ function enrichSnapshot(raw) {
   };
 }
 
+// ── Trading DB overlay ────────────────────────────────────────────────────────
+// The engine writes the blob snapshot infrequently, but the Robinhood MCP
+// writes orders to the trading DB continuously. When the DB is available,
+// its stock AND option orders replace the blob's order book before
+// enrichment, so open orders, historical orders, and every P&L window stay
+// current even when the blob is weeks old. Positions / cash / market data
+// remain blob-sourced (only the engine knows them).
+
+const ORDER_OVERLAY_LIMIT = 1000;
+
+async function overlayDbOrders(raw) {
+  const db = t.getDb();
+  if (!db) return raw;
+  try {
+    await t.ensureSchema(db);
+    const [stockRows, optionRows] = await Promise.all([
+      t.fetchStockOrders(db, ORDER_OVERLAY_LIMIT),
+      t.fetchOptionOrders(db, ORDER_OVERLAY_LIMIT),
+    ]);
+    if (!stockRows.length && !optionRows.length) return raw; // empty DB → keep blob as-is
+
+    const stockOrders  = stockRows.map(t.rowToStockOrder);
+    // Synthesize a leg for legless option rows so P&L groups by chain_symbol
+    // instead of the 'OPT' fallback (same treatment as db-pnl)
+    const optionOrders = optionRows.map(t.rowToOptionOrder).map(o =>
+      o.legs && o.legs.length ? o : { ...o, legs: [{ chain_symbol: o.chain_symbol }] }
+    );
+
+    raw.portfolio.open_orders        = stockOrders.filter(o => t.OPEN_STATES.has(o.state));
+    raw.portfolio.open_option_orders = optionOrders.filter(o => t.OPEN_STATES.has(o.state));
+    raw.recent_orders        = stockOrders;
+    raw.recent_option_orders = optionOrders;
+    raw.orders_source = 'db';
+    raw.orders_as_of  = new Date().toISOString();
+  } catch (err) {
+    console.error('enriched-snapshot: DB order overlay failed, serving blob orders:', err.message);
+  }
+  return raw;
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 // Export enrichment helpers so local dev (vite-mock-api.ts) can run the same
@@ -330,8 +372,10 @@ exports.handler = async (event) => {
   }
 
   try {
-    const raw      = await fetchRawSnapshot();
+    const raw      = await overlayDbOrders(await fetchRawSnapshot());
     const enriched = enrichSnapshot(raw);
+    enriched.orders_source = raw.orders_source || 'blob';
+    enriched.orders_as_of  = raw.orders_as_of  || raw.timestamp;
     return {
       statusCode: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },
