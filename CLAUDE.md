@@ -176,9 +176,11 @@ functions; the Robinhood MCP writes through the same endpoints. The frontend
 falls back to the blob snapshot while the DB is empty. OpenAPI spec:
 `public/openapi.yaml`, served at `/openapi.yaml` and rendered at `/docs`
 (Redoc) on the site. Full API guide: `docs/netlify-db.md`.
-Provision with `netlify db init` (sets
-`NETLIFY_DATABASE_URL`); optional `TRADING_DB_TOKEN` guards writes;
-`TRADING_DB_MEMORY=1` runs the endpoints without a DB for local testing.
+Backing store: Render Postgres `allocation-manager-db`
+(`dpg-d950tobtqb8s73e9all0-a`, basic_256mb, oregon) — its external
+connection string is set as `NETLIFY_DATABASE_URL` on the Netlify site.
+Optional `TRADING_DB_TOKEN` guards writes; `TRADING_DB_MEMORY=1` runs the
+endpoints without a DB for local testing.
 
 ### RH API Gotchas
 - `get_all_stock_orders()`: `side` is lowercase, `symbol` is null (instrument URL only), open orders use `id`/`type`/`price` (not `order_id`/`order_type`/`limit_price`)

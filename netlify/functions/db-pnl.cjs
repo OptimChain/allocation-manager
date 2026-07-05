@@ -87,7 +87,7 @@ exports.handler = async (event) => {
   const db = t.getDb();
   if (!db) {
     return t.respond(503, t.errorEnvelope(RESOURCE, 'unavailable', 'DB_NOT_CONFIGURED',
-      'NETLIFY_DATABASE_URL is not set. Provision Netlify DB with `netlify db init` (or claim it in the Netlify dashboard).'));
+      'NETLIFY_DATABASE_URL is not set. Point it at the Render Postgres (allocation-manager-db) external connection string — see docs/netlify-db.md.'));
   }
 
   try {

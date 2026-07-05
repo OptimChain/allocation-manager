@@ -322,7 +322,10 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     DbNotConfigured:
-      description: NETLIFY_DATABASE_URL is not set — provision with `netlify db init`
+      description: >-
+        NETLIFY_DATABASE_URL is not set on the site. Point it at the Render
+        Postgres (allocation-manager-db) external connection string — see
+        docs/netlify-db.md.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
