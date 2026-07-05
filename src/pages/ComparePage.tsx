@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { PortfolioChart } from '../components/PortfolioChart';
 import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset } from '../services/twelveDataService';
+import { clearTwelveDataCache } from '../services/twelveDataCache';
 import { processPortfolioReturns, calculateCorrelations } from '../utils/portfolioCalculations';
 import { useTwelveDataLivePrices } from '../hooks/useTwelveDataLivePrices';
 
@@ -29,13 +30,27 @@ export default function ComparePage() {
     () => Object.fromEntries(PORTFOLIO_ASSETS.map((a) => [a.symbol, 0]))
   );
 
+  // Only the enabled symbols are ever fetched — keeps request bursts small so
+  // we stay under Twelve Data's rate limit. Responses are cached, so toggling
+  // an asset back on is usually a cache hit rather than a new API call.
+  const enabledSymbols = useMemo(
+    () => PORTFOLIO_ASSETS.filter((a) => enabledAssets[a.symbol]).map((a) => a.symbol),
+    [enabledAssets]
+  );
+  const enabledKey = enabledSymbols.join(',');
+
   const fetchData = async (isRefresh = false) => {
+    if (enabledSymbols.length === 0) {
+      setPortfolioData([]);
+      setLoading(false);
+      return;
+    }
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
 
     try {
-      const data = await getPortfolioData(selectedRange);
+      const data = await getPortfolioData(selectedRange, enabledSymbols);
       setPortfolioData(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
@@ -45,9 +60,17 @@ export default function ComparePage() {
     }
   };
 
+  // Refetch when the range or the enabled set changes (cache absorbs repeats).
   useEffect(() => {
     fetchData();
-  }, [selectedRange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRange, enabledKey]);
+
+  // Refresh is an explicit "get fresh data" action — bypass the cache.
+  const handleRefresh = () => {
+    clearTwelveDataCache();
+    fetchData(true);
+  };
 
   const chartData = useMemo(() => {
     if (portfolioData.length === 0) return [];
@@ -59,10 +82,6 @@ export default function ComparePage() {
   const correlations = useMemo(() => calculateCorrelations(chartData), [chartData]);
 
   // Live tick stream (Twelve Data WebSocket) for the currently enabled assets.
-  const enabledSymbols = useMemo(
-    () => PORTFOLIO_ASSETS.filter((a) => enabledAssets[a.symbol]).map((a) => a.symbol),
-    [enabledAssets]
-  );
   const { prices: livePrices, status: liveStatus } = useTwelveDataLivePrices(enabledSymbols);
 
   const toggleAsset = (symbol: string) => {
@@ -74,7 +93,9 @@ export default function ComparePage() {
     setFees((prev) => ({ ...prev, [symbol]: numValue }));
   };
 
-  if (loading) {
+  // Only show the full-page skeleton on the very first load; later refetches
+  // (range switch, toggling an asset) keep the existing chart visible.
+  if (loading && portfolioData.length === 0) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="animate-pulse">
@@ -93,7 +114,7 @@ export default function ComparePage() {
         <div className="text-center py-12">
           <p className="text-lg font-medium text-red-600 mb-4">{error}</p>
           <button
-            onClick={() => fetchData()}
+            onClick={handleRefresh}
             className="px-4 py-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-800 dark:hover:bg-gray-200 text-sm"
           >
             Try Again
@@ -128,7 +149,7 @@ export default function ComparePage() {
             </span>
           </div>
           <button
-            onClick={() => fetchData(true)}
+            onClick={handleRefresh}
             disabled={refreshing}
             className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-zinc-900 disabled:opacity-50 text-sm"
           >
