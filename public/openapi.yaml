@@ -1,0 +1,631 @@
+openapi: 3.0.3
+info:
+  title: 5th Street Capital — Trading DB API
+  version: 1.0.0
+  description: |
+    Netlify DB (Neon Postgres) backed endpoints for open orders, bot activity,
+    and realized P&L. The Robinhood MCP service writes through the same
+    endpoints the frontend reads from.
+
+    Every response uses a shared envelope: `{ ok, resource, action, source,
+    as_of, count, data, error }`. Branch on `ok`, read the payload from
+    `data`, and diagnostics from `error`.
+
+    Write endpoints accept both engine-blob and raw Robinhood API field
+    spellings (`order_id`/`id`, `order_type`/`type`, `limit_price`/`price`,
+    `BUY`/`buy`, leg `strike`/`strike_price`, `expiration`/`expiration_date`);
+    they are normalized server-side. Naive timestamps are treated as UTC.
+
+    Human-readable guide: `docs/netlify-db.md` in the repository.
+servers:
+  - url: https://5thstreetcapital.netlify.app/.netlify/functions
+    description: Production
+  - url: http://localhost:9000
+    description: Local functions server (TRADING_DB_MEMORY=1 node scripts/local-functions.cjs)
+
+tags:
+  - name: orders
+    description: Stock and option orders (open + historical)
+  - name: bot-activity
+    description: Durable bot action log
+  - name: pnl
+    description: Realized P&L computed from DB orders
+
+security: []
+
+paths:
+  /db-orders:
+    get:
+      tags: [orders]
+      operationId: listOrders
+      summary: List orders bucketed into open vs historical
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [open, historical, all], default: all }
+        - name: type
+          in: query
+          schema: { type: string, enum: [stock, option, all], default: all }
+        - name: symbol
+          in: query
+          description: Filter by stock symbol / option chain symbol
+          schema: { type: string, example: TSLA }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 500 }
+      responses:
+        '200':
+          description: Bucketed orders
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/OrderBuckets' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+    post:
+      tags: [orders]
+      operationId: upsertOrders
+      summary: Upsert orders (Robinhood MCP write path)
+      description: |
+        Idempotent upsert keyed on `order_id` — safe to re-send full order
+        dumps. Option orders in mixed arrays are auto-detected via
+        `legs` / `chain_symbol` / `direction`. The original payload is
+        preserved in a `raw` JSONB column.
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/OrdersUpsertRequest'
+                - type: array
+                  description: Mixed array of stock and option orders
+                  items:
+                    oneOf:
+                      - $ref: '#/components/schemas/StockOrderInput'
+                      - $ref: '#/components/schemas/OptionOrderInput'
+                - $ref: '#/components/schemas/StockOrderInput'
+            examples:
+              engineBlobShape:
+                summary: Engine-blob portfolio shape
+                value:
+                  open_orders:
+                    - order_id: ord-1
+                      symbol: TSLA
+                      side: BUY
+                      order_type: limit
+                      state: queued
+                      quantity: 10
+                      limit_price: 245.0
+                      created_at: '2026-07-05T06:30:00'
+                  recent_option_orders:
+                    - order_id: opt-1
+                      chain_symbol: CRWD
+                      direction: credit
+                      state: filled
+                      quantity: 1
+                      processed_premium: 550
+                      created_at: '2026-07-02T13:00:00'
+              rawRhShape:
+                summary: Raw Robinhood API spellings
+                value:
+                  orders:
+                    - id: rh-1
+                      symbol: NVDA
+                      side: buy
+                      type: limit
+                      state: confirmed
+                      quantity: '2'
+                      price: '131.25'
+                      created_at: '2026-07-01T14:00:00'
+      responses:
+        '200':
+          description: Upsert result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UpsertResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+    delete:
+      tags: [orders]
+      operationId: deleteOrder
+      summary: Delete an order by id (removed from both stock and option tables)
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+        - {}
+      parameters:
+        - name: order_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          deleted: { type: integer, example: 1 }
+                          order_id: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+
+  /db-bot-activity:
+    get:
+      tags: [bot-activity]
+      operationId: listBotActivity
+      summary: List bot activity events, newest first
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - name: type
+          in: query
+          description: Filter by event_type
+          schema: { type: string, example: BUY_ORDER }
+        - name: status
+          in: query
+          schema: { type: string, example: submitted }
+        - name: symbol
+          in: query
+          schema: { type: string, example: TSLA }
+        - name: since
+          in: query
+          description: Only events at/after this ISO timestamp
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Bot activity events
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          events:
+                            type: array
+                            items: { $ref: '#/components/schemas/BotEvent' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+    post:
+      tags: [bot-activity]
+      operationId: appendBotActivity
+      summary: Append bot activity events (Robinhood MCP write path)
+      description: |
+        Accepts `{ events: [...] }`, a bare array, or a single event.
+        snake_case or camelCase (`event_type`/`type`, `dry_run`/`dryRun`,
+        `created_at`/`timestamp`). `total` is derived from
+        `quantity × price` when omitted. Supplying `event_id` makes the
+        write idempotent — duplicates are skipped, not re-inserted.
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    events:
+                      type: array
+                      items: { $ref: '#/components/schemas/BotEventInput' }
+                  required: [events]
+                - type: array
+                  items: { $ref: '#/components/schemas/BotEventInput' }
+                - $ref: '#/components/schemas/BotEventInput'
+            examples:
+              batch:
+                value:
+                  events:
+                    - event_id: evt-1
+                      type: BUY_ORDER
+                      status: submitted
+                      symbol: TSLA
+                      quantity: 10
+                      price: 245
+                      dryRun: false
+                      timestamp: '2026-07-05T06:30:01Z'
+      responses:
+        '200':
+          description: Append result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AppendResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+
+  /db-pnl:
+    get:
+      tags: [pnl]
+      operationId: getPnl
+      summary: Realized P&L per period, computed from filled DB orders
+      description: |
+        Uses the same math as the enriched-snapshot path
+        (`computeStockPnl` / `computeOptionPnl`); option P&L is additionally
+        filtered to the period cutoff. Also surfaces open orders for the
+        Open Orders / notional summary card.
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: ['1W', '1M', '3M', '6M', '1Y', '5Y', 'all']
+            default: all
+      responses:
+        '200':
+          description: P&L per period
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PnlData' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Required on writes only when TRADING_DB_TOKEN is set on the site.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: Alternative to bearerAuth — same TRADING_DB_TOKEN value.
+
+  responses:
+    BadRequest:
+      description: Malformed request (BAD_JSON, NO_ORDERS, NO_EVENTS, MISSING_PARAM, BAD_PERIOD)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: TRADING_DB_TOKEN is set and the request lacked valid credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    DbNotConfigured:
+      description: NETLIFY_DATABASE_URL is not set — provision with `netlify db init`
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  schemas:
+    Envelope:
+      type: object
+      description: Shared response envelope returned by every endpoint.
+      required: [ok, resource, action, source, as_of, data, error]
+      properties:
+        ok: { type: boolean }
+        resource: { type: string, enum: [orders, bot-activity, pnl] }
+        action: { type: string, enum: [list, upsert, delete, append, compute, write, unavailable, unknown, error] }
+        source: { type: string, enum: [netlify-db] }
+        as_of: { type: string, format: date-time }
+        count: { type: integer, nullable: true }
+        data: { nullable: true }
+        error:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/ApiError' }]
+
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            ok: { type: boolean, enum: [false] }
+            error: { $ref: '#/components/schemas/ApiError' }
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [DB_NOT_CONFIGURED, UNAUTHORIZED, BAD_JSON, NO_ORDERS, NO_EVENTS, MISSING_PARAM, BAD_PERIOD, METHOD_NOT_ALLOWED, DB_ERROR]
+        message: { type: string }
+
+    OrderBuckets:
+      type: object
+      properties:
+        open_orders:
+          type: array
+          items: { $ref: '#/components/schemas/StockOrder' }
+        open_option_orders:
+          type: array
+          items: { $ref: '#/components/schemas/OptionOrder' }
+        historical_orders:
+          type: array
+          items: { $ref: '#/components/schemas/StockOrder' }
+        historical_option_orders:
+          type: array
+          items: { $ref: '#/components/schemas/OptionOrder' }
+        counts:
+          type: object
+          additionalProperties: { type: integer }
+
+    StockOrder:
+      type: object
+      description: Normalized stock order (SnapshotOrder contract).
+      properties:
+        order_id: { type: string }
+        symbol: { type: string, nullable: true }
+        side: { type: string, enum: [BUY, SELL], nullable: true }
+        order_type: { type: string, nullable: true, example: limit }
+        trigger: { type: string, nullable: true, example: immediate }
+        state: { type: string, nullable: true, example: queued }
+        quantity: { type: number }
+        limit_price: { type: number }
+        stop_price: { type: number, nullable: true }
+        filled_quantity: { type: number }
+        average_price: { type: number, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    OptionOrder:
+      type: object
+      description: Normalized option order (SnapshotOptionOrder contract).
+      properties:
+        order_id: { type: string }
+        chain_symbol: { type: string, nullable: true }
+        direction: { type: string, enum: [debit, credit], nullable: true }
+        state: { type: string, nullable: true }
+        quantity: { type: number }
+        price: { type: number }
+        processed_premium: { type: number, nullable: true }
+        order_type: { type: string, nullable: true }
+        opening_strategy: { type: string, nullable: true }
+        legs:
+          type: array
+          items: { $ref: '#/components/schemas/OptionLeg' }
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    OptionLeg:
+      type: object
+      properties:
+        chain_symbol: { type: string, nullable: true }
+        strike_price: { nullable: true, oneOf: [{ type: number }, { type: string }] }
+        expiration_date: { type: string, nullable: true, example: '2026-09-18' }
+        option_type: { type: string, enum: [call, put], nullable: true }
+        side: { type: string, enum: [BUY, SELL], nullable: true }
+        position_effect: { type: string, nullable: true, example: open }
+
+    StockOrderInput:
+      type: object
+      description: |
+        Stock order in either dialect. Aliases accepted: `id` → order_id,
+        `type` → order_type, `price` → limit_price,
+        `cumulative_quantity` → filled_quantity; `side` case-insensitive.
+      properties:
+        order_id: { type: string }
+        id: { type: string, description: Alias for order_id (raw RH API) }
+        symbol: { type: string }
+        side: { type: string, example: buy }
+        order_type: { type: string }
+        type: { type: string, description: Alias for order_type (raw RH API) }
+        trigger: { type: string }
+        state: { type: string }
+        quantity: { oneOf: [{ type: number }, { type: string }] }
+        limit_price: { oneOf: [{ type: number }, { type: string }] }
+        price: { oneOf: [{ type: number }, { type: string }], description: Alias for limit_price (raw RH API) }
+        stop_price: { oneOf: [{ type: number }, { type: string }], nullable: true }
+        filled_quantity: { oneOf: [{ type: number }, { type: string }] }
+        cumulative_quantity: { oneOf: [{ type: number }, { type: string }], description: Alias for filled_quantity (raw RH API) }
+        average_price: { oneOf: [{ type: number }, { type: string }], nullable: true }
+        created_at: { type: string, description: ISO timestamp; naive values treated as UTC }
+        updated_at: { type: string }
+
+    OptionOrderInput:
+      type: object
+      description: |
+        Option order in either dialect. Leg aliases accepted:
+        `strike` → strike_price, `expiration` → expiration_date.
+        Auto-detected in mixed arrays via legs/chain_symbol/direction.
+      properties:
+        order_id: { type: string }
+        id: { type: string, description: Alias for order_id (raw RH API) }
+        chain_symbol: { type: string }
+        direction: { type: string, example: credit }
+        state: { type: string }
+        quantity: { oneOf: [{ type: number }, { type: string }] }
+        price: { oneOf: [{ type: number }, { type: string }] }
+        processed_premium: { oneOf: [{ type: number }, { type: string }], nullable: true }
+        order_type: { type: string }
+        type: { type: string, description: Alias for order_type (raw RH API) }
+        opening_strategy: { type: string, nullable: true }
+        legs:
+          type: array
+          items:
+            type: object
+            properties:
+              chain_symbol: { type: string }
+              strike_price: { oneOf: [{ type: number }, { type: string }] }
+              strike: { oneOf: [{ type: number }, { type: string }], description: Alias for strike_price (engine blob) }
+              expiration_date: { type: string }
+              expiration: { type: string, description: Alias for expiration_date (engine blob) }
+              option_type: { type: string }
+              side: { type: string }
+              position_effect: { type: string }
+        created_at: { type: string }
+        updated_at: { type: string }
+
+    OrdersUpsertRequest:
+      type: object
+      description: |
+        Object form of the upsert body. Any combination of these keys is
+        accepted — including the engine-blob portfolio shape — plus
+        `order` / `option_order` for single orders.
+      properties:
+        orders:
+          type: array
+          items: { $ref: '#/components/schemas/StockOrderInput' }
+        stock_orders:
+          type: array
+          items: { $ref: '#/components/schemas/StockOrderInput' }
+        open_orders:
+          type: array
+          items: { $ref: '#/components/schemas/StockOrderInput' }
+        recent_orders:
+          type: array
+          items: { $ref: '#/components/schemas/StockOrderInput' }
+        option_orders:
+          type: array
+          items: { $ref: '#/components/schemas/OptionOrderInput' }
+        open_option_orders:
+          type: array
+          items: { $ref: '#/components/schemas/OptionOrderInput' }
+        recent_option_orders:
+          type: array
+          items: { $ref: '#/components/schemas/OptionOrderInput' }
+        order: { $ref: '#/components/schemas/StockOrderInput' }
+        option_order: { $ref: '#/components/schemas/OptionOrderInput' }
+
+    UpsertResult:
+      type: object
+      properties:
+        stock_upserted: { type: integer }
+        option_upserted: { type: integer }
+        skipped: { type: integer, description: Orders without an order_id/id }
+        order_ids:
+          type: array
+          items: { type: string }
+
+    BotEvent:
+      type: object
+      description: Stored bot activity event (snake_case).
+      properties:
+        id: { type: integer }
+        event_id: { type: string, nullable: true }
+        event_type: { type: string, example: BUY_ORDER }
+        status: { type: string, example: submitted }
+        symbol: { type: string, nullable: true }
+        quantity: { type: number, nullable: true }
+        price: { type: number, nullable: true }
+        total: { type: number, nullable: true }
+        message: { type: string, nullable: true }
+        details: { type: string, nullable: true }
+        dry_run: { type: boolean }
+        metadata: { type: object, nullable: true, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+
+    BotEventInput:
+      type: object
+      description: |
+        Event in either dialect. Aliases accepted: `type` → event_type,
+        `dryRun` → dry_run, `timestamp` → created_at, `id` → event_id.
+        `total` is derived from quantity × price when omitted; `event_id`
+        makes the write idempotent.
+      properties:
+        event_id: { type: string }
+        id: { type: string, description: Alias for event_id }
+        event_type: { type: string }
+        type: { type: string, description: Alias for event_type }
+        status: { type: string }
+        symbol: { type: string }
+        quantity: { oneOf: [{ type: number }, { type: string }] }
+        price: { oneOf: [{ type: number }, { type: string }] }
+        total: { oneOf: [{ type: number }, { type: string }] }
+        message: { type: string }
+        details: { type: string }
+        dry_run: { type: boolean }
+        dryRun: { type: boolean, description: Alias for dry_run }
+        metadata: { type: object, additionalProperties: true }
+        created_at: { type: string }
+        timestamp: { type: string, description: Alias for created_at }
+
+    AppendResult:
+      type: object
+      properties:
+        inserted: { type: integer }
+        skipped: { type: integer, description: Duplicate event_id values }
+        ids:
+          type: array
+          items: { type: integer }
+
+    SymbolPnl:
+      type: object
+      properties:
+        symbol: { type: string }
+        realized_pnl: { type: number }
+        total_bought: { type: number }
+        total_sold: { type: number }
+        buy_count: { type: integer }
+        sell_count: { type: integer }
+        shares_held: { type: number, description: Stock only }
+        cost_basis: { type: number, description: Stock only }
+
+    PnlResult:
+      type: object
+      properties:
+        total_realized_pnl: { type: number }
+        total_buy_volume: { type: number }
+        total_sell_volume: { type: number }
+        filled_count: { type: integer }
+        symbols:
+          type: array
+          items: { $ref: '#/components/schemas/SymbolPnl' }
+
+    PnlPeriod:
+      type: object
+      properties:
+        stock: { $ref: '#/components/schemas/PnlResult' }
+        option: { $ref: '#/components/schemas/PnlResult' }
+        combined_realized_pnl: { type: number }
+
+    PnlData:
+      type: object
+      properties:
+        periods:
+          type: object
+          description: Keyed by 1W/1M/3M/6M/1Y/5Y (only the requested period when ?period= is set)
+          additionalProperties: { $ref: '#/components/schemas/PnlPeriod' }
+        open_orders:
+          type: array
+          items: { $ref: '#/components/schemas/StockOrder' }
+        open_option_orders:
+          type: array
+          items: { $ref: '#/components/schemas/OptionOrder' }
+        counts:
+          type: object
+          properties:
+            stock_orders: { type: integer }
+            option_orders: { type: integer }
+            open_orders: { type: integer }
+            open_option_orders: { type: integer }

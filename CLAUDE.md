@@ -173,8 +173,10 @@ SafeCashBot (RH API) → blob_logger.py → Netlify Blob store (state-logs)
 Open orders, bot activity, and realized P&L are served from a Netlify DB
 (Neon Postgres) instance via the `db-orders`, `db-bot-activity`, and `db-pnl`
 functions; the Robinhood MCP writes through the same endpoints. The frontend
-falls back to the blob snapshot while the DB is empty. Full API docs:
-`docs/netlify-db.md`. Provision with `netlify db init` (sets
+falls back to the blob snapshot while the DB is empty. OpenAPI spec:
+`public/openapi.yaml`, served at `/openapi.yaml` and rendered at `/docs`
+(Redoc) on the site. Full API guide: `docs/netlify-db.md`.
+Provision with `netlify db init` (sets
 `NETLIFY_DATABASE_URL`); optional `TRADING_DB_TOKEN` guards writes;
 `TRADING_DB_MEMORY=1` runs the endpoints without a DB for local testing.
 

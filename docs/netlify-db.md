@@ -11,6 +11,16 @@ Robinhood MCP ──POST──▶ db-orders / db-bot-activity ──▶ Netlify 
 TradePage / PnLAllocationPage ◀──GET── db-orders / db-bot-activity / db-pnl
 ```
 
+**OpenAPI doc model** — the machine-readable contract lives at
+`public/openapi.yaml` and is served with the site:
+
+- Rendered docs: `https://5thstreetcapital.netlify.app/docs` (Redoc)
+- Raw spec: `https://5thstreetcapital.netlify.app/openapi.yaml`
+
+The spec is validated in CI-able tests (`tests/backend/openapi.test.cjs`)
+and kept in sync with the implemented endpoints, envelope, and error codes.
+Point codegen or the MCP client at `/openapi.yaml`.
+
 ## Provisioning
 
 ```bash
