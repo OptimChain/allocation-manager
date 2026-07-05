@@ -2,8 +2,8 @@
 // Fetches and calculates IV z-score, ETF flows, 200-week MA, historical vol
 
 import { API_BASE } from '../config/api';
+import { tdProxyUrl } from './tdProxy';
 
-const TWELVE_DATA_API = 'https://api.twelvedata.com';
 const BTC_ETFS = ['BTC'];
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -81,12 +81,6 @@ function stddev(arr: number[]): number {
   return Math.sqrt(variance);
 }
 
-const getApiKey = (): string => {
-  const key = import.meta.env.VITE_TWELVE_DATA_API_KEY;
-  if (!key) throw new Error('VITE_TWELVE_DATA_API_KEY not set');
-  return key;
-};
-
 // ── Data Fetchers ────────────────────────────────────────────────────────
 
 async function fetchOHLCV(
@@ -94,12 +88,10 @@ async function fetchOHLCV(
   outputsize: number,
   interval: string = '1day',
 ): Promise<OHLCVData[]> {
-  const apiKey = getApiKey();
-  const url = new URL(`${TWELVE_DATA_API}/time_series`);
+  const url = tdProxyUrl('time_series');
   url.searchParams.set('symbol', symbol);
   url.searchParams.set('interval', interval);
   url.searchParams.set('outputsize', outputsize.toString());
-  url.searchParams.set('apikey', apiKey);
 
   const response = await fetch(url.toString());
   if (!response.ok) throw new Error(`Failed to fetch ${symbol}: ${response.status}`);

@@ -3,8 +3,7 @@
 
 import { API_BASE } from '../config/api';
 import { cachedJson } from './twelveDataCache';
-
-const TWELVE_DATA_API = 'https://api.twelvedata.com';
+import { tdProxyUrl } from './tdProxy';
 
 // Cache TTLs (ms). Daily/weekly bars change at most once per day; intraday
 // series and quotes refresh faster. Historical point lookups are immutable.
@@ -59,14 +58,6 @@ export interface PortfolioAsset {
   data: NormalizedPriceData[];
 }
 
-const getApiKey = (): string => {
-  const key = import.meta.env.VITE_TWELVE_DATA_API_KEY;
-  if (!key) {
-    throw new Error('VITE_TWELVE_DATA_API_KEY environment variable is not set');
-  }
-  return key;
-};
-
 // SMA period in calendar days (converted to data-point windows per interval)
 const SMA_DAYS = 150;
 
@@ -94,13 +85,10 @@ export async function getTimeSeries(
   const ttl = config.interval === '1day' || config.interval === '1week' ? TTL_DAILY : TTL_INTRADAY;
 
   return cachedJson(`ts:${symbol}:${range}`, ttl, async () => {
-    const apiKey = getApiKey();
-
-    const url = new URL(`${TWELVE_DATA_API}/time_series`);
+    const url = tdProxyUrl('time_series');
     url.searchParams.set('symbol', symbol);
     url.searchParams.set('interval', config.interval);
     url.searchParams.set('outputsize', config.outputsize.toString());
-    url.searchParams.set('apikey', apiKey);
 
     const response = await fetch(url.toString());
 
@@ -217,10 +205,8 @@ export interface BitcoinQuote {
 
 export async function getBitcoinQuote(): Promise<BitcoinQuote> {
   return cachedJson('quote:BTC/USD', TTL_QUOTE, async () => {
-  const apiKey = getApiKey();
-  const url = new URL(`${TWELVE_DATA_API}/quote`);
+  const url = tdProxyUrl('quote');
   url.searchParams.set('symbol', 'BTC/USD');
-  url.searchParams.set('apikey', apiKey);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -263,10 +249,8 @@ export interface EtfQuote {
 
 export async function getEtfQuote(symbol: string = 'BTC'): Promise<EtfQuote> {
   return cachedJson(`quote:${symbol}`, TTL_QUOTE, async () => {
-  const apiKey = getApiKey();
-  const url = new URL(`${TWELVE_DATA_API}/quote`);
+  const url = tdProxyUrl('quote');
   url.searchParams.set('symbol', symbol);
-  url.searchParams.set('apikey', apiKey);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -293,13 +277,11 @@ export async function getEtfQuote(symbol: string = 'BTC'): Promise<EtfQuote> {
 
 export async function getBtcPriceAtTime(datetime: string): Promise<number> {
   return cachedJson(`btcAt:${datetime}`, TTL_HISTORICAL_POINT, async () => {
-  const apiKey = getApiKey();
-  const url = new URL(`${TWELVE_DATA_API}/time_series`);
+  const url = tdProxyUrl('time_series');
   url.searchParams.set('symbol', 'BTC/USD');
   url.searchParams.set('interval', '1h');
   url.searchParams.set('outputsize', '1');
   url.searchParams.set('end_date', datetime);
-  url.searchParams.set('apikey', apiKey);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -336,13 +318,10 @@ export async function getBitcoinPriceHistory(
   const ttl = config.interval === '1day' || config.interval === '1week' ? TTL_DAILY : TTL_INTRADAY;
 
   return cachedJson(`btcHist:${days}`, ttl, async () => {
-    const apiKey = getApiKey();
-
-    const url = new URL(`${TWELVE_DATA_API}/time_series`);
+    const url = tdProxyUrl('time_series');
     url.searchParams.set('symbol', 'BTC/USD');
     url.searchParams.set('interval', config.interval);
     url.searchParams.set('outputsize', config.outputsize.toString());
-    url.searchParams.set('apikey', apiKey);
 
     const response = await fetch(url.toString());
     if (!response.ok) {

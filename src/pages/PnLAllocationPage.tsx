@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, XCircle } from 'lucide-react';
 import {
   getEnrichedSnapshot,
+  getDbPnl,
+  DbPnlData,
   EnrichedSnapshot,
   PnLPeriod,
 } from '../services/robinhoodService';
@@ -15,25 +17,44 @@ import {
 
 export default function PnLAllocationPage() {
   const [snapshot,   setSnapshot]   = useState<EnrichedSnapshot | null>(null);
+  const [dbPnl,      setDbPnl]      = useState<DbPnlData | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [pnlPeriod,  setPnlPeriod]  = useState<PnLPeriod>('1Y');
 
-  const pnl = snapshot?.pnl_by_period[pnlPeriod] ?? null;
+  // The trading DB is the primary P&L source once it holds filled orders; fall
+  // back to the blob snapshot's pre-computed pnl_by_period until then.
+  const dbHasFills = dbPnl != null && Object.values(dbPnl.periods).some(
+    p => p.stock.filled_count + p.option.filled_count > 0
+  );
+  const pnl = dbHasFills
+    ? dbPnl!.periods[pnlPeriod] ?? null
+    : snapshot?.pnl_by_period[pnlPeriod] ?? null;
+  const openOrders = dbHasFills && (dbPnl!.open_orders.length > 0 || dbPnl!.counts.stock_orders > 0)
+    ? dbPnl!.open_orders
+    : snapshot
+      ? (snapshot.portfolio.open_orders.length > 0 ? snapshot.portfolio.open_orders : snapshot.order_book)
+      : [];
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     setError(null);
-    try {
-      const s = await getEnrichedSnapshot();
-      setSnapshot(s);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to fetch snapshot');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+
+    const [snapshotResult, dbPnlResult] = await Promise.allSettled([
+      getEnrichedSnapshot(),
+      getDbPnl(),
+    ]);
+
+    if (snapshotResult.status === 'fulfilled') setSnapshot(snapshotResult.value);
+    setDbPnl(dbPnlResult.status === 'fulfilled' ? dbPnlResult.value : null);
+
+    if (snapshotResult.status === 'rejected') {
+      setError(snapshotResult.reason instanceof Error ? snapshotResult.reason.message : 'Failed to fetch snapshot');
     }
+
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -96,7 +117,12 @@ export default function PnLAllocationPage() {
           <div className="mt-8 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Order P&amp;L</h2>
-              <p className="text-gray-500 mt-1">Realized profit &amp; loss from filled orders</p>
+              <p className="text-gray-500 mt-1">
+                Realized profit &amp; loss from filled orders
+                <span className="ml-2 px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 rounded" title="Data source">
+                  {dbHasFills ? 'db' : 'snapshot'}
+                </span>
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex bg-gray-100 dark:bg-zinc-800 rounded-xl p-1 overflow-x-auto">
@@ -123,11 +149,7 @@ export default function PnLAllocationPage() {
                 stock={pnl.stock}
                 option={pnl.option}
                 periodLabel={PERIOD_LABEL[pnlPeriod]}
-                openOrders={
-                  snapshot.portfolio.open_orders.length > 0
-                    ? snapshot.portfolio.open_orders
-                    : snapshot.order_book
-                }
+                openOrders={openOrders}
               />
               <PnLBySymbolTable stock={pnl.stock} option={pnl.option} />
             </>

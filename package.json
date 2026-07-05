@@ -20,8 +20,10 @@
     "functions": "node scripts/local-functions.cjs"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@netlify/blobs": "^10.5.0",
     "lucide-react": "^0.263.1",
+    "pg": "^8.22.0",
     "plaid": "^41.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -31,6 +33,7 @@
     "redis": "^5.11.0"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@netlify/functions": "^5.1.2",
     "@testing-library/jest-dom": "^6.1.4",
     "@testing-library/react": "^14.1.2",
@@ -50,6 +53,8 @@
     "eslint-plugin-react-refresh": "^0.4.3",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
+    "js-yaml": "^5.2.1",
+    "playwright": "^1.61.1",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5",
     "ts-jest": "^29.1.1",

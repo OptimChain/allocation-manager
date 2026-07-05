@@ -50,52 +50,6 @@ export interface Portfolio {
   positions: Position[];
 }
 
-export interface Order {
-  id: string;
-  symbol: string;
-  name: string;
-  side: 'buy' | 'sell';
-  type: string;
-  quantity: number;
-  price: number;
-  state: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SymbolPnL {
-  symbol: string;
-  name: string;
-  realizedPnL: number;
-  totalBought: number;
-  totalSold: number;
-  buyCount: number;
-  sellCount: number;
-  avgBuyPrice: number;
-  avgSellPrice: number;
-  remainingShares: number;
-  remainingCostBasis: number;
-}
-
-export interface FilledOrder {
-  id: string;
-  symbol: string;
-  name: string;
-  side: 'buy' | 'sell';
-  quantity: number;
-  price: number;
-  total: number;
-  createdAt: string;
-}
-
-export interface OrderPnL {
-  totalRealizedPnL: number;
-  totalBuyVolume: number;
-  totalSellVolume: number;
-  symbols: SymbolPnL[];
-  orders: FilledOrder[];
-}
-
 // Order Book Snapshot types (from 5thstreetcapital blob store)
 export interface OptionPosition {
   chain_symbol?: string;
@@ -228,28 +182,6 @@ export interface SnapshotOptionOrder {
   legs?: SnapshotOptionOrderLeg[];
 }
 
-export interface OrderBookSnapshot {
-  timestamp: string;
-  order_book: SnapshotOrder[];
-  portfolio: {
-    cash: {
-      cash: number;
-      cash_available_for_withdrawal: number;
-      buying_power: number;
-      tradeable_cash: number;
-    };
-    equity: number;
-    market_value: number;
-    positions: SnapshotPosition[];
-    open_orders: SnapshotOrder[];
-    open_option_orders?: SnapshotOptionOrder[];
-    options?: OptionPosition[];
-  };
-  recent_orders?: SnapshotOrder[];
-  recent_option_orders?: SnapshotOptionOrder[];
-  market_data: MarketData | null;
-}
-
 export interface BotAction {
   id: string;
   timestamp: string;
@@ -262,39 +194,6 @@ export interface BotAction {
   message?: string;
   details?: string;
   dryRun?: boolean;
-}
-
-export interface BotStatus {
-  status: string;
-  actionsCount: number;
-  lastAction: BotAction | null;
-}
-
-export interface BotAnalysis {
-  timestamp: string;
-  buyingPower: number;
-  suggestions: Array<{
-    type: string;
-    symbol: string;
-    reason: string;
-    priority: string;
-  }>;
-  holdings: Array<{
-    symbol: string;
-    quantity: number;
-    averageCost: number;
-    currentPrice: number;
-    gainPercent: number;
-    value: number;
-  }>;
-}
-
-export interface Quote {
-  symbol: string;
-  price: number;
-  bidPrice: number;
-  askPrice: number;
-  previousClose: number;
 }
 
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -319,92 +218,91 @@ export async function getPortfolio(): Promise<Portfolio> {
   return fetchApi<Portfolio>('/robinhood-portfolio?action=portfolio');
 }
 
-export async function getOrders(): Promise<Order[]> {
-  return fetchApi<Order[]>('/robinhood-portfolio?action=orders');
+// ── Trading DB endpoints (Postgres via db-* functions) ─────────────────────────────────────
+// db-orders / db-bot-activity / db-pnl all return this envelope. The same
+// endpoints are the write path for the Robinhood MCP service.
+
+export interface DbEnvelope<T> {
+  ok: boolean;
+  resource: string;
+  action: string;
+  source: string;
+  as_of: string;
+  count: number | null;
+  data: T;
+  error: { code: string; message: string } | null;
 }
 
-export async function getOrderPnL(): Promise<OrderPnL> {
-  return fetchApi<OrderPnL>('/robinhood-portfolio?action=pnl');
+export interface DbPage {
+  limit: number;
+  offset: number;
+  has_more: boolean;
 }
 
-// Order Book Snapshot
-export async function getOrderBookSnapshot(): Promise<OrderBookSnapshot> {
-  return fetchApi<OrderBookSnapshot>('/order-book-snapshot');
+export interface DbOrders {
+  open_orders: SnapshotOrder[];
+  open_option_orders: SnapshotOptionOrder[];
+  historical_orders: SnapshotOrder[];
+  historical_option_orders: SnapshotOptionOrder[];
+  counts?: Record<string, number>;
+  page?: DbPage;
 }
 
-// Redis Orders
-export interface RedisOrders {
-  openOrders: SnapshotOrder[];
-  openOptionOrders: SnapshotOptionOrder[];
-  historicalOrders: SnapshotOrder[];
-  historicalOptionOrders: SnapshotOptionOrder[];
+export interface DbBotEvent {
+  id: number;
+  event_id: string | null;
+  order_id: string | null;
+  event_type: string;
+  status: string;
+  symbol: string | null;
+  quantity: number | null;
+  price: number | null;
+  total: number | null;
+  message: string | null;
+  details: string | null;
+  dry_run: boolean;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
 }
 
-const OPEN_STATES = new Set(['queued', 'confirmed', 'pending', 'partially_filled', 'unconfirmed']);
-
-export async function getRedisOrders(): Promise<RedisOrders> {
-  const data = await fetchApi<Record<string, Record<string, unknown>>>('/redis-holdings?store=orders');
-
-  const openOrders: SnapshotOrder[] = [];
-  const openOptionOrders: SnapshotOptionOrder[] = [];
-  const historicalOrders: SnapshotOrder[] = [];
-  const historicalOptionOrders: SnapshotOptionOrder[] = [];
-
-  for (const order of Object.values(data)) {
-    const isOpen = OPEN_STATES.has(order.state as string);
-    if (order._type === 'option') {
-      (isOpen ? openOptionOrders : historicalOptionOrders).push(order as unknown as SnapshotOptionOrder);
-    } else {
-      (isOpen ? openOrders : historicalOrders).push(order as unknown as SnapshotOrder);
-    }
-  }
-
-  const byDateDesc = (a: { created_at: string }, b: { created_at: string }) =>
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-
-  openOrders.sort(byDateDesc);
-  openOptionOrders.sort(byDateDesc);
-  historicalOrders.sort(byDateDesc);
-  historicalOptionOrders.sort(byDateDesc);
-
-  return { openOrders, openOptionOrders, historicalOrders, historicalOptionOrders };
-}
-
-export function sendSlackAlert(message: string, error?: string) {
-  fetch(`${API_BASE}/alert-slack`, {
-    method: 'POST',
+async function fetchDb<T>(endpoint: string): Promise<DbEnvelope<T>> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, error, source: 'Trade Page' }),
-  }).catch(() => {}); // fire-and-forget
+  });
+  const body = await response.json().catch(() => null) as DbEnvelope<T> | null;
+  if (!response.ok || !body || body.ok === false) {
+    throw new Error(body?.error?.message || `Request failed: ${response.status}`);
+  }
+  return body;
+}
+
+export async function getDbOrders(scope: 'open' | 'historical' | 'all' = 'all'): Promise<DbOrders> {
+  const env = await fetchDb<DbOrders>(`/db-orders?scope=${scope}`);
+  return env.data;
+}
+
+/** Bot activity from the trading DB, mapped onto the existing BotAction shape. */
+export async function getDbBotActivity(limit: number = 50): Promise<{ actions: BotAction[]; total: number }> {
+  const env = await fetchDb<{ events: DbBotEvent[] }>(`/db-bot-activity?limit=${limit}`);
+  const actions: BotAction[] = env.data.events.map(e => ({
+    id: String(e.id ?? e.event_id),
+    timestamp: e.created_at,
+    type: e.event_type,
+    status: e.status,
+    symbol: e.symbol ?? undefined,
+    quantity: e.quantity ?? undefined,
+    price: e.price ?? undefined,
+    total: e.total ?? undefined,
+    message: e.message ?? undefined,
+    details: e.details ?? undefined,
+    dryRun: e.dry_run,
+  }));
+  return { actions, total: actions.length };
 }
 
 // Bot functions
-export async function getBotStatus(): Promise<BotStatus> {
-  return fetchApi<BotStatus>('/robinhood-bot?action=status');
-}
-
 export async function getBotActions(limit: number = 50): Promise<{ actions: BotAction[]; total: number }> {
   return fetchApi<{ actions: BotAction[]; total: number }>(`/robinhood-bot?action=actions&limit=${limit}`);
-}
-
-export async function analyzePortfolio(): Promise<BotAnalysis> {
-  return fetchApi<BotAnalysis>('/robinhood-bot?action=analyze');
-}
-
-export async function getQuote(symbol: string): Promise<Quote> {
-  return fetchApi<Quote>(`/robinhood-bot?action=quote&symbol=${encodeURIComponent(symbol)}`);
-}
-
-export async function placeOrder(
-  symbol: string,
-  side: 'buy' | 'sell',
-  quantity: number,
-  dryRun: boolean = true
-): Promise<{ status: string; message?: string; orderId?: string }> {
-  return fetchApi('/robinhood-bot?action=order', {
-    method: 'POST',
-    body: JSON.stringify({ symbol, side, quantity, dryRun }),
-  });
 }
 
 // Format currency
@@ -530,6 +428,32 @@ export interface EnrichedSnapshot {
 
 export async function getEnrichedSnapshot(): Promise<EnrichedSnapshot> {
   return fetchApi<EnrichedSnapshot>('/enriched-snapshot');
+}
+
+// ── Trading DB P&L (db-pnl) ───────────────────────────────────────────────────
+
+export interface DbPnlPeriod {
+  stock: StockPnLResult;
+  option: OptionPnLResult;
+  combined_realized_pnl: number;
+}
+
+export interface DbPnlData {
+  periods: Record<PnLPeriod, DbPnlPeriod>;
+  open_orders: SnapshotOrder[];
+  open_option_orders: SnapshotOptionOrder[];
+  counts: {
+    stock_orders: number;
+    option_orders: number;
+    open_orders: number;
+    open_option_orders: number;
+  };
+  truncated?: boolean;
+}
+
+export async function getDbPnl(): Promise<DbPnlData> {
+  const env = await fetchDb<DbPnlData>('/db-pnl');
+  return env.data;
 }
 
 // Auth functions
