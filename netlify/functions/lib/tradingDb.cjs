@@ -21,6 +21,17 @@ const CORS = {
 // States that count as "open" — everything else is historical
 const OPEN_STATES = new Set(['queued', 'unconfirmed', 'confirmed', 'pending', 'partially_filled', 'new']);
 
+/**
+ * Placement stubs: rows written by external tools (e.g. trailing-stop
+ * placements via the Robinhood MCP) that carry a client-generated id and no
+ * lifecycle state. RH never confirms them under that id, so they are neither
+ * open nor historical — bucket them separately instead of rendering
+ * "0 @ $0.00" entries in the order book.
+ */
+function isUntrackedOrder(order) {
+  return order.state == null;
+}
+
 // ── Client bootstrap ──────────────────────────────────────────────────────────
 
 let testClient   = null;
@@ -211,20 +222,24 @@ function isOptionOrder(o) {
 function normalizeStockOrder(o) {
   const orderId = o.order_id || o.id;
   if (!orderId) return null;
+  const stopPrice = toNum(o.stop_price);
   return {
     order_id:        String(orderId),
     symbol:          o.symbol || null,
     side:            (o.side || '').toUpperCase() || null,
     order_type:      o.order_type || o.type || null,
-    trigger:         o.trigger || null,
+    // A stop price makes it a stop-triggered order even when the writer
+    // (e.g. a trailing-stop placement) omits the trigger field
+    trigger:         o.trigger || (stopPrice != null ? 'stop' : null),
     state:           o.state || null,
     quantity:        toNum(o.quantity) ?? 0,
     limit_price:     toNum(o.limit_price ?? o.price) ?? 0,
-    stop_price:      toNum(o.stop_price),
+    stop_price:      stopPrice,
     // null (not 0) when absent — P&L math falls back to quantity via ??
     filled_quantity: toNum(o.filled_quantity ?? o.cumulative_quantity),
     average_price:   toNum(o.average_price),
-    created_at:      toIso(o.created_at),
+    // Placement stubs sometimes carry only updated_at — better than sorting as null
+    created_at:      toIso(o.created_at) ?? toIso(o.updated_at),
     updated_at:      toIso(o.updated_at),
   };
 }
@@ -252,7 +267,7 @@ function normalizeOptionOrder(o) {
     order_type:        o.order_type || o.type || null,
     opening_strategy:  o.opening_strategy || null,
     legs,
-    created_at:        toIso(o.created_at),
+    created_at:        toIso(o.created_at) ?? toIso(o.updated_at),
     updated_at:        toIso(o.updated_at),
   };
 }
@@ -588,6 +603,7 @@ function createMemoryClient() {
 module.exports = {
   CORS,
   OPEN_STATES,
+  isUntrackedOrder,
   getDb,
   ensureSchema,
   toNum,

@@ -1,7 +1,7 @@
 // db-orders.cjs
 // Postgres-backed order store.
 //
-//   GET    /.netlify/functions/db-orders?scope=open|historical|all&type=stock|option|all&symbol=TSLA&limit=500
+//   GET    /.netlify/functions/db-orders?scope=open|historical|untracked|all&type=stock|option|all&symbol=TSLA&limit=500
 //   POST   /.netlify/functions/db-orders          — upsert orders (Robinhood MCP write path)
 //   DELETE /.netlify/functions/db-orders?order_id=<id>
 //
@@ -20,10 +20,17 @@ const t = require('./lib/tradingDb.cjs');
 
 const RESOURCE = 'orders';
 
-function scopeMatch(scope, isOpen) {
-  if (scope === 'open')       return isOpen;
-  if (scope === 'historical') return !isOpen;
-  return true;
+// Buckets: 'open' (working at RH), 'historical' (reached a terminal state),
+// 'untracked' (placement stubs with no lifecycle state — see isUntrackedOrder)
+function bucketOf(order) {
+  if (t.isUntrackedOrder(order))     return 'untracked';
+  if (t.OPEN_STATES.has(order.state)) return 'open';
+  return 'historical';
+}
+
+function scopeMatch(scope, bucket) {
+  if (scope === 'all') return true;
+  return scope === bucket;
 }
 
 async function handleGet(db, event) {
@@ -43,22 +50,23 @@ async function handleGet(db, event) {
   const data = {
     open_orders: [], open_option_orders: [],
     historical_orders: [], historical_option_orders: [],
+    untracked_orders: [], untracked_option_orders: [],
   };
 
   for (const row of stockRows) {
     const order = t.rowToStockOrder(row);
     if (symbol && order.symbol !== symbol) continue;
-    const isOpen = t.OPEN_STATES.has(order.state);
-    if (!scopeMatch(scope, isOpen)) continue;
-    (isOpen ? data.open_orders : data.historical_orders).push(order);
+    const bucket = bucketOf(order);
+    if (!scopeMatch(scope, bucket)) continue;
+    data[`${bucket}_orders`].push(order);
   }
 
   for (const row of optionRows) {
     const order = t.rowToOptionOrder(row);
     if (symbol && order.chain_symbol !== symbol) continue;
-    const isOpen = t.OPEN_STATES.has(order.state);
-    if (!scopeMatch(scope, isOpen)) continue;
-    (isOpen ? data.open_option_orders : data.historical_option_orders).push(order);
+    const bucket = bucketOf(order);
+    if (!scopeMatch(scope, bucket)) continue;
+    data[`${bucket}_option_orders`].push(order);
   }
 
   data.counts = {
@@ -66,12 +74,15 @@ async function handleGet(db, event) {
     open_option_orders:       data.open_option_orders.length,
     historical_orders:        data.historical_orders.length,
     historical_option_orders: data.historical_option_orders.length,
+    untracked_orders:         data.untracked_orders.length,
+    untracked_option_orders:  data.untracked_option_orders.length,
   };
   // has_more: either table returned a full page, so another page exists
   data.page = { limit, offset, has_more: stockRows.length === limit || optionRows.length === limit };
 
   const count = data.open_orders.length + data.open_option_orders.length
-              + data.historical_orders.length + data.historical_option_orders.length;
+              + data.historical_orders.length + data.historical_option_orders.length
+              + data.untracked_orders.length + data.untracked_option_orders.length;
 
   return t.respond(200, t.envelope({ resource: RESOURCE, action: 'list', data, count }));
 }

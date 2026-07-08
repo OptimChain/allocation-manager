@@ -52,16 +52,42 @@ function num(v: number | string | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
-function fmtTime(dateStr: string, timeOnly = false): string {
+function fmtTime(dateStr: string | null | undefined, timeOnly = false): string {
+  if (!dateStr) return '—';
   // Treat naive timestamps (no Z / offset) as UTC
-  const normalized = dateStr && !dateStr.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)
+  const normalized = !dateStr.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)
     ? dateStr + 'Z'
     : dateStr;
   const d = new Date(normalized);
+  if (Number.isNaN(d.getTime())) return '—';
   const opts: Intl.DateTimeFormatOptions = timeOnly
     ? { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' }
     : { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' };
   return d.toLocaleString('en-US', opts);
+}
+
+/**
+ * "10 @ $245.50", "25 @ stop $98.54" (trailing/stop market orders carry no
+ * limit price — never render them as "0 @ $0.00"), "5 @ market".
+ */
+function fmtOrderLine(qty: number | null | undefined, order: Pick<SnapshotOrder, 'limit_price' | 'stop_price' | 'average_price'>): string {
+  const avg   = num(order.average_price) > 0 ? num(order.average_price) : null;
+  const limit = num(order.limit_price)   > 0 ? num(order.limit_price)   : null;
+  const stop  = num(order.stop_price)    > 0 ? num(order.stop_price)    : null;
+  const price =
+    avg   != null ? formatCurrency(avg)   :
+    limit != null ? formatCurrency(limit) :
+    stop  != null ? `stop ${formatCurrency(stop)}` :
+    'market';
+  const stopSuffix = stop != null && (avg != null || limit != null)
+    ? ` (stop: ${formatCurrency(stop)})`
+    : '';
+  return `${num(qty)} @ ${price}${stopSuffix}`;
+}
+
+/** "limit / stop" — skips null trigger instead of rendering "market / ". */
+function fmtOrderKind(order: Pick<SnapshotOrder, 'order_type' | 'trigger'>): string {
+  return [order.order_type, order.trigger].filter(Boolean).join(' / ');
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -581,10 +607,10 @@ function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnaps
                           <div className="flex items-center gap-2">
                             <span className={`px-2 py-0.5 text-xs font-medium rounded ${order.side === 'BUY' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{order.side}</span>
                             <span className="font-medium text-gray-900 dark:text-gray-100">{order.symbol}</span>
-                            <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 dark:text-gray-400 rounded">{order.state}</span>
+                            {order.state && <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 dark:text-gray-400 rounded">{order.state}</span>}
                           </div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{order.quantity} @ {formatCurrency(order.limit_price)}{order.stop_price ? ` (stop: ${formatCurrency(order.stop_price)})` : ''}</p>
-                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {fmtTime(order.created_at)}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{fmtOrderLine(order.quantity, order)}</p>
+                          <p className="text-xs text-gray-400 mt-1">{fmtOrderKind(order)} — {fmtTime(order.created_at)}</p>
                         </div>
                       </div>
                     </div>
@@ -612,13 +638,13 @@ function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnaps
                                   {leg?.option_type && (
                                     <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${leg.option_type === 'call' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{leg.option_type.toUpperCase()}</span>
                                   )}
-                                  <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 dark:text-gray-400 rounded">{order.state}</span>
+                                  {order.state && <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 dark:text-gray-400 rounded">{order.state}</span>}
                                 </div>
                                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                                   {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                                 </p>
                                 <p className="text-xs text-gray-400 mt-1">
-                                  {order.order_type} / {order.direction} · {order.opening_strategy && order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {fmtTime(order.created_at)}
+                                  {[order.order_type, order.direction].filter(Boolean).join(' / ')} · {order.opening_strategy && order.opening_strategy !== 'N/A' ? order.opening_strategy : leg?.position_effect} — {fmtTime(order.created_at)}
                                 </p>
                               </div>
                             </div>
@@ -683,13 +709,13 @@ function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnaps
                         <div className="flex items-center gap-2">
                           <span className={`px-2 py-0.5 text-xs font-medium rounded ${order.side === 'BUY' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{order.side}</span>
                           <span className="font-medium text-gray-900 dark:text-gray-100">{order.symbol}</span>
-                          <span className={`px-2 py-0.5 text-xs rounded ${stateBadge(order.state)}`}>{order.state}</span>
+                          {order.state && <span className={`px-2 py-0.5 text-xs rounded ${stateBadge(order.state)}`}>{order.state}</span>}
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                          {order.filled_quantity ?? order.quantity} @ {formatCurrency(order.average_price ?? order.limit_price)}
+                          {fmtOrderLine(order.filled_quantity ?? order.quantity, order)}
                           {order.average_price && order.filled_quantity ? ` = ${formatCurrency(order.average_price * order.filled_quantity)}` : ''}
                         </p>
-                        <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.trigger} — {fmtTime(order.created_at)}</p>
+                        <p className="text-xs text-gray-400 mt-1">{fmtOrderKind(order)} — {fmtTime(order.created_at)}</p>
                       </div>
                     </div>
                   </div>
@@ -723,12 +749,12 @@ function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnaps
                             {leg?.option_type && (
                               <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${leg.option_type === 'call' ? 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300'}`}>{leg.option_type.toUpperCase()}</span>
                             )}
-                            <span className={`px-2 py-0.5 text-xs rounded ${stateBadge(order.state)}`}>{order.state}</span>
+                            {order.state && <span className={`px-2 py-0.5 text-xs rounded ${stateBadge(order.state)}`}>{order.state}</span>}
                           </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             {order.quantity}x ${leg?.strike ?? leg?.strike_price} · {(leg?.expiration ?? leg?.expiration_date) && (leg?.expiration ?? leg?.expiration_date) !== 'N/A' ? formatExpiration((leg?.expiration ?? leg?.expiration_date)!) : 'N/A'} @ {formatCurrency(order.price ?? 0)}
                           </p>
-                          <p className="text-xs text-gray-400 mt-1">{order.order_type} / {order.direction} — {fmtTime(order.created_at)}</p>
+                          <p className="text-xs text-gray-400 mt-1">{[order.order_type, order.direction].filter(Boolean).join(' / ')} — {fmtTime(order.created_at)}</p>
                         </div>
                       </div>
                     </div>

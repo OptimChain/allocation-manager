@@ -40,11 +40,17 @@ paths:
     get:
       tags: [orders]
       operationId: listOrders
-      summary: List orders bucketed into open vs historical
+      summary: List orders bucketed into open, historical, and untracked
+      description: |
+        Orders with a lifecycle state bucket into `open` (working at RH) or
+        `historical` (terminal state). Rows written without a state —
+        placement stubs from external writers such as trailing-stop
+        placements — bucket into `untracked` instead of polluting the
+        historical order book.
       parameters:
         - name: scope
           in: query
-          schema: { type: string, enum: [open, historical, all], default: all }
+          schema: { type: string, enum: [open, historical, untracked, all], default: all }
         - name: type
           in: query
           schema: { type: string, enum: [stock, option, all], default: all }
@@ -458,6 +464,13 @@ components:
           type: array
           items: { $ref: '#/components/schemas/StockOrder' }
         historical_option_orders:
+          type: array
+          items: { $ref: '#/components/schemas/OptionOrder' }
+        untracked_orders:
+          type: array
+          description: Placement stubs with no lifecycle state (never confirmed by RH under this id)
+          items: { $ref: '#/components/schemas/StockOrder' }
+        untracked_option_orders:
           type: array
           items: { $ref: '#/components/schemas/OptionOrder' }
         counts:

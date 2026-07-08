@@ -259,6 +259,62 @@ describe('input dialect normalization', () => {
   });
 });
 
+// ── Untracked placement stubs ────────────────────────────────────────────────
+// Trailing-stop placements written by external tools carry a client-generated
+// id and no lifecycle state. They must not surface as open or historical
+// orders (the "0 @ $0.00" trailing spots on the Trade page).
+
+describe('untracked placement stubs', () => {
+  const STUB = {
+    order_id: 'stub-1', symbol: 'NBIS', side: 'SELL', order_type: 'market',
+    stop_price: 189.98, created_at: NOW, updated_at: NOW,
+  };
+  const FILLED = {
+    order_id: 'filled-1', symbol: 'NVDA', side: 'BUY', state: 'filled',
+    quantity: 1, filled_quantity: 1, average_price: 100, created_at: NOW, updated_at: NOW,
+  };
+
+  test('stateless orders bucket into untracked_orders, not open or historical', async () => {
+    await post({ orders: [STUB, FILLED] });
+    const data = await getAll();
+    expect(data.untracked_orders.map(o => o.order_id)).toEqual(['stub-1']);
+    expect(data.open_orders).toEqual([]);
+    expect(data.historical_orders.map(o => o.order_id)).toEqual(['filled-1']);
+    expect(data.counts).toEqual(expect.objectContaining({
+      untracked_orders: 1, historical_orders: 1, open_orders: 0,
+    }));
+  });
+
+  test('scope=untracked returns only stubs; scope=historical excludes them', async () => {
+    await post({ orders: [STUB, FILLED] });
+    const untracked = await getAll({ scope: 'untracked' });
+    expect(untracked.untracked_orders.map(o => o.order_id)).toEqual(['stub-1']);
+    expect(untracked.historical_orders).toEqual([]);
+    const historical = await getAll({ scope: 'historical' });
+    expect(historical.historical_orders.map(o => o.order_id)).toEqual(['filled-1']);
+    expect(historical.untracked_orders).toEqual([]);
+  });
+
+  test('a stop price implies a stop trigger when the writer omits it', async () => {
+    await post({ orders: [STUB] });
+    expect((await getAll()).untracked_orders[0].trigger).toBe('stop');
+  });
+
+  test('created_at falls back to updated_at so stubs do not sort/render as null dates', async () => {
+    await post({ orders: [{ order_id: 'stub-2', symbol: 'V', side: 'SELL', stop_price: 309.32, updated_at: NOW }] });
+    const order = (await getAll()).untracked_orders[0];
+    expect(new Date(order.created_at).getTime()).toBe(new Date(NOW).getTime());
+  });
+
+  test('stateless option orders bucket into untracked_option_orders', async () => {
+    await post({ option_orders: [{ order_id: 'opt-stub-1', chain_symbol: 'CRWD', direction: 'credit', quantity: 1, price: 2, updated_at: NOW }] });
+    const data = await getAll();
+    expect(data.untracked_option_orders.map(o => o.order_id)).toEqual(['opt-stub-1']);
+    expect(data.historical_option_orders).toEqual([]);
+    expect(data.untracked_option_orders[0].created_at).not.toBeNull();
+  });
+});
+
 // ── Shape consistency across endpoints ───────────────────────────────────────
 
 describe('cross-endpoint shape consistency', () => {
