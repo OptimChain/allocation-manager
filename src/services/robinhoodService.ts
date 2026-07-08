@@ -114,15 +114,17 @@ export interface SnapshotOrder {
   symbol: string;
   side: string;
   order_type: string;
-  trigger: string;
-  state: string;
+  // Nullable in practice: placement stubs written by external tools omit
+  // trigger/state/timestamps entirely
+  trigger: string | null;
+  state: string | null;
   quantity: number;
   limit_price: number;
   stop_price: number | null;
-  created_at: string;
-  updated_at: string;
-  filled_quantity?: number;
-  average_price?: number;
+  created_at: string | null;
+  updated_at: string | null;
+  filled_quantity?: number | null;
+  average_price?: number | null;
 }
 
 export interface SymbolMarketData {
@@ -244,6 +246,9 @@ export interface DbOrders {
   open_option_orders: SnapshotOptionOrder[];
   historical_orders: SnapshotOrder[];
   historical_option_orders: SnapshotOptionOrder[];
+  /** Placement stubs with no lifecycle state — written by external tools, never confirmed by RH */
+  untracked_orders?: SnapshotOrder[];
+  untracked_option_orders?: SnapshotOptionOrder[];
   counts?: Record<string, number>;
   page?: DbPage;
 }

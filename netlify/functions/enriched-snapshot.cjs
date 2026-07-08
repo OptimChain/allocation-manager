@@ -341,12 +341,15 @@ async function overlayDbOrders(raw) {
     ]);
     if (!stockRows.length && !optionRows.length) return raw; // empty DB → keep blob as-is
 
-    const stockOrders  = stockRows.map(t.rowToStockOrder);
+    // Placement stubs (no lifecycle state — e.g. trailing-stop placements
+    // written by external tools under client-generated ids) never confirm,
+    // fill, or cancel; keep them out of the order book the UI renders.
+    const stockOrders  = stockRows.map(t.rowToStockOrder).filter(o => !t.isUntrackedOrder(o));
     // Synthesize a leg for legless option rows so P&L groups by chain_symbol
     // instead of the 'OPT' fallback (same treatment as db-pnl)
-    const optionOrders = optionRows.map(t.rowToOptionOrder).map(o =>
-      o.legs && o.legs.length ? o : { ...o, legs: [{ chain_symbol: o.chain_symbol }] }
-    );
+    const optionOrders = optionRows.map(t.rowToOptionOrder)
+      .filter(o => !t.isUntrackedOrder(o))
+      .map(o => o.legs && o.legs.length ? o : { ...o, legs: [{ chain_symbol: o.chain_symbol }] });
 
     raw.portfolio.open_orders        = stockOrders.filter(o => t.OPEN_STATES.has(o.state));
     raw.portfolio.open_option_orders = optionOrders.filter(o => t.OPEN_STATES.has(o.state));

@@ -103,6 +103,24 @@ describe('enriched-snapshot DB overlay', () => {
     expect(ids[ids.length - 1]).toBe('db-null-ts');
   });
 
+  test('untracked placement stubs never reach the rendered order book', async () => {
+    await seedDb();
+    const db = t.getDb();
+    // A trailing-stop placement written by an external tool: client id, no state
+    await t.upsertStockOrder(db, t.normalizeStockOrder(
+      { order_id: 'db-stub-1', symbol: 'NBIS', side: 'SELL', order_type: 'market', stop_price: 189.98, updated_at: NOW }), {});
+    await t.upsertOptionOrder(db, t.normalizeOptionOrder(
+      { order_id: 'db-opt-stub-1', chain_symbol: 'CRWD', direction: 'credit', quantity: 1, updated_at: NOW }), {});
+    const res = await es.handler({ httpMethod: 'GET' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.recent_orders.map(o => o.order_id)).not.toContain('db-stub-1');
+    expect(body.portfolio.open_orders.map(o => o.order_id)).not.toContain('db-stub-1');
+    expect(body.recent_option_orders.map(o => o.order_id)).not.toContain('db-opt-stub-1');
+    // Real orders still flow through
+    expect(body.recent_orders.map(o => o.order_id)).toEqual(expect.arrayContaining(['db-buy-1', 'db-sell-1']));
+  });
+
   test('DB failure degrades gracefully to blob orders', async () => {
     t.__setTestClient({ query: () => Promise.reject(new Error('db down')) });
     const res = await es.handler({ httpMethod: 'GET' });
