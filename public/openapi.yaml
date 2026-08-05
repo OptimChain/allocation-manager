@@ -26,6 +26,8 @@ servers:
 tags:
   - name: orders
     description: Stock and option orders (open + historical)
+  - name: positions
+    description: Current holdings — stock, options, and the account summary
   - name: bot-activity
     description: Durable bot action log
   - name: pnl
@@ -294,6 +296,125 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: '#/components/schemas/AppendResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+
+  /db-positions:
+    get:
+      tags: [positions]
+      operationId: listPositions
+      summary: Current holdings — stock positions, option positions, account summary
+      description: |
+        The position book as last written by the engine. This replaces the
+        Netlify Blobs "engine snapshot", which was only written when the engine
+        ran with `DRY_RUN=false` and therefore went stale.
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [stock, option, all]
+            default: all
+        - name: symbol
+          in: query
+          description: Filter to one underlying — matches `symbol` and `chain_symbol`.
+          schema: { type: string, example: NVDA }
+      responses:
+        '200':
+          description: Current position book
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          positions:
+                            type: array
+                            items: { type: object }
+                          option_positions:
+                            type: array
+                            items: { type: object }
+                          account: { type: object, nullable: true }
+                          totals: { type: object }
+                          counts: { type: object }
+                          updated_at: { type: string, nullable: true }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+    post:
+      tags: [positions]
+      operationId: replacePositions
+      summary: Replace the whole position book
+      description: |
+        A REPLACE, not a merge. Positions are a set, not an append-only log:
+        whatever is sent becomes the entire book, and any symbol absent from
+        the payload is deleted — that is what stops a closed position from
+        lingering. Send an explicit empty array to clear the book.
+
+        Accepts engine-broker or dashboard-snapshot field spellings
+        (`qty`/`quantity`, `avg_entry`/`avg_buy_price`, `market_value`/`equity`,
+        `unrealized_pl`/`profit_loss`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                positions:
+                  type: array
+                  items: { type: object }
+                option_positions:
+                  type: array
+                  items: { type: object }
+                account: { type: object }
+      responses:
+        '200':
+          description: Book replaced
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          positions_upserted: { type: integer }
+                          option_positions_upserted: { type: integer }
+                          pruned_positions: { type: integer }
+                          pruned_option_positions: { type: integer }
+                          account_updated: { type: boolean }
+                          skipped: { type: integer }
+                          symbols:
+                            type: array
+                            items: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/DbNotConfigured' }
+    delete:
+      tags: [positions]
+      operationId: deletePosition
+      summary: Delete a single position
+      parameters:
+        - name: symbol
+          in: query
+          description: Stock position to delete.
+          schema: { type: string, example: NVDA }
+        - name: position_key
+          in: query
+          description: 'Option position to delete — CHAIN:EXPIRATION:STRIKE:TYPE.'
+          schema: { type: string, example: 'CRWD:2026-09-18:300:call' }
+      responses:
+        '200':
+          description: Delete result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '503': { $ref: '#/components/responses/DbNotConfigured' }
