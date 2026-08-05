@@ -117,21 +117,24 @@ async function handlePost(db, event) {
       'send an explicit empty array to clear.'));
   }
 
-  const symbols = [], optionKeys = [];
   let skipped = 0;
 
+  // Normalize first, then write in batches — same reason as db-orders.
+  const stockRows = [], optionRows = [];
   for (const raw of stocks) {
-    const pos = t.normalizePosition(raw);
-    if (!pos) { skipped++; continue; }
-    await t.upsertPosition(db, pos, raw);
-    symbols.push(pos.symbol);
+    const value = t.normalizePosition(raw);
+    value ? stockRows.push({ value, raw }) : skipped++;
   }
   for (const raw of options) {
-    const pos = t.normalizeOptionPosition(raw);
-    if (!pos) { skipped++; continue; }
-    await t.upsertOptionPosition(db, pos, raw);
-    optionKeys.push(pos.position_key);
+    const value = t.normalizeOptionPosition(raw);
+    value ? optionRows.push({ value, raw }) : skipped++;
   }
+
+  const positionsUpserted = await t.upsertPositions(db, stockRows);
+  const optionsUpserted   = await t.upsertOptionPositions(db, optionRows);
+
+  const symbols    = stockRows.map(r => r.value.symbol);
+  const optionKeys = optionRows.map(r => r.value.position_key);
 
   // Whole-book replace — only prune a table the caller actually declared, so a
   // stock-only sync cannot wipe the option book.
@@ -146,8 +149,8 @@ async function handlePost(db, event) {
   }
 
   const data = {
-    positions_upserted:        symbols.length,
-    option_positions_upserted: optionKeys.length,
+    positions_upserted:        positionsUpserted,
+    option_positions_upserted: optionsUpserted,
     pruned_positions,
     pruned_option_positions,
     account_updated:           Boolean(normalizedAccount),
