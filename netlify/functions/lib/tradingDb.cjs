@@ -169,6 +169,54 @@ const SCHEMA_STATEMENTS = [
      payload    JSONB NOT NULL,
      fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
    )`,
+  // Current holdings. Unlike orders these are a *set*, not an append-only
+  // log: db-positions replaces the whole book each sync so a closed name
+  // disappears rather than lingering. profit_loss_pct is stored as a
+  // fraction (0.05 = +5%) and converted on read.
+  `CREATE TABLE IF NOT EXISTS positions (
+     symbol          TEXT PRIMARY KEY,
+     quantity        DOUBLE PRECISION,
+     avg_buy_price   DOUBLE PRECISION,
+     current_price   DOUBLE PRECISION,
+     equity          DOUBLE PRECISION,
+     profit_loss     DOUBLE PRECISION,
+     profit_loss_pct DOUBLE PRECISION,
+     asset_type      TEXT,
+     raw             JSONB,
+     ingested_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE TABLE IF NOT EXISTS option_positions (
+     position_key     TEXT PRIMARY KEY,
+     chain_symbol     TEXT,
+     expiration       TEXT,
+     strike           DOUBLE PRECISION,
+     option_type      TEXT,
+     position_type    TEXT,
+     quantity         DOUBLE PRECISION,
+     avg_price        DOUBLE PRECISION,
+     mark_price       DOUBLE PRECISION,
+     current_value    DOUBLE PRECISION,
+     profit_loss      DOUBLE PRECISION,
+     profit_loss_pct  DOUBLE PRECISION,
+     dte              INTEGER,
+     multiplier       DOUBLE PRECISION,
+     cost_basis       DOUBLE PRECISION,
+     underlying_price DOUBLE PRECISION,
+     greeks           JSONB,
+     raw              JSONB,
+     ingested_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX IF NOT EXISTS option_positions_chain_idx ON option_positions (chain_symbol)`,
+  // Single-row account summary that accompanies the position book.
+  `CREATE TABLE IF NOT EXISTS account_snapshot (
+     account_id      TEXT PRIMARY KEY,
+     equity          DOUBLE PRECISION,
+     cash            DOUBLE PRECISION,
+     buying_power    DOUBLE PRECISION,
+     portfolio_value DOUBLE PRECISION,
+     raw             JSONB,
+     ingested_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
 ];
 
 async function ensureSchema(db) {
@@ -298,6 +346,91 @@ function normalizeBotEvent(e) {
   };
 }
 
+/**
+ * Normalize a stock position from either spelling:
+ *   engine broker shape — qty / avg_entry / market_value / unrealized_pl(_pct)
+ *   snapshot shape      — quantity / avg_buy_price / equity / profit_loss(_pct)
+ * `unrealized_pl_pct` is a fraction; `profit_loss_pct` is already a percent.
+ */
+function normalizePosition(p) {
+  const symbol = (p.symbol || '').toUpperCase();
+  if (!symbol) return null;
+
+  const quantity = toNum(p.quantity ?? p.qty) ?? 0;
+  const avgBuy   = toNum(p.avg_buy_price ?? p.avg_entry);
+  const equity   = toNum(p.equity ?? p.market_value);
+  // current_price is often absent upstream — derive it from the book value.
+  const current  = toNum(p.current_price)
+                ?? (equity != null && quantity ? equity / quantity : null);
+
+  let pct = toNum(p.unrealized_pl_pct);
+  if (pct == null) {
+    const asPercent = toNum(p.profit_loss_pct);
+    pct = asPercent == null ? null : asPercent / 100;
+  }
+
+  return {
+    symbol,
+    quantity,
+    avg_buy_price:   avgBuy,
+    current_price:   current,
+    equity,
+    profit_loss:     toNum(p.profit_loss ?? p.unrealized_pl),
+    profit_loss_pct: pct,
+    asset_type:      p.asset_type || 'equity',
+  };
+}
+
+/** Stable identity for an option leg: CHAIN:EXPIRATION:STRIKE:TYPE. */
+function optionPositionKey(o) {
+  const chain  = (o.chain_symbol || o.symbol || '').toUpperCase();
+  const strike = toNum(o.strike);
+  const type   = (o.option_type || '').toLowerCase();
+  if (!chain || strike == null || !o.expiration) return null;
+  return `${chain}:${o.expiration}:${strike}:${type}`;
+}
+
+function normalizeOptionPosition(o) {
+  const position_key = optionPositionKey(o);
+  if (!position_key) return null;
+
+  let pct = toNum(o.unrealized_pl_pct);
+  if (pct == null) {
+    const asPercent = toNum(o.profit_loss_pct);
+    pct = asPercent == null ? null : asPercent / 100;
+  }
+
+  return {
+    position_key,
+    chain_symbol:     (o.chain_symbol || o.symbol || '').toUpperCase(),
+    expiration:       o.expiration || null,
+    strike:           toNum(o.strike),
+    option_type:      (o.option_type || '').toLowerCase() || null,
+    position_type:    o.position_type || 'long',
+    quantity:         toNum(o.quantity) ?? 0,
+    avg_price:        toNum(o.avg_price),
+    mark_price:       toNum(o.mark_price),
+    current_value:    toNum(o.current_value ?? o.equity),
+    profit_loss:      toNum(o.profit_loss ?? o.unrealized_pl),
+    profit_loss_pct:  pct,
+    dte:              toNum(o.dte),
+    multiplier:       toNum(o.multiplier) ?? 100,
+    cost_basis:       toNum(o.cost_basis),
+    underlying_price: toNum(o.underlying_price),
+    greeks:           o.greeks ?? null,
+  };
+}
+
+function normalizeAccount(a) {
+  if (!a || typeof a !== 'object') return null;
+  return {
+    equity:          toNum(a.equity),
+    cash:            toNum(a.cash),
+    buying_power:    toNum(a.buying_power),
+    portfolio_value: toNum(a.portfolio_value ?? a.market_value),
+  };
+}
+
 // ── Writes ────────────────────────────────────────────────────────────────────
 
 async function upsertStockOrder(db, order, rawSource) {
@@ -358,6 +491,75 @@ async function insertBotEvent(db, ev) {
   return typeof rows[0].id === 'string' ? parseInt(rows[0].id, 10) : rows[0].id;
 }
 
+async function upsertPosition(db, pos, rawSource) {
+  await db.query(
+    `INSERT INTO positions
+       (symbol, quantity, avg_buy_price, current_price, equity, profit_loss,
+        profit_loss_pct, asset_type, raw)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+     ON CONFLICT (symbol) DO UPDATE SET
+       quantity = EXCLUDED.quantity, avg_buy_price = EXCLUDED.avg_buy_price,
+       current_price = EXCLUDED.current_price, equity = EXCLUDED.equity,
+       profit_loss = EXCLUDED.profit_loss, profit_loss_pct = EXCLUDED.profit_loss_pct,
+       asset_type = EXCLUDED.asset_type, raw = EXCLUDED.raw, ingested_at = now()`,
+    [pos.symbol, pos.quantity, pos.avg_buy_price, pos.current_price, pos.equity,
+     pos.profit_loss, pos.profit_loss_pct, pos.asset_type,
+     JSON.stringify(rawSource ?? null)]
+  );
+}
+
+async function upsertOptionPosition(db, pos, rawSource) {
+  await db.query(
+    `INSERT INTO option_positions
+       (position_key, chain_symbol, expiration, strike, option_type, position_type,
+        quantity, avg_price, mark_price, current_value, profit_loss, profit_loss_pct,
+        dte, multiplier, cost_basis, underlying_price, greeks, raw)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+     ON CONFLICT (position_key) DO UPDATE SET
+       chain_symbol = EXCLUDED.chain_symbol, expiration = EXCLUDED.expiration,
+       strike = EXCLUDED.strike, option_type = EXCLUDED.option_type,
+       position_type = EXCLUDED.position_type, quantity = EXCLUDED.quantity,
+       avg_price = EXCLUDED.avg_price, mark_price = EXCLUDED.mark_price,
+       current_value = EXCLUDED.current_value, profit_loss = EXCLUDED.profit_loss,
+       profit_loss_pct = EXCLUDED.profit_loss_pct, dte = EXCLUDED.dte,
+       multiplier = EXCLUDED.multiplier, cost_basis = EXCLUDED.cost_basis,
+       underlying_price = EXCLUDED.underlying_price, greeks = EXCLUDED.greeks,
+       raw = EXCLUDED.raw, ingested_at = now()`,
+    [pos.position_key, pos.chain_symbol, pos.expiration, pos.strike, pos.option_type,
+     pos.position_type, pos.quantity, pos.avg_price, pos.mark_price, pos.current_value,
+     pos.profit_loss, pos.profit_loss_pct, pos.dte, pos.multiplier, pos.cost_basis,
+     pos.underlying_price, JSON.stringify(pos.greeks),
+     JSON.stringify(rawSource ?? null)]
+  );
+}
+
+async function upsertAccountSnapshot(db, account, rawSource, accountId = 'default') {
+  await db.query(
+    `INSERT INTO account_snapshot
+       (account_id, equity, cash, buying_power, portfolio_value, raw)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+     ON CONFLICT (account_id) DO UPDATE SET
+       equity = EXCLUDED.equity, cash = EXCLUDED.cash,
+       buying_power = EXCLUDED.buying_power, portfolio_value = EXCLUDED.portfolio_value,
+       raw = EXCLUDED.raw, ingested_at = now()`,
+    [accountId, account.equity, account.cash, account.buying_power,
+     account.portfolio_value, JSON.stringify(rawSource ?? null)]
+  );
+}
+
+/**
+ * Drop rows whose key is not in `keys` — the second half of a whole-book
+ * replace. An empty `keys` clears the table, which is correct when the
+ * account holds nothing.
+ */
+async function pruneMissing(db, table, keyColumn, keys) {
+  const rows = await db.query(
+    `DELETE FROM ${table} WHERE NOT (${keyColumn} = ANY($1)) RETURNING ${keyColumn}`,
+    [keys]
+  );
+  return rows.length;
+}
+
 // ── Reads ─────────────────────────────────────────────────────────────────────
 
 async function fetchStockOrders(db, limit, offset = 0) {
@@ -379,6 +581,23 @@ async function fetchBotEvents(db, limit, offset = 0) {
     `SELECT * FROM bot_activity ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2`,
     [limit, offset]
   );
+}
+
+async function fetchPositions(db) {
+  return db.query(`SELECT * FROM positions ORDER BY equity DESC NULLS LAST`);
+}
+
+async function fetchOptionPositions(db) {
+  return db.query(
+    `SELECT * FROM option_positions ORDER BY chain_symbol, expiration, strike`
+  );
+}
+
+async function fetchAccountSnapshot(db, accountId = 'default') {
+  const rows = await db.query(
+    `SELECT * FROM account_snapshot WHERE account_id = $1`, [accountId]
+  );
+  return rows.length ? rows[0] : null;
 }
 
 // ── Row → API object mappers (SnapshotOrder / SnapshotOptionOrder contracts) ──
@@ -434,6 +653,58 @@ function rowToBotEvent(r) {
     dry_run:    Boolean(r.dry_run),
     metadata:   safeParse(r.metadata, null),
     created_at: toIso(r.created_at),
+  };
+}
+
+/** Row → the SnapshotPosition shape the dashboard already renders. */
+function rowToPosition(r) {
+  const pct = toNum(r.profit_loss_pct);
+  return {
+    symbol:          r.symbol,
+    name:            r.symbol,
+    quantity:        toNum(r.quantity) ?? 0,
+    avg_buy_price:   toNum(r.avg_buy_price) ?? 0,
+    current_price:   toNum(r.current_price) ?? 0,
+    equity:          toNum(r.equity) ?? 0,
+    profit_loss:     toNum(r.profit_loss) ?? 0,
+    // stored as a fraction, surfaced as a percent
+    profit_loss_pct: pct == null ? 0 : r2(pct * 100),
+    percent_change:  pct == null ? null : r2(pct * 100),
+    percentage:      null,
+    asset_type:      r.asset_type || 'equity',
+  };
+}
+
+function rowToOptionPosition(r) {
+  const pct = toNum(r.profit_loss_pct);
+  return {
+    chain_symbol:      r.chain_symbol,
+    expiration:        r.expiration,
+    strike:            toNum(r.strike),
+    option_type:       r.option_type,
+    position_type:     r.position_type,
+    quantity:          toNum(r.quantity) ?? 0,
+    avg_price:         toNum(r.avg_price) ?? 0,
+    mark_price:        toNum(r.mark_price) ?? 0,
+    current_value:     toNum(r.current_value) ?? 0,
+    unrealized_pl:     toNum(r.profit_loss) ?? 0,
+    unrealized_pl_pct: pct ?? 0,
+    dte:               toNum(r.dte) ?? 0,
+    multiplier:        toNum(r.multiplier) ?? 100,
+    cost_basis:        toNum(r.cost_basis) ?? 0,
+    underlying_price:  toNum(r.underlying_price) ?? 0,
+    greeks:            safeParse(r.greeks, null),
+  };
+}
+
+function rowToAccount(r) {
+  if (!r) return null;
+  return {
+    equity:          toNum(r.equity) ?? 0,
+    cash:            toNum(r.cash) ?? 0,
+    buying_power:    toNum(r.buying_power) ?? 0,
+    portfolio_value: toNum(r.portfolio_value) ?? 0,
+    updated_at:      toIso(r.ingested_at),
   };
 }
 
@@ -511,10 +782,13 @@ function checkWriteAuth(event) {
 // lifetime of the process — for local endpoint testing and jest only.
 
 function createMemoryClient() {
-  const stockOrders  = new Map();
-  const optionOrders = new Map();
-  const botEvents    = [];
-  const marketCache  = new Map();
+  const stockOrders     = new Map();
+  const optionOrders    = new Map();
+  const botEvents       = [];
+  const marketCache     = new Map();
+  const positions       = new Map();
+  const optionPositions = new Map();
+  const accounts        = new Map();
   let seq = 0;
 
   const byCreatedDesc = (a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
@@ -585,6 +859,70 @@ function createMemoryClient() {
         return existed ? [{ order_id: params[0] }] : [];
       }
 
+      if (/^INSERT INTO positions/i.test(sql)) {
+        const [symbol, quantity, avg_buy_price, current_price, equity,
+               profit_loss, profit_loss_pct, asset_type, raw] = params;
+        positions.set(symbol, { symbol, quantity, avg_buy_price, current_price, equity,
+                                profit_loss, profit_loss_pct, asset_type, raw });
+        return [];
+      }
+      if (/^INSERT INTO option_positions/i.test(sql)) {
+        const [position_key, chain_symbol, expiration, strike, option_type, position_type,
+               quantity, avg_price, mark_price, current_value, profit_loss, profit_loss_pct,
+               dte, multiplier, cost_basis, underlying_price, greeks, raw] = params;
+        optionPositions.set(position_key, {
+          position_key, chain_symbol, expiration, strike, option_type, position_type,
+          quantity, avg_price, mark_price, current_value, profit_loss, profit_loss_pct,
+          dte, multiplier, cost_basis, underlying_price, greeks, raw,
+        });
+        return [];
+      }
+      if (/^INSERT INTO account_snapshot/i.test(sql)) {
+        const [account_id, equity, cash, buying_power, portfolio_value, raw] = params;
+        accounts.set(account_id, {
+          account_id, equity, cash, buying_power, portfolio_value, raw,
+          ingested_at: new Date(0).toISOString(),
+        });
+        return [];
+      }
+
+      if (/^SELECT \* FROM positions/i.test(sql)) {
+        return [...positions.values()]
+          .sort((a, b) => (b.equity ?? 0) - (a.equity ?? 0));
+      }
+      if (/^SELECT \* FROM option_positions/i.test(sql)) {
+        return [...optionPositions.values()].sort((a, b) =>
+          String(a.chain_symbol).localeCompare(String(b.chain_symbol)) ||
+          String(a.expiration).localeCompare(String(b.expiration)) ||
+          (a.strike ?? 0) - (b.strike ?? 0));
+      }
+      if (/^SELECT \* FROM account_snapshot/i.test(sql)) {
+        const row = accounts.get(params[0]);
+        return row ? [row] : [];
+      }
+
+      if (/^DELETE FROM positions WHERE symbol = /i.test(sql)) {
+        const existed = positions.delete(params[0]);
+        return existed ? [{ symbol: params[0] }] : [];
+      }
+      if (/^DELETE FROM option_positions WHERE position_key = /i.test(sql)) {
+        const existed = optionPositions.delete(params[0]);
+        return existed ? [{ position_key: params[0] }] : [];
+      }
+
+      // Whole-book prune: DELETE FROM <table> WHERE NOT (<col> = ANY($1))
+      const prune = sql.match(/^DELETE FROM (positions|option_positions) WHERE NOT \((\w+) = ANY/i);
+      if (prune) {
+        const [, table, col] = prune;
+        const store = table === 'positions' ? positions : optionPositions;
+        const keep = new Set(params[0] || []);
+        const removed = [];
+        for (const [k, row] of store) {
+          if (!keep.has(row[col])) { store.delete(k); removed.push({ [col]: row[col] }); }
+        }
+        return removed;
+      }
+
       if (/^SELECT payload, fetched_at FROM market_cache/i.test(sql)) {
         const row = marketCache.get(params[0]);
         return row ? [row] : [];
@@ -613,17 +951,31 @@ module.exports = {
   normalizeStockOrder,
   normalizeOptionOrder,
   normalizeBotEvent,
+  normalizePosition,
+  normalizeOptionPosition,
+  normalizeAccount,
+  optionPositionKey,
   upsertStockOrder,
   upsertOptionOrder,
   insertBotEvent,
+  upsertPosition,
+  upsertOptionPosition,
+  upsertAccountSnapshot,
+  pruneMissing,
   fetchStockOrders,
   fetchOptionOrders,
   fetchBotEvents,
+  fetchPositions,
+  fetchOptionPositions,
+  fetchAccountSnapshot,
   getMarketCache,
   setMarketCache,
   rowToStockOrder,
   rowToOptionOrder,
   rowToBotEvent,
+  rowToPosition,
+  rowToOptionPosition,
+  rowToAccount,
   envelope,
   errorEnvelope,
   respond,
