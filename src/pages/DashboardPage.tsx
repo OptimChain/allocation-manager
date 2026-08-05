@@ -60,7 +60,10 @@ export default function DashboardPage() {
     );
   }
 
-  if (error) {
+  // Only take over the whole screen when there's no data to show. A failed
+  // background refresh (e.g. a transient 429) keeps the last-good dashboard
+  // visible and surfaces a non-blocking banner instead of blanking it.
+  if (error && !quoteData) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
         <div className="text-center">
@@ -87,6 +90,11 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-4">
+          {error && (
+            <span className="text-sm font-medium text-red-600" title={error}>
+              Refresh failed — showing last update
+            </span>
+          )}
           {lastUpdated && (
             <span className="text-sm text-gray-500 dark:text-gray-400">
               Updated {lastUpdated.toLocaleTimeString()}

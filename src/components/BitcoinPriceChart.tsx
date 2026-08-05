@@ -102,20 +102,24 @@ export default function BitcoinPriceChart({
   ];
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
         const data = await getBitcoinPriceHistory(selectedRange);
-        setPriceData(data);
+        // Guard against out-of-order responses: a slow fetch for a range the
+        // user already switched away from must not overwrite the newer one.
+        if (!cancelled) setPriceData(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch price data');
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to fetch price data');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     fetchData();
+    return () => { cancelled = true; };
   }, [selectedRange]);
 
   const estOpts: Intl.DateTimeFormatOptions = { timeZone: 'America/New_York' };
