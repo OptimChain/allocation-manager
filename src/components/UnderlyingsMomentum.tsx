@@ -80,7 +80,15 @@ export default function UnderlyingsMomentum() {
         symbols = symbols.slice(0, MAX_SYMBOLS);
 
         // Fetch 1-day intraday series for the benchmark + each underlying.
-        const benchSeries = await getTimeSeries(BENCHMARK.symbol, '1D');
+        // The benchmark degrades on its own: a single SPY failure (e.g. a 429)
+        // must not drop the whole panel — underlyings still render their
+        // absolute momentum, just without the relative-to-SPY column.
+        let benchSeries: NormalizedPriceData[] = [];
+        try {
+          benchSeries = await getTimeSeries(BENCHMARK.symbol, '1D');
+        } catch {
+          benchSeries = [];
+        }
         const benchPct = pctFromOpen(benchSeries);
 
         const underlyings = await Promise.all(

@@ -160,8 +160,28 @@ export default function NewsStraddle() {
     }
   };
 
+  // Auto-load on ticker change, guarded so a slow response for a previously
+  // selected ticker can't land last and show news mismatched to the header.
+  // The manual Refresh / Try Again buttons still call fetchNews() directly.
   useEffect(() => {
-    fetchNews();
+    let cancelled = false;
+    async function loadNews() {
+      setLoadingNews(true);
+      setNewsError(null);
+      try {
+        const resp = await getPerplexityNews(selectedTicker);
+        if (!cancelled) {
+          setNews(resp.articles);
+          setCitations(resp.citations || []);
+        }
+      } catch (err) {
+        if (!cancelled) setNewsError(err instanceof Error ? err.message : 'Failed to load news');
+      } finally {
+        if (!cancelled) setLoadingNews(false);
+      }
+    }
+    loadNews();
+    return () => { cancelled = true; };
   }, [selectedTicker]);
 
   // Spike detection
