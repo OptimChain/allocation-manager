@@ -121,6 +121,8 @@ export const PORTFOLIO_ASSETS = [
   { symbol: 'BTC', displayName: 'Grayscale BTC Mini ETF', color: '#9333EA' },
   { symbol: 'QQQ', displayName: 'QQQ (Nasdaq)', color: '#8B5CF6' },
   { symbol: 'SPY', displayName: 'S&P 500', color: '#3B82F6' },
+  { symbol: 'VOO', displayName: 'Vanguard S&P 500', color: '#2563EB' },
+  { symbol: 'NET', displayName: 'Cloudflare', color: '#F38020' },
   { symbol: 'AAPL', displayName: 'Apple', color: '#A2AAAD' },
   { symbol: 'MSFT', displayName: 'Microsoft', color: '#00A4EF' },
   { symbol: 'AMZN', displayName: 'Amazon', color: '#FF9900' },

@@ -15,7 +15,7 @@ const TIME_RANGES = [
   { label: '5Y', value: '5Y' },
 ];
 
-const DEFAULT_ENABLED = new Set(['BTC/USD', 'AMZN', 'QQQ', 'SPY']);
+const DEFAULT_ENABLED = new Set(['NET', 'BTC/USD', 'AMZN', 'VOO', 'QQQ']);
 
 export default function ComparePage() {
   const [portfolioData, setPortfolioData] = useState<PortfolioAsset[]>([]);
