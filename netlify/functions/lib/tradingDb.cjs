@@ -431,6 +431,144 @@ function normalizeAccount(a) {
   };
 }
 
+// ── Batched writes ────────────────────────────────────────────────────────────
+// One round trip per chunk instead of one per row. The engine posts its whole
+// order book every sync (225 rows is normal), and row-at-a-time upserts took
+// ~20s against Render Postgres — past the client's read timeout and Netlify's
+// own function limit, so the sync failed far more often than it landed.
+
+const CHUNK_ROWS = 50;
+
+function chunk(items, size = CHUNK_ROWS) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** "($1,$2,$3::jsonb),($4,$5,$6::jsonb)" — `casts` is keyed by column index. */
+function valuesClause(rowCount, colCount, casts = {}) {
+  let n = 0;
+  const rows = [];
+  for (let r = 0; r < rowCount; r++) {
+    const cols = [];
+    for (let c = 0; c < colCount; c++) cols.push(`$${++n}${casts[c] || ''}`);
+    rows.push(`(${cols.join(',')})`);
+  }
+  return rows.join(',');
+}
+
+/**
+ * Keep only the last row per conflict key.
+ *
+ * Postgres rejects a multi-row INSERT whose ON CONFLICT target matches the same
+ * row twice ("cannot affect row a second time"), and a payload can legitimately
+ * repeat an id — so collapse duplicates before building the statement.
+ */
+function dedupeBy(rows, keyFn) {
+  const byKey = new Map();
+  for (const row of rows) byKey.set(keyFn(row), row);
+  return [...byKey.values()];
+}
+
+/**
+ * Upsert `rows` into `table` in chunks.
+ *
+ * Args:
+ *   spec: { table, columns, casts, conflict, toParams, keyFn }
+ *   rows: array of { value, raw } pairs handed to `toParams`.
+ *
+ * Returns:
+ *   Number of rows written.
+ */
+async function upsertBatch(db, spec, rows) {
+  const deduped = dedupeBy(rows, spec.keyFn);
+  if (!deduped.length) return 0;
+
+  const updates = spec.columns
+    .filter(c => c !== spec.conflict)
+    .map(c => `${c} = EXCLUDED.${c}`)
+    .concat('ingested_at = now()')
+    .join(', ');
+
+  for (const part of chunk(deduped)) {
+    const params = [];
+    for (const row of part) params.push(...spec.toParams(row));
+    await db.query(
+      `INSERT INTO ${spec.table} (${spec.columns.join(', ')})
+       VALUES ${valuesClause(part.length, spec.columns.length, spec.casts)}
+       ON CONFLICT (${spec.conflict}) DO UPDATE SET ${updates}`,
+      params
+    );
+  }
+  return deduped.length;
+}
+
+const STOCK_ORDER_SPEC = {
+  table: 'stock_orders',
+  conflict: 'order_id',
+  columns: ['order_id', 'symbol', 'side', 'order_type', 'trigger_type', 'state',
+            'quantity', 'limit_price', 'stop_price', 'filled_quantity',
+            'average_price', 'created_at', 'updated_at', 'raw'],
+  casts: { 13: '::jsonb' },
+  keyFn: r => r.value.order_id,
+  toParams: ({ value: o, raw }) => [
+    o.order_id, o.symbol, o.side, o.order_type, o.trigger, o.state, o.quantity,
+    o.limit_price, o.stop_price, o.filled_quantity, o.average_price,
+    o.created_at, o.updated_at, JSON.stringify(raw ?? null),
+  ],
+};
+
+const OPTION_ORDER_SPEC = {
+  table: 'option_orders',
+  conflict: 'order_id',
+  columns: ['order_id', 'chain_symbol', 'direction', 'state', 'quantity', 'price',
+            'processed_premium', 'order_type', 'opening_strategy', 'legs',
+            'created_at', 'updated_at', 'raw'],
+  casts: { 9: '::jsonb', 12: '::jsonb' },
+  keyFn: r => r.value.order_id,
+  toParams: ({ value: o, raw }) => [
+    o.order_id, o.chain_symbol, o.direction, o.state, o.quantity, o.price,
+    o.processed_premium, o.order_type, o.opening_strategy,
+    JSON.stringify(o.legs), o.created_at, o.updated_at,
+    JSON.stringify(raw ?? null),
+  ],
+};
+
+const POSITION_SPEC = {
+  table: 'positions',
+  conflict: 'symbol',
+  columns: ['symbol', 'quantity', 'avg_buy_price', 'current_price', 'equity',
+            'profit_loss', 'profit_loss_pct', 'asset_type', 'raw'],
+  casts: { 8: '::jsonb' },
+  keyFn: r => r.value.symbol,
+  toParams: ({ value: p, raw }) => [
+    p.symbol, p.quantity, p.avg_buy_price, p.current_price, p.equity,
+    p.profit_loss, p.profit_loss_pct, p.asset_type, JSON.stringify(raw ?? null),
+  ],
+};
+
+const OPTION_POSITION_SPEC = {
+  table: 'option_positions',
+  conflict: 'position_key',
+  columns: ['position_key', 'chain_symbol', 'expiration', 'strike', 'option_type',
+            'position_type', 'quantity', 'avg_price', 'mark_price', 'current_value',
+            'profit_loss', 'profit_loss_pct', 'dte', 'multiplier', 'cost_basis',
+            'underlying_price', 'greeks', 'raw'],
+  casts: { 16: '::jsonb', 17: '::jsonb' },
+  keyFn: r => r.value.position_key,
+  toParams: ({ value: p, raw }) => [
+    p.position_key, p.chain_symbol, p.expiration, p.strike, p.option_type,
+    p.position_type, p.quantity, p.avg_price, p.mark_price, p.current_value,
+    p.profit_loss, p.profit_loss_pct, p.dte, p.multiplier, p.cost_basis,
+    p.underlying_price, JSON.stringify(p.greeks), JSON.stringify(raw ?? null),
+  ],
+};
+
+const upsertStockOrders     = (db, rows) => upsertBatch(db, STOCK_ORDER_SPEC, rows);
+const upsertOptionOrders    = (db, rows) => upsertBatch(db, OPTION_ORDER_SPEC, rows);
+const upsertPositions       = (db, rows) => upsertBatch(db, POSITION_SPEC, rows);
+const upsertOptionPositions = (db, rows) => upsertBatch(db, OPTION_POSITION_SPEC, rows);
+
 // ── Writes ────────────────────────────────────────────────────────────────────
 
 async function upsertStockOrder(db, order, rawSource) {
@@ -793,6 +931,15 @@ function createMemoryClient() {
 
   const byCreatedDesc = (a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
 
+  /** Split a multi-row INSERT's flat param list back into per-row groups. */
+  const rowsOf = (params, colCount) => {
+    const out = [];
+    for (let i = 0; i + colCount <= params.length; i += colCount) {
+      out.push(params.slice(i, i + colCount));
+    }
+    return out;
+  };
+
   return {
     async query(text, params = []) {
       const sql = text.trim();
@@ -800,30 +947,34 @@ function createMemoryClient() {
       if (/^CREATE (TABLE|INDEX)|^ALTER TABLE/i.test(sql)) return [];
 
       if (/^INSERT INTO stock_orders/i.test(sql)) {
-        const [order_id, symbol, side, order_type, trigger_type, state, quantity, limit_price,
-               stop_price, filled_quantity, average_price, created_at, updated_at, raw] = params;
-        const prev = stockOrders.get(order_id) || {};
-        stockOrders.set(order_id, {
-          order_id, symbol, side, order_type, trigger_type, state, quantity, limit_price,
-          stop_price, filled_quantity, average_price,
-          created_at: created_at ?? prev.created_at ?? null,
-          updated_at: updated_at ?? prev.updated_at ?? null,
-          raw,
-        });
+        for (const row of rowsOf(params, 14)) {
+          const [order_id, symbol, side, order_type, trigger_type, state, quantity, limit_price,
+                 stop_price, filled_quantity, average_price, created_at, updated_at, raw] = row;
+          const prev = stockOrders.get(order_id) || {};
+          stockOrders.set(order_id, {
+            order_id, symbol, side, order_type, trigger_type, state, quantity, limit_price,
+            stop_price, filled_quantity, average_price,
+            created_at: created_at ?? prev.created_at ?? null,
+            updated_at: updated_at ?? prev.updated_at ?? null,
+            raw,
+          });
+        }
         return [];
       }
 
       if (/^INSERT INTO option_orders/i.test(sql)) {
-        const [order_id, chain_symbol, direction, state, quantity, price, processed_premium,
-               order_type, opening_strategy, legs, created_at, updated_at, raw] = params;
-        const prev = optionOrders.get(order_id) || {};
-        optionOrders.set(order_id, {
-          order_id, chain_symbol, direction, state, quantity, price, processed_premium,
-          order_type, opening_strategy, legs,
-          created_at: created_at ?? prev.created_at ?? null,
-          updated_at: updated_at ?? prev.updated_at ?? null,
-          raw,
-        });
+        for (const row of rowsOf(params, 13)) {
+          const [order_id, chain_symbol, direction, state, quantity, price, processed_premium,
+                 order_type, opening_strategy, legs, created_at, updated_at, raw] = row;
+          const prev = optionOrders.get(order_id) || {};
+          optionOrders.set(order_id, {
+            order_id, chain_symbol, direction, state, quantity, price, processed_premium,
+            order_type, opening_strategy, legs,
+            created_at: created_at ?? prev.created_at ?? null,
+            updated_at: updated_at ?? prev.updated_at ?? null,
+            raw,
+          });
+        }
         return [];
       }
 
@@ -860,21 +1011,25 @@ function createMemoryClient() {
       }
 
       if (/^INSERT INTO positions/i.test(sql)) {
-        const [symbol, quantity, avg_buy_price, current_price, equity,
-               profit_loss, profit_loss_pct, asset_type, raw] = params;
-        positions.set(symbol, { symbol, quantity, avg_buy_price, current_price, equity,
-                                profit_loss, profit_loss_pct, asset_type, raw });
+        for (const row of rowsOf(params, 9)) {
+          const [symbol, quantity, avg_buy_price, current_price, equity,
+                 profit_loss, profit_loss_pct, asset_type, raw] = row;
+          positions.set(symbol, { symbol, quantity, avg_buy_price, current_price, equity,
+                                  profit_loss, profit_loss_pct, asset_type, raw });
+        }
         return [];
       }
       if (/^INSERT INTO option_positions/i.test(sql)) {
-        const [position_key, chain_symbol, expiration, strike, option_type, position_type,
-               quantity, avg_price, mark_price, current_value, profit_loss, profit_loss_pct,
-               dte, multiplier, cost_basis, underlying_price, greeks, raw] = params;
-        optionPositions.set(position_key, {
-          position_key, chain_symbol, expiration, strike, option_type, position_type,
-          quantity, avg_price, mark_price, current_value, profit_loss, profit_loss_pct,
-          dte, multiplier, cost_basis, underlying_price, greeks, raw,
-        });
+        for (const row of rowsOf(params, 18)) {
+          const [position_key, chain_symbol, expiration, strike, option_type, position_type,
+                 quantity, avg_price, mark_price, current_value, profit_loss, profit_loss_pct,
+                 dte, multiplier, cost_basis, underlying_price, greeks, raw] = row;
+          optionPositions.set(position_key, {
+            position_key, chain_symbol, expiration, strike, option_type, position_type,
+            quantity, avg_price, mark_price, current_value, profit_loss, profit_loss_pct,
+            dte, multiplier, cost_basis, underlying_price, greeks, raw,
+          });
+        }
         return [];
       }
       if (/^INSERT INTO account_snapshot/i.test(sql)) {
@@ -956,6 +1111,10 @@ module.exports = {
   normalizeAccount,
   optionPositionKey,
   upsertStockOrder,
+  upsertStockOrders,
+  upsertOptionOrders,
+  upsertPositions,
+  upsertOptionPositions,
   upsertOptionOrder,
   insertBotEvent,
   upsertPosition,

@@ -124,23 +124,24 @@ async function handlePost(db, event) {
       'No orders found in body. Send { orders: [...], option_orders: [...] } or an array of orders.'));
   }
 
-  const orderIds = [];
-  let stockUpserted = 0, optionUpserted = 0, skipped = 0;
+  let skipped = 0;
 
+  // Normalize first, then write in batches. The engine posts its whole book
+  // each sync (225 rows is normal); row-at-a-time upserts blew past the
+  // client read timeout and Netlify's function limit.
+  const stockRows = [], optionRows = [];
   for (const raw of stocks) {
-    const order = t.normalizeStockOrder(raw);
-    if (!order) { skipped++; continue; }
-    await t.upsertStockOrder(db, order, raw);
-    orderIds.push(order.order_id);
-    stockUpserted++;
+    const value = t.normalizeStockOrder(raw);
+    value ? stockRows.push({ value, raw }) : skipped++;
   }
   for (const raw of options) {
-    const order = t.normalizeOptionOrder(raw);
-    if (!order) { skipped++; continue; }
-    await t.upsertOptionOrder(db, order, raw);
-    orderIds.push(order.order_id);
-    optionUpserted++;
+    const value = t.normalizeOptionOrder(raw);
+    value ? optionRows.push({ value, raw }) : skipped++;
   }
+
+  const stockUpserted  = await t.upsertStockOrders(db, stockRows);
+  const optionUpserted = await t.upsertOptionOrders(db, optionRows);
+  const orderIds = [...stockRows, ...optionRows].map(r => r.value.order_id);
 
   const data = { stock_upserted: stockUpserted, option_upserted: optionUpserted, skipped, order_ids: orderIds };
   return t.respond(200, t.envelope({ resource: RESOURCE, action: 'upsert', data, count: stockUpserted + optionUpserted }));
