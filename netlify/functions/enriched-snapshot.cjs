@@ -341,10 +341,13 @@ exports.handler = async (event) => {
   try {
     const raw      = await fetchRawSnapshot();
     const enriched = enrichSnapshot(raw);
+    // Pass _as_of through verbatim — including null. Falling back to the
+    // snapshot timestamp would relabel never-written data as current, which
+    // is the reporting bug that hid a month-long order-feed outage.
     enriched.orders_source    = raw.orders_source    || 'db';
-    enriched.orders_as_of     = raw.orders_as_of     || raw.timestamp;
+    enriched.orders_as_of     = raw.orders_as_of     ?? null;
     enriched.positions_source = raw.positions_source || 'db';
-    enriched.positions_as_of  = raw.positions_as_of  || raw.timestamp;
+    enriched.positions_as_of  = raw.positions_as_of  ?? null;
     return {
       statusCode: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },

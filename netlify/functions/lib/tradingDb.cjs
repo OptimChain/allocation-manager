@@ -731,6 +731,18 @@ async function fetchOptionPositions(db) {
   );
 }
 
+/**
+ * When a table was last written, as ISO or null when empty.
+ *
+ * This is the honest freshness signal. Reporting the *read* time as `as_of`
+ * makes a table that stopped updating a month ago look current, which is
+ * exactly how a stalled write path stays invisible.
+ */
+async function fetchLastIngestedAt(db, table) {
+  const rows = await db.query(`SELECT max(ingested_at) AS ts FROM ${table}`);
+  return rows.length ? toIso(rows[0].ts) : null;
+}
+
 async function fetchAccountSnapshot(db, accountId = 'default') {
   const rows = await db.query(
     `SELECT * FROM account_snapshot WHERE account_id = $1`, [accountId]
@@ -1056,6 +1068,15 @@ function createMemoryClient() {
         return row ? [row] : [];
       }
 
+      const maxIngested = sql.match(/^SELECT max\(ingested_at\) AS ts FROM (\w+)/i);
+      if (maxIngested) {
+        const store = { stock_orders: stockOrders, option_orders: optionOrders,
+                        positions, option_positions: optionPositions }[maxIngested[1]];
+        // The memory client has no ingested_at column; report "written" as
+        // soon as anything exists so freshness plumbing is still exercised.
+        return [{ ts: store && store.size ? new Date(0).toISOString() : null }];
+      }
+
       if (/^DELETE FROM positions WHERE symbol = /i.test(sql)) {
         const existed = positions.delete(params[0]);
         return existed ? [{ symbol: params[0] }] : [];
@@ -1127,6 +1148,7 @@ module.exports = {
   fetchPositions,
   fetchOptionPositions,
   fetchAccountSnapshot,
+  fetchLastIngestedAt,
   getMarketCache,
   setMarketCache,
   rowToStockOrder,

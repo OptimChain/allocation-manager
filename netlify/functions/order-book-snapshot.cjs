@@ -152,13 +152,16 @@ async function fetchSnapshot() {
   }
   await t.ensureSchema(db);
 
-  const [positionRows, optionRows, accountRow, stockOrderRows, optionOrderRows, marketData] =
+  const [positionRows, optionRows, accountRow, stockOrderRows, optionOrderRows,
+         stockOrdersAt, optionOrdersAt, marketData] =
     await Promise.all([
       t.fetchPositions(db),
       t.fetchOptionPositions(db),
       t.fetchAccountSnapshot(db),
       t.fetchStockOrders(db, ORDER_LIMIT),
       t.fetchOptionOrders(db, ORDER_LIMIT),
+      t.fetchLastIngestedAt(db, 'stock_orders'),
+      t.fetchLastIngestedAt(db, 'option_orders'),
       fetchMarketData(),
     ]);
 
@@ -199,8 +202,13 @@ async function fetchSnapshot() {
     market_data: marketData,
     // Provenance for the dashboard's status line. Positions are no longer an
     // "engine snapshot" read out of a blob — both halves come from the DB now.
+    //
+    // _as_of is when the data was last WRITTEN, never when it was read.
+    // Reporting the read time makes a stalled write path look permanently
+    // current, which is how the order feed sat dead for a month unnoticed.
+    // null means "never written" — the UI should say so, not show now().
     orders_source: 'db',
-    orders_as_of: new Date().toISOString(),
+    orders_as_of: [stockOrdersAt, optionOrdersAt].filter(Boolean).sort().pop() ?? null,
     positions_source: 'db',
     positions_as_of: account?.updated_at ?? null,
   };
