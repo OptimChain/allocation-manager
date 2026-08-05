@@ -320,48 +320,10 @@ function enrichSnapshot(raw) {
   };
 }
 
-// ── Trading DB overlay ────────────────────────────────────────────────────────
-// The engine writes the blob snapshot infrequently, but the Robinhood MCP
-// writes orders to the trading DB continuously. When the DB is available,
-// its stock AND option orders replace the blob's order book before
-// enrichment, so open orders, historical orders, and every P&L window stay
-// current even when the blob is weeks old. Positions / cash / market data
-// remain blob-sourced (only the engine knows them).
-
-const ORDER_OVERLAY_LIMIT = 1000;
-
-async function overlayDbOrders(raw) {
-  const db = t.getDb();
-  if (!db) return raw;
-  try {
-    await t.ensureSchema(db);
-    const [stockRows, optionRows] = await Promise.all([
-      t.fetchStockOrders(db, ORDER_OVERLAY_LIMIT),
-      t.fetchOptionOrders(db, ORDER_OVERLAY_LIMIT),
-    ]);
-    if (!stockRows.length && !optionRows.length) return raw; // empty DB → keep blob as-is
-
-    // Placement stubs (no lifecycle state — e.g. trailing-stop placements
-    // written by external tools under client-generated ids) never confirm,
-    // fill, or cancel; keep them out of the order book the UI renders.
-    const stockOrders  = stockRows.map(t.rowToStockOrder).filter(o => !t.isUntrackedOrder(o));
-    // Synthesize a leg for legless option rows so P&L groups by chain_symbol
-    // instead of the 'OPT' fallback (same treatment as db-pnl)
-    const optionOrders = optionRows.map(t.rowToOptionOrder)
-      .filter(o => !t.isUntrackedOrder(o))
-      .map(o => o.legs && o.legs.length ? o : { ...o, legs: [{ chain_symbol: o.chain_symbol }] });
-
-    raw.portfolio.open_orders        = stockOrders.filter(o => t.OPEN_STATES.has(o.state));
-    raw.portfolio.open_option_orders = optionOrders.filter(o => t.OPEN_STATES.has(o.state));
-    raw.recent_orders        = stockOrders;
-    raw.recent_option_orders = optionOrders;
-    raw.orders_source = 'db';
-    raw.orders_as_of  = new Date().toISOString();
-  } catch (err) {
-    console.error('enriched-snapshot: DB order overlay failed, serving blob orders:', err.message);
-  }
-  return raw;
-}
+// ── Order provenance ─────────────────────────────────────────────────────────
+// order-book-snapshot now serves positions AND orders straight from the
+// trading DB, so this function no longer overlays the DB onto a stale blob —
+// it just carries the provenance fields through to the response.
 
 // ── Handler ──────────────────────────────────────────────────────────────────
 
@@ -377,10 +339,15 @@ exports.handler = async (event) => {
   }
 
   try {
-    const raw      = await overlayDbOrders(await fetchRawSnapshot());
+    const raw      = await fetchRawSnapshot();
     const enriched = enrichSnapshot(raw);
-    enriched.orders_source = raw.orders_source || 'blob';
-    enriched.orders_as_of  = raw.orders_as_of  || raw.timestamp;
+    // Pass _as_of through verbatim — including null. Falling back to the
+    // snapshot timestamp would relabel never-written data as current, which
+    // is the reporting bug that hid a month-long order-feed outage.
+    enriched.orders_source    = raw.orders_source    || 'db';
+    enriched.orders_as_of     = raw.orders_as_of     ?? null;
+    enriched.positions_source = raw.positions_source || 'db';
+    enriched.positions_as_of  = raw.positions_as_of  ?? null;
     return {
       statusCode: 200,
       headers: { ...CORS, 'Content-Type': 'application/json' },

@@ -1,10 +1,16 @@
 // Order Book Snapshot Netlify Function
-// Reads the latest state-logs blob from the 5thstreetcapital site
-// Data is written every ~5 minutes by an external trading system
 //
-// Returns portfolio/order_book from latest blob, and market_data from
-// the most recent blob that has complete BTC metrics (walking backwards
-// if the latest snapshot has NO_DATA).
+// Portfolio (positions, options, account) and orders come from Postgres —
+// the same Trading DB that backs db-positions and db-orders, written by the
+// engine on every tick. This used to read a "state-logs" engine-snapshot blob
+// that the engine only wrote when running with DRY_RUN=false, which is why
+// positions froze while orders stayed current.
+//
+// market_data still comes from the blobs: it is BTC metrics written by a
+// different producer, and nothing in Postgres carries it. A blob failure
+// degrades market_data to null rather than failing the whole snapshot.
+
+const t = require('./lib/tradingDb.cjs');
 
 // 5thstreetcapital Netlify site ID
 const ORDER_BOOK_SITE_ID = '3d014fc3-e919-4b4d-b374-e8606dee50df';
@@ -66,91 +72,145 @@ async function listAllBlobKeys(token, storeName) {
   return allKeys;
 }
 
-async function fetchSnapshot() {
+/** BTC metrics, from blobs. Returns null instead of throwing — see header. */
+async function fetchMarketData() {
   const token = process.env.NETLIFY_AUTH_TOKEN;
   if (!token) {
-    throw new Error('NETLIFY_AUTH_TOKEN not configured');
+    console.warn('NETLIFY_AUTH_TOKEN not configured — market_data unavailable');
+    return null;
   }
 
-  let allKeys = await listAllBlobKeys(token, STORE_NAME);
-  let activeStore = STORE_NAME;
+  try {
+    let allKeys = await listAllBlobKeys(token, STORE_NAME);
+    let activeStore = STORE_NAME;
 
-  // Fall back to historical store if primary is empty
-  if (allKeys.length === 0) {
-    console.log('Primary state-logs store empty, falling back to state-logs-historical');
-    allKeys = await listAllBlobKeys(token, STORE_NAME_HISTORICAL);
-    activeStore = STORE_NAME_HISTORICAL;
-  }
-
-  if (allKeys.length === 0) {
-    throw new Error('No state-logs snapshots found');
-  }
-
-  // Keys are timestamps (e.g. "2026-02-15T02-07-07") plus an optional 'latest'
-  // pointer. Sort the timestamped keys descending; non-timestamp keys like
-  // 'latest' would otherwise win the lexicographic sort ('l' > '2').
-  const sortedKeys = allKeys.filter(k => /^\d{4}-/.test(k)).sort().reverse();
-
-  // Fetch the newest timestamped blob and the 'latest' pointer (if present),
-  // then serve whichever payload is actually newer — robust to either the
-  // engine or the snapshot-refresh job having written last.
-  let latest = null;
-  if (sortedKeys.length) {
-    latest = await fetchBlob(token, sortedKeys[0], activeStore);
-  }
-  if (allKeys.includes('latest')) {
-    try {
-      const pointer = await fetchBlob(token, 'latest', activeStore);
-      if (!latest || String(pointer.timestamp) > String(latest.timestamp)) latest = pointer;
-    } catch (e) {
-      console.error('latest pointer fetch failed:', e.message);
+    // Fall back to historical store if primary is empty
+    if (allKeys.length === 0) {
+      console.log('Primary state-logs store empty, falling back to state-logs-historical');
+      allKeys = await listAllBlobKeys(token, STORE_NAME_HISTORICAL);
+      activeStore = STORE_NAME_HISTORICAL;
     }
-  }
-  if (!latest) throw new Error('No usable snapshot blob found');
+    if (allKeys.length === 0) return null;
 
-  // Build market_data from the latest blob with complete BTC metrics
-  let marketData = null;
+    // Keys are timestamps (e.g. "2026-02-15T02-07-07") plus an optional
+    // 'latest' pointer. Sort the timestamped keys descending; non-timestamp
+    // keys like 'latest' would otherwise win the sort ('l' > '2').
+    const sortedKeys = allKeys.filter(k => /^\d{4}-/.test(k)).sort().reverse();
 
-  if (hasCompleteMetrics(latest)) {
-    marketData = {
-      timestamp: latest.timestamp,
-      symbols: latest.state.symbols,
-    };
-  } else {
-    // Walk backwards through recent blobs (check up to 5) to find complete metrics
-    const maxLookback = Math.min(sortedKeys.length, 6); // skip index 0 (already checked)
-    for (let i = 1; i < maxLookback; i++) {
+    // Walk back through recent blobs for the newest complete BTC metrics
+    const maxLookback = Math.min(sortedKeys.length, 6);
+    for (let i = 0; i < maxLookback; i++) {
       try {
-        const older = await fetchBlob(token, sortedKeys[i], activeStore);
-        if (hasCompleteMetrics(older)) {
-          marketData = {
-            timestamp: older.timestamp,
-            symbols: older.state.symbols,
-          };
-          break;
+        const blob = await fetchBlob(token, sortedKeys[i], activeStore);
+        if (hasCompleteMetrics(blob)) {
+          return { timestamp: blob.timestamp, symbols: blob.state.symbols };
         }
       } catch (e) {
-        console.error(`Failed to fetch fallback blob ${sortedKeys[i]}:`, e.message);
+        console.error(`Failed to fetch blob ${sortedKeys[i]}:`, e.message);
       }
     }
+    return null;
+  } catch (e) {
+    console.error('market_data lookup failed:', e.message);
+    return null;
   }
+}
 
-  const portfolio = latest.portfolio || {};
+const ORDER_LIMIT = 1000;
+
+/**
+ * Split order rows into the open book vs. recent (terminal) history.
+ *
+ * Placement stubs (no lifecycle state — e.g. trailing-stop placements written
+ * by external tools under client-generated ids) never confirm, fill, or
+ * cancel, so they stay out of the book the UI renders.
+ */
+function bucketOrders(rows, toOrder) {
+  const open = [], recent = [];
+  for (const row of rows) {
+    const order = toOrder(row);
+    if (t.isUntrackedOrder(order)) continue;
+    (t.OPEN_STATES.has(order.state) ? open : recent).push(order);
+  }
+  return { open, recent };
+}
+
+/**
+ * Synthesize a leg for legless option rows so downstream P&L groups by
+ * chain_symbol instead of falling back to 'OPT' (same treatment as db-pnl).
+ */
+function withSynthesizedLeg(order) {
+  return order.legs && order.legs.length
+    ? order
+    : { ...order, legs: [{ chain_symbol: order.chain_symbol }] };
+}
+
+async function fetchSnapshot() {
+  const db = t.getDb();
+  if (!db) {
+    throw new Error('NETLIFY_DATABASE_URL is not set — cannot read the position book');
+  }
+  await t.ensureSchema(db);
+
+  const [positionRows, optionRows, accountRow, stockOrderRows, optionOrderRows,
+         stockOrdersAt, optionOrdersAt, marketData] =
+    await Promise.all([
+      t.fetchPositions(db),
+      t.fetchOptionPositions(db),
+      t.fetchAccountSnapshot(db),
+      t.fetchStockOrders(db, ORDER_LIMIT),
+      t.fetchOptionOrders(db, ORDER_LIMIT),
+      t.fetchLastIngestedAt(db, 'stock_orders'),
+      t.fetchLastIngestedAt(db, 'option_orders'),
+      fetchMarketData(),
+    ]);
+
+  const positions = positionRows.map(t.rowToPosition);
+  const options   = optionRows.map(t.rowToOptionPosition);
+  const account   = t.rowToAccount(accountRow);
+
+  const stockOrders  = bucketOrders(stockOrderRows, t.rowToStockOrder);
+  const optionOrders = bucketOrders(
+    optionOrderRows, r => withSynthesizedLeg(t.rowToOptionOrder(r)));
+
+  // RH's own equity figure excludes options, so total the book ourselves.
+  const stockValue  = positions.reduce((s, p) => s + (p.equity || 0), 0);
+  const optionValue = options.reduce((s, o) => s + (o.current_value || 0), 0);
+
+  const cash = account?.cash ?? 0;
   return {
-    timestamp: latest.timestamp,
+    // The position book's own write time — this is what the dashboard shows
+    // for positions, and it now moves with every engine tick.
+    timestamp: account?.updated_at ?? new Date().toISOString(),
     portfolio: {
-      cash: portfolio.cash || { cash: 0, cash_available_for_withdrawal: 0, buying_power: 0, tradeable_cash: 0 },
-      equity: portfolio.equity || 0,
-      market_value: portfolio.market_value || 0,
-      positions: portfolio.positions || [],
-      open_orders: portfolio.open_orders || [],
-      open_option_orders: portfolio.open_option_orders || [],
-      options: portfolio.options || [],
+      cash: {
+        cash,
+        cash_available_for_withdrawal: cash,
+        buying_power: account?.buying_power ?? 0,
+        tradeable_cash: cash,
+      },
+      equity: account?.equity ?? 0,
+      market_value: t.r2(stockValue + optionValue),
+      positions,
+      open_orders: stockOrders.open,
+      open_option_orders: optionOrders.open,
+      options,
     },
-    order_book: latest.order_book || [],
-    recent_orders: latest.recent_orders || [],
-    recent_option_orders: latest.recent_option_orders || [],
+    order_book: stockOrders.open,
+    recent_orders: stockOrders.recent,
+    recent_option_orders: optionOrders.recent,
     market_data: marketData,
+    // Provenance for the dashboard's status line. Positions are no longer an
+    // "engine snapshot" read out of a blob — both halves come from the DB now.
+    //
+    // _as_of is when the data was last WRITTEN, never when it was read.
+    // Reporting the read time makes a stalled write path look permanently
+    // current, which is how the order feed sat dead for a month unnoticed.
+    // null means "never written" — the UI should say so, not show now().
+    orders_source: 'db',
+    orders_as_of: [stockOrdersAt, optionOrdersAt].filter(Boolean).sort().pop() ?? null,
+    positions_source: 'db',
+    positions_as_of: account?.updated_at ?? null,
   };
 }
 
