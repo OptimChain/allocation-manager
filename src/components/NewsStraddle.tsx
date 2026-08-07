@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   RefreshCw,
   Zap,
+  FileText,
+  ExternalLink,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { getTimeSeries, NormalizedPriceData } from '../services/twelveDataService';
@@ -26,6 +28,7 @@ import {
   NEWS_STRADDLE_TICKERS,
   NewsStraddleTicker,
 } from '../services/perplexityNewsService';
+import { getStock } from '../services/financialsData';
 import { formatCurrency } from '../utils/formatters';
 
 // --- Spike detection ---
@@ -113,7 +116,7 @@ function ImpactBadge({ impact }: { impact: string }) {
 
 export default function NewsStraddle() {
   const { isDark } = useTheme();
-  const [selectedTicker, setSelectedTicker] = useState<NewsStraddleTicker>('IWN');
+  const [selectedTicker, setSelectedTicker] = useState<NewsStraddleTicker>('NET');
   const [range, setRange] = useState('1Y');
   const [priceData, setPriceData] = useState<NormalizedPriceData[]>([]);
   const [news, setNews] = useState<PerplexityNewsItem[]>([]);
@@ -203,6 +206,8 @@ export default function NewsStraddle() {
   const newsDateSet = useMemo(() => new Set(news.map((n) => n.date)), [news]);
 
   const tickerConfig = NEWS_STRADDLE_TICKERS.find((t) => t.symbol === selectedTicker)!;
+  // Only the tickers covered on the News page carry filings; the ETFs have none.
+  const filings = getStock(selectedTicker)?.statements ?? [];
   const axisColor = isDark ? '#a1a1aa' : '#71717a';
   const gridColor = isDark ? '#27272a' : '#e5e7eb';
 
@@ -232,7 +237,8 @@ export default function NewsStraddle() {
             <p className="text-gray-600 dark:text-gray-300 mt-1 text-sm leading-relaxed">
               Buy a put and a call when a price spike is detected. Spikes are identified as daily
               returns exceeding 2 standard deviations from the rolling mean. News context from
-              Perplexity AI helps label what drove each event. Tracks IWN, CB, AVDV, and ISRA.
+              Perplexity AI helps label what drove each event. Tracks NET, IWN, CB, AVDV, ISRA
+              and AVGO.
             </p>
           </div>
         </div>
@@ -535,6 +541,44 @@ export default function NewsStraddle() {
           )}
         </div>
       </div>
+
+      {/* Filings for the selected ticker */}
+      {filings.length > 0 && (
+        <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800">
+          <div className="px-6 py-4 border-b border-gray-100 dark:border-zinc-900">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Filings
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              {tickerConfig.name} results releases and SEC filings
+            </p>
+          </div>
+          <div className="divide-y divide-gray-100 dark:divide-zinc-900">
+            {filings.map((doc) => (
+              <a
+                key={doc.id}
+                href={doc.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 px-6 py-3 hover:bg-gray-50 dark:hover:bg-zinc-900 transition-colors group"
+              >
+                <div className="p-1.5 bg-gray-100 dark:bg-zinc-900 rounded">
+                  <FileText className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    {doc.title}
+                  </div>
+                  <div className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+                    {doc.type} · {doc.period} · {doc.date}
+                  </div>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 group-hover:text-gray-500 flex-shrink-0" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

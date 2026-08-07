@@ -19,6 +19,7 @@ export interface PerplexityNewsResponse {
 }
 
 export const NEWS_STRADDLE_TICKERS = [
+  { symbol: 'NET', name: 'Cloudflare, Inc.', color: '#F38020' },
   { symbol: 'IWN', name: 'iShares Russell 2000 Value', color: '#3B82F6' },
   { symbol: 'CB', name: 'Chubb Limited', color: '#8B5CF6' },
   { symbol: 'AVDV', name: 'Avantis Intl Small Cap Value', color: '#F59E0B' },
