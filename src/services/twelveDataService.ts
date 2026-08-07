@@ -79,7 +79,8 @@ export function getRangeConfig(range: string) {
 
 export async function getTimeSeries(
   symbol: string,
-  range: string = '1Y'
+  range: string = '1Y',
+  forceRefresh: boolean = false
 ): Promise<NormalizedPriceData[]> {
   const config = RANGE_CONFIG[range] || RANGE_CONFIG['1Y'];
   const ttl = config.interval === '1day' || config.interval === '1week' ? TTL_DAILY : TTL_INTRADAY;
@@ -89,6 +90,9 @@ export async function getTimeSeries(
     url.searchParams.set('symbol', symbol);
     url.searchParams.set('interval', config.interval);
     url.searchParams.set('outputsize', config.outputsize.toString());
+    // Propagate an explicit user refresh to the proxy so it re-pulls upstream
+    // (subject to its own 15s floor) instead of serving its cached payload.
+    if (forceRefresh) url.searchParams.set('refresh', '1');
 
     const response = await fetch(url.toString());
 
@@ -137,7 +141,8 @@ export const PORTFOLIO_ASSETS = [
 
 export async function getPortfolioData(
   range: string = '1Y',
-  symbols?: string[]
+  symbols?: string[],
+  forceRefresh: boolean = false
 ): Promise<PortfolioAsset[]> {
   // Only fetch the requested symbols (defaults to all) to keep bursts small.
   const assets = symbols
@@ -149,13 +154,54 @@ export async function getPortfolioData(
   const results = await Promise.allSettled(
     assets.map(async (asset) => ({
       ...asset,
-      data: await getTimeSeries(asset.symbol, range),
+      data: await getTimeSeries(asset.symbol, range, forceRefresh),
     }))
   );
 
   return results
     .filter((r): r is PromiseFulfilledResult<PortfolioAsset> => r.status === 'fulfilled')
     .map((r) => r.value);
+}
+
+export interface Quote {
+  symbol: string;
+  price: number;
+  timestamp: number; // ms epoch
+}
+
+/**
+ * Fetch the latest quote for a symbol through the proxy (`quote` endpoint).
+ * Works on plans without WebSocket streaming — the proxy caches quotes for
+ * ~60s, so polling callers share one upstream credit per symbol per window.
+ */
+export async function getQuote(symbol: string): Promise<Quote> {
+  return cachedJson(`quote:${symbol}`, TTL_QUOTE, async () => {
+    const url = tdProxyUrl('quote');
+    url.searchParams.set('symbol', symbol);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) throw new Error(`Failed to fetch quote ${symbol}: ${response.status}`);
+
+    const data = await response.json();
+    if (data.status === 'error') throw new Error(data.message || `Quote error for ${symbol}`);
+
+    return {
+      symbol,
+      price: parseFloat(data.close),
+      // TwelveData quote `timestamp` is epoch seconds for the last trade.
+      timestamp: typeof data.timestamp === 'number' ? data.timestamp * 1000 : Date.now(),
+    };
+  });
+}
+
+/** Fetch quotes for several symbols, tolerating per-symbol failures. */
+export async function getQuotes(symbols: string[]): Promise<Record<string, Quote>> {
+  const results = await Promise.allSettled(symbols.map((s) => getQuote(s)));
+  const out: Record<string, Quote> = {};
+  results.forEach((r) => {
+    if (r.status === 'fulfilled' && !Number.isNaN(r.value.price)) out[r.value.symbol] = r.value;
+  });
+  return out;
 }
 
 // --- CoinGecko supplemental data (market cap + volume) via Netlify proxy ---
