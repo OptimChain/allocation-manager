@@ -1092,7 +1092,8 @@ export const STOCKS: StockFinancials[] = [
           },
           {
             name: 'Rubin platform',
-            detail: 'Production shipments start in the second half of FY2027',
+            detail:
+              'Shipping in the second half of FY2027; management sees $1T of Blackwell and Rubin revenue through calendar 2027',
             tags: ['roadmap'],
             trend: 'up',
           },
@@ -1144,8 +1145,14 @@ export const STOCKS: StockFinancials[] = [
           {
             name: 'Circular financing',
             detail:
-              '$17.5B invested in private AI companies in FY2026 plus $3.5B of land and power guarantees',
+              '$18.6B put into private AI companies in Q1 alone, $27B more committed, plus $3.5B of lease guarantees',
             tags: ['related demand'],
+          },
+          {
+            name: 'Earnings quality',
+            detail:
+              'Q1 GAAP net income exceeded operating income on $15.9B of mark-to-market gains on those same stakes',
+            tags: ['non-operating'],
           },
           {
             name: 'Competition',
