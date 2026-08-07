@@ -7,6 +7,7 @@ const TICKER_FILTERS = [
   { label: 'BTC', value: 'BTC' },
   { label: 'SPY', value: 'SPY' },
   { label: 'QQQ', value: 'QQQ' },
+  { label: 'NET', value: 'NET' },
   { label: 'AAPL', value: 'AAPL' },
   { label: 'NVDA', value: 'NVDA' },
   { label: 'TSLA', value: 'TSLA' },

@@ -87,6 +87,291 @@ export const CATEGORY_META: Record<
 
 export const STOCKS: StockFinancials[] = [
   {
+    ticker: 'NET',
+    name: 'Cloudflare, Inc.',
+    sector: 'Technology · Internet Infrastructure',
+    asOf: 'Q2 2026',
+    currency: 'USD',
+    statements: [
+      {
+        id: 'net-q2-2026',
+        title: 'Second Quarter 2026 Financial Results',
+        period: 'Q2 2026',
+        date: '2026-08-06',
+        type: 'Earnings',
+        url: 'https://www.cloudflare.com/press/press-releases/2026/cloudflare-announces-second-quarter-2026-financial-results/',
+      },
+      {
+        id: 'net-q1-2026',
+        title: 'First Quarter 2026 Financial Results',
+        period: 'Q1 2026',
+        date: '2026-05-07',
+        type: 'Earnings',
+        url: 'https://www.cloudflare.com/press/press-releases/2026/cloudflare-announces-first-quarter-2026-financial-results/',
+      },
+      {
+        id: 'net-fy2025',
+        title: 'Q4 & Fiscal Year 2025 Financial Results',
+        period: 'Q4 & FY2025',
+        date: '2026-02-10',
+        type: 'Earnings',
+        url: 'https://www.cloudflare.com/press/press-releases/2026/cloudflare-announces-fourth-quarter-and-fiscal-year-2025-financial-results/',
+      },
+    ],
+    categories: {
+      revenue: {
+        summary:
+          'Q2 2026 revenue $696.1M, up 36% YoY — an acceleration on FY2025’s $2,167.9M (+30%). Growth is coming from enterprise expansion rather than new logos, and full-year guidance was raised to $2.86–2.87B.',
+        tiles: [
+          {
+            label: 'Q2 2026 revenue',
+            value: '$696.1M',
+            change: '+36% YoY',
+            trend: 'up',
+          },
+          {
+            label: 'FY2026 guidance',
+            value: '$2.87B',
+            change: 'raised',
+            trend: 'up',
+          },
+          {
+            label: 'Large customers',
+            value: '4,698',
+            change: '+27% YoY',
+            trend: 'up',
+          },
+        ],
+        subcategories: [
+          {
+            name: 'Large customers ($100k+)',
+            detail: '4,698 accounts at quarter end, now 73% of total revenue',
+            tags: ['enterprise', 'largest driver'],
+            trend: 'up',
+          },
+          {
+            name: 'Dollar-based net retention',
+            detail: '120%, up from 118% last quarter and 114% a year ago',
+            tags: ['expansion'],
+            trend: 'up',
+          },
+          {
+            name: 'Current RPO',
+            detail: 'Contracted-but-unrecognized revenue up 35% YoY',
+            tags: ['backlog', 'visibility'],
+            trend: 'up',
+          },
+          {
+            name: 'Developer platform & Workers AI',
+            detail:
+              'Over 5.5M developers; serverless GPU inference in 180+ cities',
+            tags: ['AI', 'fastest growth'],
+            trend: 'up',
+          },
+          {
+            name: 'Application & network services',
+            detail: 'CDN, DDoS, WAF and Zero Trust — the core subscription base',
+            tags: ['core', 'recurring'],
+          },
+          {
+            name: 'AI content monetization',
+            detail: 'AI Crawl Control and pay-per-crawl — early and unpriced',
+            tags: ['AI', 'emerging'],
+            trend: 'up',
+          },
+        ],
+      },
+      risk: {
+        summary:
+          'Growth is not in question; margins and execution are. Gross margin fell 310bps YoY as the GPU and network build scaled, a 20% workforce cut is still landing, and the November 2025 outage made concentration a public issue.',
+        tiles: [
+          {
+            label: 'Gross margin',
+            value: '71.8%',
+            change: '-310 bps YoY',
+            trend: 'down',
+          },
+          { label: 'Restructuring', value: 'In flight', trend: 'down' },
+          { label: 'Outage exposure', value: 'Systemic', trend: 'down' },
+        ],
+        subcategories: [
+          {
+            name: 'Margin compression',
+            detail:
+              'GAAP gross margin 71.8% vs 74.9% a year ago as GPUs and capacity scale',
+            tags: ['margins'],
+          },
+          {
+            name: 'Restructuring execution',
+            detail:
+              'Over 1,100 roles cut; headcount down from 5,483 to ~4,700, finishing in Q3',
+            tags: ['execution', 'one-off'],
+          },
+          {
+            name: 'Systemic outage exposure',
+            detail:
+              'The November 2025 outage took down large parts of the web and drew concentration scrutiny',
+            tags: ['operational'],
+          },
+          {
+            name: 'Hyperscaler competition',
+            detail:
+              'AWS, Azure and Google can bundle CDN and security inside broader cloud deals',
+            tags: ['competitive'],
+          },
+          {
+            name: 'AI monetization is unproven',
+            detail:
+              'Pay-per-crawl and edge inference revenue are early relative to the capex behind them',
+            tags: ['AI'],
+          },
+          {
+            name: 'Valuation',
+            detail:
+              'Shares trade at record highs, above the average published price target',
+            tags: ['market'],
+          },
+        ],
+      },
+      costOfCapital: {
+        summary:
+          '$4.16B of cash and securities against $1.75B of zero-coupon converts due 2030 — capital raised at no cash interest, paid for in dilution. No dividend or buyback; free cash flow now funds part of the network build.',
+        tiles: [
+          {
+            label: 'Cash & securities',
+            value: '$4.16B',
+            trend: 'up',
+          },
+          {
+            label: 'Convertible notes',
+            value: '$1.75B',
+            note: '0% due 2030',
+            trend: 'flat',
+          },
+          { label: 'Beta', value: '~1.7', note: 'est.', trend: 'flat' },
+        ],
+        subcategories: [
+          {
+            name: 'Zero-coupon converts',
+            detail:
+              '$1.75B due June 2030, no cash interest, ~$247.67 conversion price',
+            tags: ['debt', 'dilution'],
+          },
+          {
+            name: 'Liquidity',
+            detail:
+              '$4,162.8M in cash and available-for-sale securities at June 30, 2026',
+            tags: ['liquidity'],
+          },
+          {
+            name: 'Free cash flow',
+            detail: 'Q2 free cash flow $56.4M, 8% of revenue, up from 6%',
+            tags: ['self-funded'],
+            trend: 'up',
+          },
+          {
+            name: 'No capital return',
+            detail:
+              'No dividend or buyback; stock-based comp dilutes rather than offsets',
+            tags: ['equity-heavy'],
+          },
+        ],
+      },
+      costs: {
+        summary:
+          'Non-GAAP operating income was $96.1M (13.8% of revenue), but GAAP swung to a $205.7M loss on a $150.7M restructuring charge. Network capex is guided to 14–15% of revenue for the year.',
+        tiles: [
+          {
+            label: 'Non-GAAP op. margin',
+            value: '13.8%',
+            change: '-30 bps YoY',
+            trend: 'down',
+          },
+          {
+            label: 'Restructuring',
+            value: '$150.7M',
+            note: 'Q2',
+            trend: 'down',
+          },
+          {
+            label: 'Network capex',
+            value: '14–15%',
+            note: 'of revenue',
+            trend: 'down',
+          },
+        ],
+        subcategories: [
+          {
+            name: 'Cost of revenue',
+            detail:
+              'Bandwidth, colocation and the GPU fleet — the driver of the margin step-down',
+            tags: ['largest cost'],
+          },
+          {
+            name: 'Restructuring charges',
+            detail: '$140–150M across 2026, roughly $40M of it non-cash',
+            tags: ['one-off'],
+          },
+          {
+            name: 'Network capex',
+            detail: '9% of revenue in Q1, guided to 14–15% for the full year',
+            tags: ['capex'],
+          },
+          {
+            name: 'Stock-based compensation',
+            detail: 'The main gap between GAAP and non-GAAP results',
+            tags: ['non-cash'],
+          },
+          {
+            name: 'R&D and go-to-market',
+            detail: 'Enterprise sales build-out alongside the AI product push',
+            tags: ['investment'],
+          },
+        ],
+      },
+      supplyChain: {
+        summary:
+          'Cloudflare owns more of its stack than most software companies — a self-built network in 330+ cities across 125+ countries — but still leans on colocation and transit partners, server ODMs, and NVIDIA silicon for inference.',
+        tiles: [
+          { label: 'Network', value: '330+ cities', trend: 'up' },
+          { label: 'Inference GPUs', value: '180+ cities', trend: 'up' },
+          { label: 'Model', value: 'Self-built', trend: 'flat' },
+        ],
+        subcategories: [
+          {
+            name: 'Global network',
+            detail:
+              '330+ cities in 125+ countries, with every service running on every server',
+            tags: ['owned', 'moat'],
+          },
+          {
+            name: 'Colocation & interconnection',
+            detail:
+              'Leased rack space, internet-exchange peering and transit providers',
+            tags: ['dependency'],
+          },
+          {
+            name: 'NVIDIA GPUs',
+            detail: 'Inference hardware deployed to 180+ cities for Workers AI',
+            tags: ['components', 'AI'],
+          },
+          {
+            name: 'Server ODMs & components',
+            detail:
+              'Custom servers; CPU, memory and SSD pricing feeds straight into gross margin',
+            tags: ['components'],
+          },
+          {
+            name: 'AI model partners',
+            detail:
+              'Anthropic and Google partnerships underpin the agent tooling',
+            tags: ['AI', 'partners'],
+          },
+        ],
+      },
+    },
+  },
+  {
     ticker: 'HOOD',
     name: 'Robinhood Markets',
     sector: 'Financial Services · Brokerage',
