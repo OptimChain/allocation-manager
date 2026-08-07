@@ -49,6 +49,7 @@ exports.handler = async (event) => {
     }
 
     const tickerNames = {
+      NET: 'Cloudflare, Inc. (NET)',
       IWN: 'iShares Russell 2000 Value ETF (IWN)',
       CB: 'Chubb Limited (CB)',
       AVDV: 'Avantis International Small Cap Value ETF (AVDV)',
