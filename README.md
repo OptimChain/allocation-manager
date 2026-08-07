@@ -11,9 +11,19 @@ A real-time asset tracking, market analysis, and trading engine system with host
 
 ## Features
 
-The trading system is packaged seperately in [allocation-engine](https://github.com/IamJasonBian/allocation-engine/tree/main/trading_system) with the training system packaged in [allocation-gym](https://github.com/IamJasonBian/allocation-gym).  The trading system can be hosted using local and managed compute environments to make calls to the allocation-manager service for broker integration. 
+The trading system is packaged seperately in [allocation-engine-2.0](https://github.com/IamJasonBian/allocation-engine-2.0) with the training system packaged in [allocation-gym](https://github.com/IamJasonBian/allocation-gym/blob/main/docs/7/iwn_vol_analysis.pdf). The trading system can be hosted using local and managed compute environments to make calls to the allocation-manager service for broker integration. 
 
-Deployed keys and auth will be managed locally. 
+Deployed keys and auth will be managed locally and trade using an residential ip and device level tokens. 
+
+Currently, allocation-engine is hosted on render and calls an auth-service hosted an static gcp compute instance for token based access. The auth-service environment refreshes device tokens every 24 hours for all configured brokers and vends pass-through tokens when possible. Allocation-engine can also execute trades within the auth environment or make mcp calls. 
+
+Currently, the system is used to configure trailing stop loss %s for market orders and ensure stops coverage as a risk mechanism. While trades are reviewed executed manually - the system can be directly used to recommend, execute, and fill trades via cli or chat based interfaces (telegram, whatsapp etc). 
+
+Given spreads for options and general execution quality, allocation-engine has been successfully used to price, manage and place limit orders for 14 to 1 month out calls and puts via multiple datafeeds. Helpful use cases have been
+
+* Walking an options order in-front of IV, RV, and momentum.
+* Placing options orders outside spot for opportunistic execution
+* FIFO, LIFO and fill quality tracking
 
 Site: https://5thstreetcapital.org/
 
@@ -28,14 +38,28 @@ Site: https://5thstreetcapital.org/
 
 * BTC
 * BTC/USD
+* Equities (NET)
+* Options
+
+## Supported Execution Types
+
+* Pegged to spot
+* Aftermarket pegged to spot
+* Momentum and static limit spreads
+* % Trailing stop market
+* Limit orders refreshes
+
+## Refresh Intervals
+
+* 5 second to 1 week
 
 ## Supported Brokers
 
 * Alpaca
 * Robinhood
-* Binance.us
-
-
+* IBKR (gcp or local gateways)
+  
+* Binance.us (no more)
 
 ## License
 
