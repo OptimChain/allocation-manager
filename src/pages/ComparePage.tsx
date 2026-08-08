@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { PortfolioChart } from '../components/PortfolioChart';
-import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset } from '../services/twelveDataService';
+import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset, NormalizedPriceData } from '../services/twelveDataService';
 import { clearTwelveDataCache } from '../services/twelveDataCache';
 import { processPortfolioReturns, calculateCorrelations } from '../utils/portfolioCalculations';
 import { useTwelveDataLivePrices } from '../hooks/useTwelveDataLivePrices';
+import { useTwelveDataQuotePolling } from '../hooks/useTwelveDataQuotePolling';
 
 const TIME_RANGES = [
   { label: '1W', value: '1W' },
@@ -50,7 +51,7 @@ export default function ComparePage() {
     setError(null);
 
     try {
-      const data = await getPortfolioData(selectedRange, enabledSymbols);
+      const data = await getPortfolioData(selectedRange, enabledSymbols, isRefresh);
       setPortfolioData(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
@@ -72,17 +73,46 @@ export default function ComparePage() {
     fetchData(true);
   };
 
+  // Live prices for the currently enabled assets. Prefer the Twelve Data
+  // WebSocket (tick-by-tick); if the plan lacks streaming the socket errors,
+  // so we fall back to polling the REST `quote` endpoint through the proxy.
+  const { prices: wsPrices, status: wsStatus } = useTwelveDataLivePrices(enabledSymbols);
+  const pollEnabled = wsStatus === 'error' || wsStatus === 'closed';
+  const { prices: polledPrices, status: pollStatus } = useTwelveDataQuotePolling(
+    enabledSymbols,
+    { enabled: pollEnabled }
+  );
+  const livePrices = wsStatus === 'open' ? wsPrices : polledPrices;
+  const liveStatus = wsStatus === 'open' ? 'open' : pollEnabled ? pollStatus : wsStatus;
+
   const chartData = useMemo(() => {
     if (portfolioData.length === 0) return [];
     const { smaWindow } = getRangeConfig(selectedRange);
-    const allData = processPortfolioReturns(portfolioData, fees, smaWindow);
+    // Extend each series with the latest live price so the chart advances
+    // intraday instead of ending at the prior daily close. Only when the live
+    // tick is strictly newer than the last bar (skips off-hours / stale ticks).
+    const augmented = portfolioData.map((asset) => {
+      const live = livePrices[asset.symbol];
+      if (!live || asset.data.length === 0) return asset;
+      const last = asset.data[asset.data.length - 1];
+      if (live.timestamp <= last.timestamp) return asset;
+      const livePoint: NormalizedPriceData = {
+        date: new Date(live.timestamp).toISOString().slice(0, 10),
+        timestamp: live.timestamp,
+        price: live.price,
+      };
+      // Same calendar day → replace today's bar; otherwise append a new point.
+      const data =
+        livePoint.date === last.date
+          ? [...asset.data.slice(0, -1), livePoint]
+          : [...asset.data, livePoint];
+      return { ...asset, data };
+    });
+    const allData = processPortfolioReturns(augmented, fees, smaWindow);
     return allData.filter((asset) => enabledAssets[asset.symbol]);
-  }, [portfolioData, fees, enabledAssets, selectedRange]);
+  }, [portfolioData, fees, enabledAssets, selectedRange, livePrices]);
 
   const correlations = useMemo(() => calculateCorrelations(chartData), [chartData]);
-
-  // Live tick stream (Twelve Data WebSocket) for the currently enabled assets.
-  const { prices: livePrices, status: liveStatus } = useTwelveDataLivePrices(enabledSymbols);
 
   const toggleAsset = (symbol: string) => {
     setEnabledAssets((prev) => ({ ...prev, [symbol]: !prev[symbol] }));
@@ -134,7 +164,7 @@ export default function ComparePage() {
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2" title="Twelve Data WebSocket — tick-by-tick (~170 ms) live prices">
+          <div className="flex items-center gap-2" title="Live prices — Twelve Data WebSocket (tick-by-tick) with REST quote polling fallback">
             <span
               className={`w-2 h-2 rounded-full ${
                 liveStatus === 'open'
