@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { TWELVE_DATA_WS_KEY } from '../config/api';
 
 /**
  * Real-time price streaming from the Twelve Data WebSocket.
@@ -15,6 +16,14 @@ import { useEffect, useRef, useState } from 'react';
  *  - Requires a Twelve Data plan with WebSocket access. If the key is missing
  *    or the plan lacks streaming, the hook degrades to status 'error'/'closed'
  *    and callers should fall back to the last REST close.
+ *  - Entitlement is PER SYMBOL, not per account: the server answers a
+ *    subscribe with a `subscribe-status` frame that splits the request into
+ *    `success` and `fails`, e.g. status 'warning' with BTC/USD subscribed and
+ *    SPY/NET/VOO rejected. The socket stays open and healthy either way, so
+ *    connection status alone says nothing about whether a given symbol will
+ *    ever tick. Callers must therefore look at `streaming` — the symbols the
+ *    server actually confirmed — and source everything else over REST, or
+ *    those symbols silently sit at the previous daily close.
  */
 
 const WS_URL = 'wss://ws.twelvedata.com/v1/quotes/price';
@@ -31,21 +40,30 @@ export type LiveStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
 export function useTwelveDataLivePrices(symbols: string[]): {
   prices: Record<string, LivePrice>;
   status: LiveStatus;
+  streaming: string[];
 } {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
   const [status, setStatus] = useState<LiveStatus>('idle');
+  // Symbols the server confirmed in a `subscribe-status` frame. Sorted so the
+  // identity only changes when the set does.
+  const [streaming, setStreaming] = useState<string[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const subscribedRef = useRef<Set<string>>(new Set());
   const symbolsRef = useRef<string[]>(symbols);
   symbolsRef.current = symbols;
 
+  // Confirmed-streaming set, mutated from socket frames and mirrored into
+  // `streaming` state.
+  const streamingRef = useRef<Set<string>>(new Set());
+  const publishStreaming = () => setStreaming([...streamingRef.current].sort());
+
   // Stable key so the connection effect only re-runs when the set changes.
   const symbolsKey = [...symbols].sort().join(',');
 
   // ── Connection lifecycle (one socket, reconnects on drop) ──────────────
   useEffect(() => {
-    const apiKey = import.meta.env.VITE_TWELVE_DATA_API_KEY;
+    const apiKey = TWELVE_DATA_WS_KEY;
     if (!apiKey) {
       setStatus('error');
       return;
@@ -87,6 +105,19 @@ export function useTwelveDataLivePrices(symbols: string[]): {
                 timestamp: typeof msg.timestamp === 'number' ? msg.timestamp * 1000 : Date.now(),
               },
             }));
+            return;
+          }
+          // The server reports per-symbol entitlement here. `status` is 'ok'
+          // when everything subscribed and 'warning' on a partial accept, so
+          // key off the success/fails lists rather than the status string.
+          if (msg.event === 'subscribe-status') {
+            for (const item of msg.success ?? []) {
+              if (item?.symbol) streamingRef.current.add(item.symbol);
+            }
+            for (const item of msg.fails ?? []) {
+              if (item?.symbol) streamingRef.current.delete(item.symbol);
+            }
+            publishStreaming();
           }
         } catch {
           // ignore malformed frames
@@ -100,7 +131,11 @@ export function useTwelveDataLivePrices(symbols: string[]): {
       ws.onclose = () => {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = null;
+        // Nothing is streaming over a dead socket — drop the confirmations so
+        // callers fall back to REST until the reconnect re-confirms them.
+        streamingRef.current = new Set();
         if (cancelled) return;
+        publishStreaming();
         setStatus('closed');
         reconnect = setTimeout(connect, RECONNECT_MS);
       };
@@ -123,6 +158,7 @@ export function useTwelveDataLivePrices(symbols: string[]): {
       ws?.close();
       wsRef.current = null;
       subscribedRef.current = new Set();
+      streamingRef.current = new Set();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -142,10 +178,14 @@ export function useTwelveDataLivePrices(symbols: string[]): {
     }
     if (toRemove.length > 0) {
       ws.send(JSON.stringify({ action: 'unsubscribe', params: { symbols: toRemove.join(',') } }));
+      // Unsubscribes are not acknowledged with a subscribe-status frame, so
+      // retire them here rather than waiting for a confirmation that never comes.
+      toRemove.forEach((s) => streamingRef.current.delete(s));
+      publishStreaming();
     }
     subscribedRef.current = desired;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbolsKey]);
 
-  return { prices, status };
+  return { prices, status, streaming };
 }

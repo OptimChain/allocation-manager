@@ -93,12 +93,18 @@ export async function cachedJson<T>(
   })();
 
   memory.set(key, { entry: slot?.entry, inflight });
-  void inflight.finally(() => {
-    const s = memory.get(key);
-    if (s?.inflight === inflight) {
-      memory.set(key, { entry: s.entry });
-    }
-  });
+  inflight
+    .finally(() => {
+      const s = memory.get(key);
+      if (s?.inflight === inflight) {
+        memory.set(key, { entry: s.entry });
+      }
+    })
+    // The rejection belongs to whoever awaited `inflight`; this bookkeeping
+    // chain must swallow it or it surfaces as an unhandled rejection (console
+    // noise in the browser, a hard crash under Node) even when the real caller
+    // handled the error.
+    .catch(() => {});
 
   return inflight;
 }

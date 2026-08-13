@@ -4,7 +4,7 @@ import { PortfolioChart } from '../components/PortfolioChart';
 import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset, NormalizedPriceData } from '../services/twelveDataService';
 import { clearTwelveDataCache } from '../services/twelveDataCache';
 import { processPortfolioReturns, calculateCorrelations } from '../utils/portfolioCalculations';
-import { useTwelveDataLivePrices } from '../hooks/useTwelveDataLivePrices';
+import { useTwelveDataLivePrices, LivePrice } from '../hooks/useTwelveDataLivePrices';
 import { useTwelveDataQuotePolling } from '../hooks/useTwelveDataQuotePolling';
 
 const TIME_RANGES = [
@@ -73,17 +73,45 @@ export default function ComparePage() {
     fetchData(true);
   };
 
-  // Live prices for the currently enabled assets. Prefer the Twelve Data
-  // WebSocket (tick-by-tick); if the plan lacks streaming the socket errors,
-  // so we fall back to polling the REST `quote` endpoint through the proxy.
-  const { prices: wsPrices, status: wsStatus } = useTwelveDataLivePrices(enabledSymbols);
-  const pollEnabled = wsStatus === 'error' || wsStatus === 'closed';
-  const { prices: polledPrices, status: pollStatus } = useTwelveDataQuotePolling(
-    enabledSymbols,
-    { enabled: pollEnabled }
+  // Live prices for the currently enabled assets, from two sources at once.
+  //
+  // Twelve Data grants streaming per symbol, not per account: the socket opens
+  // and stays healthy while rejecting most symbols in its subscribe-status
+  // frame (on this plan only BTC/USD, QQQ and AAPL are accepted). Treating the
+  // socket as all-or-nothing therefore left everything else pinned to the
+  // previous daily close behind a green "Live" badge. So: take WebSocket ticks
+  // for the symbols it actually confirmed, and poll REST quotes for the rest.
+  const { prices: wsPrices, status: wsStatus, streaming } = useTwelveDataLivePrices(enabledSymbols);
+
+  const streamingKey = streaming.join(',');
+  const polledSymbols = useMemo(
+    () => enabledSymbols.filter((s) => !streaming.includes(s)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enabledKey, streamingKey]
   );
-  const livePrices = wsStatus === 'open' ? wsPrices : polledPrices;
-  const liveStatus = wsStatus === 'open' ? 'open' : pollEnabled ? pollStatus : wsStatus;
+  const { prices: polledPrices, status: pollStatus } = useTwelveDataQuotePolling(
+    polledSymbols,
+    { enabled: polledSymbols.length > 0 }
+  );
+
+  // Socket ticks win, but only for symbols still confirmed as streaming —
+  // `wsPrices` keeps its last tick after a symbol is dropped or the socket
+  // closes, and blindly spreading it over the polled quotes would let those
+  // dead ticks shadow fresher REST data.
+  const livePrices = useMemo(() => {
+    const merged: Record<string, LivePrice> = { ...polledPrices };
+    for (const symbol of streaming) {
+      const tick = wsPrices[symbol];
+      if (tick) merged[symbol] = tick;
+    }
+    return merged;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polledPrices, wsPrices, streamingKey]);
+
+  // Report the source that is actually feeding the majority of the board, so
+  // the badge can't claim "Live" while most rows sit at yesterday's close.
+  const liveStatus =
+    polledSymbols.length === 0 ? wsStatus : streaming.length > 0 && wsStatus === 'open' ? 'open' : pollStatus;
 
   const chartData = useMemo(() => {
     if (portfolioData.length === 0) return [];
@@ -94,6 +122,9 @@ export default function ComparePage() {
     const augmented = portfolioData.map((asset) => {
       const live = livePrices[asset.symbol];
       if (!live || asset.data.length === 0) return asset;
+      // A malformed tick would otherwise reach new Date(...).toISOString()
+      // below and throw, taking the whole page down with it.
+      if (!Number.isFinite(live.price) || !Number.isFinite(live.timestamp)) return asset;
       const last = asset.data[asset.data.length - 1];
       if (live.timestamp <= last.timestamp) return asset;
       const livePoint: NormalizedPriceData = {

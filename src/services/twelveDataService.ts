@@ -9,7 +9,11 @@ import { tdProxyUrl } from './tdProxy';
 // series and quotes refresh faster. Historical point lookups are immutable.
 const TTL_DAILY = 30 * 60_000;
 const TTL_INTRADAY = 3 * 60_000;
-const TTL_QUOTE = 60_000;
+// Deliberately shorter than the 60s quote-polling interval: at an equal TTL
+// every other poll was absorbed by this cache, halving the effective refresh
+// rate to ~2min. Requests that miss here still hit the proxy's own shared 60s
+// cache, so this costs no extra upstream credits.
+const TTL_QUOTE = 30_000;
 const TTL_HISTORICAL_POINT = 24 * 60 * 60_000;
 
 export interface TimeSeriesData {
@@ -173,9 +177,15 @@ export interface Quote {
  * Fetch the latest quote for a symbol through the proxy (`quote` endpoint).
  * Works on plans without WebSocket streaming — the proxy caches quotes for
  * ~60s, so polling callers share one upstream credit per symbol per window.
+ *
+ * Note the `quote:live:` cache-key prefix. getBitcoinQuote/getEtfQuote hit the
+ * same upstream endpoint but return a different shape, so all three must stay
+ * in separate key namespaces — the cache is shared (and persisted to
+ * localStorage), so a common `quote:<symbol>` key let one page's payload be
+ * served to another page expecting different fields.
  */
 export async function getQuote(symbol: string): Promise<Quote> {
-  return cachedJson(`quote:${symbol}`, TTL_QUOTE, async () => {
+  return cachedJson(`quote:live:${symbol}`, TTL_QUOTE, async () => {
     const url = tdProxyUrl('quote');
     url.searchParams.set('symbol', symbol);
 
@@ -199,7 +209,15 @@ export async function getQuotes(symbols: string[]): Promise<Record<string, Quote
   const results = await Promise.allSettled(symbols.map((s) => getQuote(s)));
   const out: Record<string, Quote> = {};
   results.forEach((r) => {
-    if (r.status === 'fulfilled' && !Number.isNaN(r.value.price)) out[r.value.symbol] = r.value;
+    // Require finite values — a malformed payload yields NaN/undefined, which
+    // would otherwise propagate into chart maths and date construction.
+    if (
+      r.status === 'fulfilled' &&
+      Number.isFinite(r.value.price) &&
+      Number.isFinite(r.value.timestamp)
+    ) {
+      out[r.value.symbol] = r.value;
+    }
   });
   return out;
 }
@@ -252,7 +270,8 @@ export interface BitcoinQuote {
 }
 
 export async function getBitcoinQuote(): Promise<BitcoinQuote> {
-  return cachedJson('quote:BTC/USD', TTL_QUOTE, async () => {
+  // Distinct key namespace — see the note on getQuote.
+  return cachedJson('quote:btc:BTC/USD', TTL_QUOTE, async () => {
   const url = tdProxyUrl('quote');
   url.searchParams.set('symbol', 'BTC/USD');
 
@@ -296,7 +315,8 @@ export interface EtfQuote {
 }
 
 export async function getEtfQuote(symbol: string = 'BTC'): Promise<EtfQuote> {
-  return cachedJson(`quote:${symbol}`, TTL_QUOTE, async () => {
+  // Distinct key namespace — see the note on getQuote.
+  return cachedJson(`quote:etf:${symbol}`, TTL_QUOTE, async () => {
   const url = tdProxyUrl('quote');
   url.searchParams.set('symbol', symbol);
 
