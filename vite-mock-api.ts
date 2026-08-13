@@ -19,6 +19,12 @@ const { enrichSnapshot } = require_('./netlify/functions/enriched-snapshot.cjs')
   enrichSnapshot: (raw: Record<string, unknown>) => Record<string, unknown>;
 };
 
+// Same for market-depth: the mock serves exactly what the deployed function
+// returns, so contracts and vol surfaces never drift between the two.
+const { buildPayload: buildMarketDepth } = require_('./netlify/functions/market-depth.cjs') as {
+  buildPayload: () => Record<string, unknown>;
+};
+
 function loadMock(name: string): unknown {
   const file = path.join(MOCK_DIR, `${name}.json`);
   if (!fs.existsSync(file)) return null;
@@ -530,134 +536,10 @@ async function getMockResponse(pathname: string, params: URLSearchParams): Promi
     return { status: 200, body: enrichSnapshot(raw) };
   }
 
-  // Market Depth — options contracts with greeks, depth ladder, theta decay
+  // Market Depth — options contracts with greeks, depth ladder, theta decay,
+  // and the IV surfaces. Served straight from the production function.
   if (fn === 'market-depth') {
-    function buildDepth(mid: number, spreadPct: number, levels: number): { bids: unknown[]; asks: unknown[] } {
-      const bids = [];
-      const asks = [];
-      const halfSpread = mid * (spreadPct / 2);
-      const exchanges = ['CBOE', 'ISE', 'PHLX', 'BOX', 'MIAX', 'ARCA'];
-      for (let i = 0; i < levels; i++) {
-        const step = halfSpread * (1 + i * 0.4);
-        bids.push({
-          price: Math.round((mid - step) * 100) / 100,
-          size: Math.floor(Math.random() * 80) + 5,
-          exchange: exchanges[i % exchanges.length],
-          timestamp: new Date().toISOString(),
-        });
-        asks.push({
-          price: Math.round((mid + step) * 100) / 100,
-          size: Math.floor(Math.random() * 80) + 5,
-          exchange: exchanges[(i + 1) % exchanges.length],
-          timestamp: new Date().toISOString(),
-        });
-      }
-      return { bids, asks };
-    }
-
-    function buildThetaCurve(dte: number, currentMid: number): unknown[] {
-      const points = [];
-      for (let d = dte; d >= 0; d -= Math.max(1, Math.floor(dte / 20))) {
-        const frac = d / dte;
-        const timeValue = currentMid * Math.sqrt(frac);
-        const dailyTheta = d > 0 ? -(currentMid * (1 - Math.sqrt((d - 1) / dte))) + (currentMid * (1 - Math.sqrt(d / dte))) : -currentMid * 0.05;
-        points.push({ dte: d, value: Math.round(dailyTheta * 100) / 100 });
-      }
-      return points;
-    }
-
-    // SNDK $1200 Call 5/8 — spot ~$952, strike $1200 → ~26% OTM
-    const sndk1200 = {
-      symbol: 'SNDK260508C01200000',
-      underlying: 'SNDK',
-      optionType: 'call',
-      strike: 1200,
-      expiration: '2026-05-08',
-      dte: 23,
-      spot: 952.50,
-      bid: 5.80,
-      ask: 6.40,
-      mid: 6.10,
-      last: 6.05,
-      volume: 1842,
-      openInterest: 5620,
-      greeks: {
-        delta: 0.085,
-        gamma: 0.0004,
-        theta: -0.92,
-        vega: 1.45,
-        rho: 0.08,
-        iv: 0.58,
-      },
-      thetaDecayCurve: buildThetaCurve(23, 6.10),
-    };
-    const sndk1200Depth = buildDepth(6.10, 0.10, 6);
-
-    // IWN $185 Put 5/15 — spot ~$201, strike $185 → ~8% OTM
-    const iwn185 = {
-      symbol: 'IWN260515P00185000',
-      underlying: 'IWN',
-      optionType: 'put',
-      strike: 185,
-      expiration: '2026-05-15',
-      dte: 30,
-      spot: 200.85,
-      bid: 1.18,
-      ask: 1.32,
-      mid: 1.25,
-      last: 1.22,
-      volume: 3210,
-      openInterest: 12450,
-      greeks: {
-        delta: -0.155,
-        gamma: 0.0125,
-        theta: -0.032,
-        vega: 0.115,
-        rho: -0.025,
-        iv: 0.215,
-      },
-      thetaDecayCurve: buildThetaCurve(30, 1.25),
-    };
-    const iwn185Depth = buildDepth(1.25, 0.11, 6);
-
-    // SNDK $7.70 Put 4/17 — spot ~$952, strike $7.70 → absurdly deep OTM, 2 DTE
-    const sndk770 = {
-      symbol: 'SNDK260417P00007700',
-      underlying: 'SNDK',
-      optionType: 'put',
-      strike: 7.70,
-      expiration: '2026-04-17',
-      dte: 2,
-      spot: 952.50,
-      bid: 0.01,
-      ask: 0.03,
-      mid: 0.02,
-      last: 0.02,
-      volume: 520,
-      openInterest: 8900,
-      greeks: {
-        delta: -0.0001,
-        gamma: 0.00001,
-        theta: -0.005,
-        vega: 0.0005,
-        rho: -0.00001,
-        iv: 2.10,
-      },
-      thetaDecayCurve: buildThetaCurve(2, 0.02),
-    };
-    const sndk770Depth = buildDepth(0.02, 0.5, 6);
-
-    return {
-      status: 200,
-      body: {
-        timestamp: new Date().toISOString(),
-        contracts: [
-          { ...sndk1200, bidDepth: sndk1200Depth.bids, askDepth: sndk1200Depth.asks },
-          { ...iwn185, bidDepth: iwn185Depth.bids, askDepth: iwn185Depth.asks },
-          { ...sndk770, bidDepth: sndk770Depth.bids, askDepth: sndk770Depth.asks },
-        ],
-      },
-    };
+    return { status: 200, body: buildMarketDepth() };
   }
 
   return null;
