@@ -59,10 +59,27 @@ interface OptionContract {
   thetaDecayCurve: { dte: number; value: number }[];
 }
 
+interface VolSurfaceSymbolMeta {
+  source: 'mock' | 'blob' | 'alpaca' | 'chain';
+  fallback?: boolean;
+  requested?: string;
+  blobKey?: string;
+  timestamp?: string;
+  quoteCount?: number;
+}
+
+interface MarketDepthMeta {
+  volSurfaceSource: 'mock' | 'blob' | 'alpaca' | 'auto' | 'mixed';
+  configuredSource?: string;
+  symbols?: string[];
+  perSymbol?: Record<string, VolSurfaceSymbolMeta>;
+}
+
 interface MarketDepthResponse {
   timestamp: string;
   contracts: OptionContract[];
   volSurfaces?: VolSurfaceData[];
+  meta?: MarketDepthMeta;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -88,6 +105,34 @@ function fmtDate(iso: string): string {
 function greekColor(value: number, invert = false): string {
   const positive = invert ? value < 0 : value > 0;
   return positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400';
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  mock: 'Parametric',
+  blob: 'Live · Blobs',
+  alpaca: 'Live · Alpaca',
+  auto: 'Live · Auto',
+  mixed: 'Mixed',
+  chain: 'Live · Chain',
+};
+
+function sourceBadgeClass(source: string): string {
+  if (source === 'mock') {
+    return 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+  }
+  if (source === 'mixed') {
+    return 'bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800';
+  }
+  return 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+}
+
+function VolSurfaceSourceBadge({ source }: { source: string }) {
+  const label = SOURCE_LABELS[source] ?? source;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full border ${sourceBadgeClass(source)}`}>
+      {label}
+    </span>
+  );
 }
 
 // ─── DepthLadder ─────────────────────────────────────────────────────────────
@@ -331,9 +376,11 @@ const DEFAULT_ANGLE = { yaw: -0.55, pitch: 0.55 };
 function VolSurfaceSection({
   surfaces,
   contracts,
+  meta,
 }: {
   surfaces: VolSurfaceData[];
   contracts: OptionContract[];
+  meta?: MarketDepthMeta;
 }) {
   const { isDark } = useTheme();
   const [view, setView] = useState<'surface' | 'table'>('surface');
@@ -372,9 +419,12 @@ function VolSurfaceSection({
     <section className="space-y-3">
       {/* One control row above everything it scopes */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
           <Box className="w-4 h-4" />
           Implied Volatility Surfaces
+          {meta?.volSurfaceSource && (
+            <VolSurfaceSourceBadge source={meta.volSurfaceSource} />
+          )}
         </div>
 
         <div className="flex items-center gap-3 ml-auto">
@@ -442,6 +492,11 @@ function VolSurfaceSection({
                   <span className="ml-2 text-xs text-gray-400 dark:text-zinc-500">
                     spot {fmtCurrency(s.spot)}
                   </span>
+                  {meta?.perSymbol?.[s.underlying] && (
+                    <span className="ml-2">
+                      <VolSurfaceSourceBadge source={meta.perSymbol[s.underlying].source} />
+                    </span>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -606,7 +661,11 @@ export default function MarketDepthPage() {
         <div className="space-y-6">
           {/* IV surfaces */}
           {data.volSurfaces && data.volSurfaces.length > 0 && (
-            <VolSurfaceSection surfaces={data.volSurfaces} contracts={data.contracts} />
+            <VolSurfaceSection
+              surfaces={data.volSurfaces}
+              contracts={data.contracts}
+              meta={data.meta}
+            />
           )}
 
           {/* Raw feed table */}
