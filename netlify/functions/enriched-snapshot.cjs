@@ -7,11 +7,14 @@
 // Enrichments added vs raw snapshot:
 //   - pnl_by_period: realized stock + option P&L for every period (1W…5Y)
 //   - portfolio.options_summary: aggregated greeks / totals across option positions
-//   - portfolio.equity: RH passthrough (authoritative)
-//   - portfolio.market_value: stocks + options (RH's own field excludes options)
-//   - portfolio.stock_market_value / options_market_value
+//   - portfolio.equity: RH passthrough (excludes crypto)
+//   - portfolio.market_value: stocks + options + crypto
+//   - portfolio.stock_market_value / options_market_value / crypto_market_value
+//   - portfolio.shadow_market_value: engine `.SHADOW` mirror rows, excluded
+//     from every aggregate (they duplicate a real position)
 //   - portfolio.margin_used: abs(tradeable_cash) when negative
-//   - portfolio.reconciliation: { rh_equity, computed_equity } for UI callout
+//   - portfolio.reconciliation: per-asset-class breakdown for UI callout;
+//     computed_equity (stocks + options + crypto + cash) is the headline
 //   - portfolio.positions: pre-sorted by abs(profit_loss) desc
 //   - recent_orders / recent_option_orders: pre-sorted newest-first
 
@@ -158,9 +161,19 @@ function normalizePosition(p) {
   // Engine sends decimal fractions (0.09 = 9%); contract wants percentage points
   const plPct = Math.abs(plPctRaw) < 1 ? plPctRaw * 100 : plPctRaw;
 
+  // Asset-class tagging. `.SHADOW` rows are engine bookkeeping mirrors of a
+  // real position (same quantity, shadow-ledger marks) — they must never count
+  // toward market value. Crypto rows are either tagged by the writer
+  // (asset_type) or use hyphenated pair symbols (BTC-USD).
+  const symbol  = p.symbol || '';
+  const shadow  = /\.SHADOW$/i.test(symbol);
+  const assetType = p.asset_type === 'crypto' || /-USD$/.test(symbol)
+    ? 'crypto'
+    : (p.asset_type || 'equity');
+
   return {
-    symbol:          p.symbol,
-    name:            p.name ?? p.symbol,
+    symbol,
+    name:            p.name ?? symbol,
     quantity:        qty,
     avg_buy_price:   r2(avgBuy),
     current_price:   r2(current),
@@ -169,6 +182,8 @@ function normalizePosition(p) {
     profit_loss_pct: r2(plPct),
     percent_change:  p.percent_change ?? null,
     percentage:      p.percentage ?? null,
+    asset_type:      assetType,
+    shadow,
   };
 }
 
@@ -251,12 +266,21 @@ function enrichSnapshot(raw) {
   const cashHeld  = cash.tradeable_cash ?? cash.buying_power ?? 0;
   const marginUsed = cashHeld < 0 ? r2(-cashHeld) : 0;
 
-  // ── Market value: stocks + options (positions now have .equity) ──
-  const stockMV   = r2(positions.reduce((s, p) => s + (p.equity ?? 0), 0));
+  // ── Market value by asset class (shadow rows excluded from every sum) ──
+  const realPositions = positions.filter(p => !p.shadow);
+  const stockMV    = r2(realPositions.filter(p => p.asset_type !== 'crypto')
+                          .reduce((s, p) => s + (p.equity ?? 0), 0));
+  const cryptoPosMV = r2(realPositions.filter(p => p.asset_type === 'crypto')
+                          .reduce((s, p) => s + (p.equity ?? 0), 0));
+  // Crypto: per-position rows when the book has them, else the account-level
+  // total (RH reports crypto holdings only as a single value).
+  const cryptoMV  = cryptoPosMV > 0 ? cryptoPosMV : r2(portfolio.crypto_value ?? 0);
+  const shadowMV  = r2(positions.filter(p => p.shadow)
+                        .reduce((s, p) => s + (p.equity ?? 0), 0));
   const optionsMV = r2(options.reduce((s, o)   => s + (o.current_value ?? 0), 0));
-  const marketValue = r2(stockMV + optionsMV);
+  const marketValue = r2(stockMV + optionsMV + cryptoMV);
 
-  // ── Equity: RH is authoritative ──
+  // ── Equity: engine-computed is the headline; RH passthrough excludes crypto ──
   const rhEquity      = portfolio.equity ?? 0;
   const computedEquity = r2(marketValue + cashHeld);
 
@@ -275,8 +299,8 @@ function enrichSnapshot(raw) {
   const optionPnl = computeOptionPnl(recentOptionOrders);
 
   // ── Portfolio-level P&L (positions now normalized → avg_buy_price populated) ──
-  const totalPl   = r2(positions.reduce((s, p) => s + (p.profit_loss ?? 0), 0));
-  const totalCost = positions.reduce((s, p) => s + (p.avg_buy_price ?? 0) * (p.quantity ?? 0), 0);
+  const totalPl   = r2(realPositions.reduce((s, p) => s + (p.profit_loss ?? 0), 0));
+  const totalCost = realPositions.reduce((s, p) => s + (p.avg_buy_price ?? 0) * (p.quantity ?? 0), 0);
   const plPct     = totalCost > 0 ? r2((totalPl / totalCost) * 100) : 0;
 
   return {
@@ -301,11 +325,19 @@ function enrichSnapshot(raw) {
       market_value:         marketValue,
       stock_market_value:   stockMV,
       options_market_value: optionsMV,
+      crypto_market_value:  cryptoMV,
+      shadow_market_value:  shadowMV,
       margin_used:          marginUsed,
-      // Reconciliation callout
+      // Reconciliation callout. rh_equity excludes crypto (RH's field does);
+      // computed_equity = stocks + options + crypto + cash, shadows excluded.
       reconciliation: {
-        rh_equity:       rhEquity,
-        computed_equity: computedEquity,
+        rh_equity:            rhEquity,
+        computed_equity:      computedEquity,
+        stock_market_value:   stockMV,
+        options_market_value: optionsMV,
+        crypto_market_value:  cryptoMV,
+        cash:                 r2(cashHeld),
+        shadow_excluded:      shadowMV,
       },
       // Pre-sorted positions (biggest P&L movers first)
       positions: [...positions].sort((a, b) => Math.abs(b.profit_loss ?? 0) - Math.abs(a.profit_loss ?? 0)),

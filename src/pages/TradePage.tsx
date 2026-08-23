@@ -128,6 +128,12 @@ function PortfolioSummary({ portfolio }: { portfolio: EnrichedPortfolio }) {
           RH {formatCurrency(portfolio.reconciliation.rh_equity)}
           {' · '}
           Engine {formatCurrency(portfolio.reconciliation.computed_equity)}
+          {(portfolio.crypto_market_value ?? 0) > 0 && (
+            <>
+              {' · '}
+              Crypto {formatCurrency(portfolio.crypto_market_value ?? 0)}
+            </>
+          )}
         </div>
       </div>
 
