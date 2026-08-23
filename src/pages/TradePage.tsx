@@ -122,7 +122,7 @@ function PortfolioSummary({ portfolio }: { portfolio: EnrichedPortfolio }) {
           Portfolio Value
         </div>
         <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          {formatCurrency(portfolio.equity)}
+          {formatCurrency(portfolio.reconciliation.computed_equity)}
         </div>
         <div className="text-xs text-gray-400 mt-1">
           RH {formatCurrency(portfolio.reconciliation.rh_equity)}
