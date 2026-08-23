@@ -675,6 +675,15 @@ async function upsertOptionPosition(db, pos, rawSource) {
 }
 
 async function upsertAccountSnapshot(db, account, rawSource, accountId = 'default') {
+  // Sticky crypto_value: crypto lives in raw JSONB, and writers that predate
+  // crypto support (the engine's tick) omit it — carry the last-known value
+  // forward instead of letting their whole-account upsert clobber it.
+  let raw = rawSource && typeof rawSource === 'object' ? rawSource : {};
+  if (account.crypto_value == null) {
+    const prev = await fetchAccountSnapshot(db, accountId);
+    const prevCrypto = toNum(safeParse(prev?.raw, null)?.crypto_value);
+    if (prevCrypto != null) raw = { ...raw, crypto_value: prevCrypto };
+  }
   await db.query(
     `INSERT INTO account_snapshot
        (account_id, equity, cash, buying_power, portfolio_value, raw)
@@ -684,7 +693,7 @@ async function upsertAccountSnapshot(db, account, rawSource, accountId = 'defaul
        buying_power = EXCLUDED.buying_power, portfolio_value = EXCLUDED.portfolio_value,
        raw = EXCLUDED.raw, ingested_at = now()`,
     [accountId, account.equity, account.cash, account.buying_power,
-     account.portfolio_value, JSON.stringify(rawSource ?? null)]
+     account.portfolio_value, JSON.stringify(raw ?? null)]
   );
 }
 

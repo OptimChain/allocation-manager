@@ -1,9 +1,12 @@
 // snapshot-refresh.cjs
 // Refreshes the order-book snapshot WITHOUT the Render engine:
 //   auth box (RH_AUTH_SERVICE_URL, /token) → Robinhood API pulls →
-//     1. fresh state-logs blob (positions, options, cash, equity — what the
-//        engine used to publish)
+//     1. fresh state-logs blob (positions, options, cash, equity, crypto —
+//        what the engine used to publish)
 //     2. trading-DB upsert of stock + option orders (also closes backfill gaps)
+//     3. trading-DB upsert of the account snapshot (incl. crypto_value from
+//        the nummus API) and position marks — no prune, so engine-owned rows
+//        (.SHADOW mirrors) survive
 //
 //   GET /.netlify/functions/snapshot-refresh            — refresh now
 //   GET /.netlify/functions/snapshot-refresh?full=1     — pull full order history
@@ -103,6 +106,39 @@ async function pullSnapshot(rh, { full }, errors) {
   ]);
   const account = accounts[0] || {};
   const portfolio = portfolios[0] || {};
+
+  // ── Crypto holdings (nummus API — separate host, same bearer token) ──
+  // RH reports crypto outside the equity portfolio entirely; value the holdings
+  // against forex mark prices. null (fetch failure) is distinct from 0 (no
+  // holdings): upsertAccountSnapshot keeps the previous value when null.
+  let cryptoValue = null;
+  try {
+    const [holdRes, pairRes] = await Promise.all([
+      rh.get('https://nummus.robinhood.com/holdings/'),
+      rh.get('https://nummus.robinhood.com/currency_pairs/'),
+    ]);
+    const holdings = (holdRes.results || []).filter(h => num(h.quantity) > 0);
+    if (!holdings.length) {
+      cryptoValue = 0;
+    } else {
+      const pairByCode = {};
+      for (const p of pairRes.results || []) {
+        if (p.asset_currency?.code) pairByCode[p.asset_currency.code] = p.id;
+      }
+      const ids = [...new Set(holdings.map(h => pairByCode[h.currency?.code]).filter(Boolean))];
+      const quoteRes = ids.length
+        ? await rh.get(`/marketdata/forex/quotes/?ids=${ids.join(',')}`)
+        : { results: [] };
+      const priceById = {};
+      for (const q of quoteRes.results || []) if (q) priceById[q.id] = num(q.mark_price);
+      cryptoValue = r2(holdings.reduce((s, h) => {
+        const id = pairByCode[h.currency?.code];
+        return s + num(h.quantity) * (id ? priceById[id] || 0 : 0);
+      }, 0));
+    }
+  } catch (e) {
+    errors.push(`crypto holdings: ${e.message}`);
+  }
 
   // Orders: recent pages by default; everything with ?full=1
   const [stockOrders, optionOrders] = await Promise.all([
@@ -265,6 +301,7 @@ async function pullSnapshot(rh, { full }, errors) {
         tradeable_cash: r2(cash),
       },
       equity: r2(equity),
+      crypto_value: cryptoValue ?? 0,
       market_value: r2(num(portfolio.market_value)),
       positions: blobPositions,
       options: blobOptions,
@@ -276,7 +313,7 @@ async function pullSnapshot(rh, { full }, errors) {
     recent_option_orders: optionOrdersOut,
   };
 
-  return { blob, stockOrdersOut, optionOrdersOut };
+  return { blob, stockOrdersOut, optionOrdersOut, cryptoValue };
 }
 
 // ── Writers ───────────────────────────────────────────────────────────────────
@@ -329,7 +366,7 @@ async function runSnapshotRefresh({ full = false, dry = false, force = false } =
   steps.auth = 'ok';
 
   const rh = rhClient(rhToken);
-  const { blob, stockOrdersOut, optionOrdersOut } = await pullSnapshot(rh, { full }, errors);
+  const { blob, stockOrdersOut, optionOrdersOut, cryptoValue } = await pullSnapshot(rh, { full }, errors);
   steps.pull = {
     positions: blob.portfolio.positions.length,
     option_positions: blob.portfolio.options.length,
@@ -337,12 +374,41 @@ async function runSnapshotRefresh({ full = false, dry = false, force = false } =
     option_orders: optionOrdersOut.length,
     open_orders: blob.portfolio.open_orders.length,
     equity: blob.portfolio.equity,
+    crypto_value: cryptoValue,
   };
 
   if (!dry) {
     steps.blob_key = await writeBlob(blob);
     if (db) {
       steps.db_upserts = await upsertOrders(db, stockOrdersOut, optionOrdersOut, errors);
+
+      // Account + position marks straight from RH, so the DB book stays fresh
+      // between engine ticks. Upsert only — no prune — so engine-owned rows the
+      // API doesn't know about (e.g. .SHADOW mirrors) survive.
+      try {
+        const acct = t.normalizeAccount({
+          equity:          blob.portfolio.equity,
+          cash:            blob.portfolio.cash.cash,
+          buying_power:    blob.portfolio.cash.buying_power,
+          portfolio_value: blob.portfolio.market_value,
+          crypto_value:    cryptoValue,
+        });
+        if (acct) {
+          await t.upsertAccountSnapshot(db, acct, acct);
+          steps.db_upserts.account = true;
+        }
+        const posRows = [];
+        for (const raw of blob.portfolio.positions) {
+          // profit_loss_pct here is a fraction — hand it to the normalizer
+          // under the spelling it treats as one.
+          const value = t.normalizePosition({ ...raw, unrealized_pl_pct: raw.profit_loss_pct });
+          if (value) posRows.push({ value, raw });
+        }
+        steps.db_upserts.positions = await t.upsertPositions(db, posRows);
+      } catch (e) {
+        errors.push(`db account/positions upsert: ${e.message}`);
+      }
+
       await t.setMarketCache(db, 'snapshot-refresh:last', 'marker', { at: blob.timestamp });
     }
   }
