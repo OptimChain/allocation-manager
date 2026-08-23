@@ -107,6 +107,10 @@ export interface SnapshotPosition {
   equity_change?: number | null;
   pe_ratio?: number | null;
   percentage?: number | null;
+  /** 'equity' | 'crypto' — crypto rows use pair symbols like BTC-USD */
+  asset_type?: string;
+  /** Engine `.SHADOW` bookkeeping mirror — excluded from all aggregates */
+  shadow?: boolean;
 }
 
 export interface SnapshotOrder {
@@ -404,10 +408,19 @@ export interface EnrichedPortfolio {
   market_value: number;
   stock_market_value: number;
   options_market_value: number;
+  /** Account-level crypto holdings (RH reports a single total, no coin book) */
+  crypto_market_value?: number;
+  /** Engine `.SHADOW` mirror rows — excluded from computed equity */
+  shadow_market_value?: number;
   margin_used: number;
   reconciliation: {
     rh_equity: number;
     computed_equity: number;
+    stock_market_value?: number;
+    options_market_value?: number;
+    crypto_market_value?: number;
+    cash?: number;
+    shadow_excluded?: number;
   };
   positions: SnapshotPosition[];
   open_orders: SnapshotOrder[];

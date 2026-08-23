@@ -190,6 +190,9 @@ async function fetchSnapshot() {
         tradeable_cash: cash,
       },
       equity: account?.equity ?? 0,
+      // Crypto is account-level (RH exposes only a total, no per-coin book);
+      // enriched-snapshot folds it into computed equity as its own asset class.
+      crypto_value: account?.crypto_value ?? 0,
       market_value: t.r2(stockValue + optionValue),
       positions,
       open_orders: stockOrders.open,

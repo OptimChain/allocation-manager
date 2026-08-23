@@ -428,6 +428,9 @@ function normalizeAccount(a) {
     cash:            toNum(a.cash),
     buying_power:    toNum(a.buying_power),
     portfolio_value: toNum(a.portfolio_value ?? a.market_value),
+    // Crypto holdings live outside the equity position book (RH reports only a
+    // total). No dedicated column — persisted via the raw JSONB blob.
+    crypto_value:    toNum(a.crypto_value),
   };
 }
 
@@ -849,11 +852,13 @@ function rowToOptionPosition(r) {
 
 function rowToAccount(r) {
   if (!r) return null;
+  const raw = safeParse(r.raw, null);
   return {
     equity:          toNum(r.equity) ?? 0,
     cash:            toNum(r.cash) ?? 0,
     buying_power:    toNum(r.buying_power) ?? 0,
     portfolio_value: toNum(r.portfolio_value) ?? 0,
+    crypto_value:    toNum(raw?.crypto_value) ?? 0,
     updated_at:      toIso(r.ingested_at),
   };
 }
