@@ -4,7 +4,7 @@ const { getConfig } = require('./vol-surface-config.cjs');
 const { buildMockPayload, getContracts, buildVolSurfaces } = require('./vol-surface-mock.cjs');
 const { extractQuotes, buildSurfaceFromQuotes } = require('./vol-surface-builder.cjs');
 const { fetchChainFromBlob, fetchChainFromAlpaca } = require('./fetch-options-chain.cjs');
-const { chainToContracts } = require('./chain-to-contracts.cjs');
+const { chainToContracts, compareContractsLatestDesc } = require('./chain-to-contracts.cjs');
 
 async function trySource(source, symbol, blobSymbol, config) {
   if (source === 'blob') {
@@ -123,7 +123,7 @@ async function buildMarketDepthPayload() {
 
   const maxContracts = parseInt(process.env.MARKET_DEPTH_MAX_CONTRACTS || '40', 10);
   const liveContracts = contractBuckets
-    .sort((a, b) => b.volume - a.volume)
+    .sort(compareContractsLatestDesc)
     .slice(0, maxContracts);
 
   const liveCount = Object.values(perSymbol).filter((m) => m.source !== 'mock').length;

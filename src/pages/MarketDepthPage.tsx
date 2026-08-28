@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_BASE } from '../config/api';
 import {
   RefreshCw,
@@ -40,6 +40,7 @@ interface OptionContract {
   last: number;
   volume: number;
   openInterest: number;
+  quotedAt?: string | null;
   greeks: OptionGreeks;
   bidDepth: DepthLevel[];
   askDepth: DepthLevel[];
@@ -75,6 +76,19 @@ function fmtDate(iso: string): string {
 function greekColor(value: number, invert = false): string {
   const positive = invert ? value < 0 : value > 0;
   return positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400';
+}
+
+function sortContractsLatestDesc(contracts: OptionContract[]): OptionContract[] {
+  return [...contracts].sort((a, b) => {
+    const byExpiry = b.expiration.localeCompare(a.expiration);
+    if (byExpiry !== 0) return byExpiry;
+    const byUnderlying = a.underlying.localeCompare(b.underlying);
+    if (byUnderlying !== 0) return byUnderlying;
+    if (a.strike !== b.strike) return a.strike - b.strike;
+    const ta = a.quotedAt ? Date.parse(a.quotedAt) : 0;
+    const tb = b.quotedAt ? Date.parse(b.quotedAt) : 0;
+    return tb - ta;
+  });
 }
 
 // ─── DepthLadder ─────────────────────────────────────────────────────────────
@@ -399,6 +413,11 @@ export default function MarketDepthPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  const contracts = useMemo(
+    () => (data?.contracts ? sortContractsLatestDesc(data.contracts) : []),
+    [data?.contracts],
+  );
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -448,11 +467,11 @@ export default function MarketDepthPage() {
       ) : data ? (
         <div className="space-y-6">
           {/* Raw feed table */}
-          <RawFeed contracts={data.contracts} />
+          <RawFeed contracts={contracts} />
 
           {/* Individual contract cards */}
-          {data.contracts.map((contract, i) => (
-            <ContractCard key={i} contract={contract} />
+          {contracts.map((contract, i) => (
+            <ContractCard key={`${contract.symbol}-${i}`} contract={contract} />
           ))}
         </div>
       ) : null}

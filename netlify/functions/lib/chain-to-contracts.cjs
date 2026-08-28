@@ -65,6 +65,23 @@ function buildThetaCurve(dte, theta) {
   return points;
 }
 
+/** Latest expiry first, then underlying, strike, type. */
+function compareContractsLatestDesc(a, b) {
+  const byExpiry = b.expiration.localeCompare(a.expiration);
+  if (byExpiry !== 0) return byExpiry;
+  const byUnderlying = a.underlying.localeCompare(b.underlying);
+  if (byUnderlying !== 0) return byUnderlying;
+  if (a.strike !== b.strike) return a.strike - b.strike;
+  return a.optionType.localeCompare(b.optionType);
+}
+
+function quoteTimestampMs(quote, trade) {
+  const raw = quote?.timestamp ?? quote?.t ?? trade?.timestamp ?? trade?.t;
+  if (!raw) return 0;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function snapshotToContract(sym, snap, spot) {
   const parsed = parseOcc(sym);
   if (!parsed) return null;
@@ -81,6 +98,7 @@ function snapshotToContract(sym, snap, spot) {
   const dte = daysToExpiry(parsed.expiration);
   const theta = greeksRaw.theta ?? 0;
   const depth = topOfBookDepth(quote, mid);
+  const quotedAt = quote?.timestamp ?? quote?.t ?? trade?.timestamp ?? trade?.t ?? null;
 
   return {
     symbol: sym,
@@ -96,6 +114,7 @@ function snapshotToContract(sym, snap, spot) {
     last: trade?.price ?? trade?.p ?? mid,
     volume: trade?.size ?? trade?.s ?? 0,
     openInterest: 0,
+    quotedAt,
     greeks: {
       delta: greeksRaw.delta ?? 0,
       gamma: greeksRaw.gamma ?? 0,
@@ -107,7 +126,7 @@ function snapshotToContract(sym, snap, spot) {
     bidDepth: depth.bids,
     askDepth: depth.asks,
     thetaDecayCurve: buildThetaCurve(dte, theta),
-    _sortVolume: trade?.size ?? trade?.s ?? 0,
+    _sortTs: quoteTimestampMs(quote, trade),
   };
 }
 
@@ -121,12 +140,17 @@ function chainToContracts(chain, spotHint) {
     if (c) contracts.push(c);
   }
 
-  contracts.sort((a, b) => b._sortVolume - a._sortVolume);
-  return contracts.map(({ _sortVolume, ...rest }) => rest);
+  contracts.sort((a, b) => {
+    const byExpiry = compareContractsLatestDesc(a, b);
+    if (byExpiry !== 0) return byExpiry;
+    return b._sortTs - a._sortTs;
+  });
+  return contracts.map(({ _sortTs, ...rest }) => rest);
 }
 
 module.exports = {
   chainToContracts,
+  compareContractsLatestDesc,
   estimateSpot,
   parseOcc,
 };
