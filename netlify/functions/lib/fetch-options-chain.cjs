@@ -8,6 +8,7 @@
 const NETLIFY_API = 'https://api.netlify.com/api/v1';
 const ALPACA_DATA_BASE = 'https://data.alpaca.markets/v1beta1';
 const MAX_FALLBACK_ATTEMPTS = 5;
+const { estimateSpot } = require('./chain-to-contracts.cjs');
 
 function dateFromKey(key) {
   const tsStart = key.includes('/') ? key.lastIndexOf('/') + 1 : 0;
@@ -104,6 +105,7 @@ async function fetchChainFromBlob(symbol) {
   const chain = optionsResult.value.latest_chain || optionsResult.value.latestChain || {};
   const spot = spotFromQuotesBlob(quotesResult?.value, symbol)
     ?? optionsResult.value.spot
+    ?? estimateSpot(chain)
     ?? null;
 
   return {
