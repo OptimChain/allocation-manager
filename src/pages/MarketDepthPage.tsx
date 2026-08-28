@@ -7,6 +7,8 @@ import {
   Target,
   Layers,
 } from 'lucide-react';
+import type { VolSurfaceData } from '../components/VolSurface3D';
+import MarketDepthVolSection, { type MarketDepthMeta } from '../components/MarketDepthVolSection';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,7 +52,8 @@ interface OptionContract {
 interface MarketDepthResponse {
   timestamp: string;
   contracts: OptionContract[];
-  sources?: { symbol: string; blobKey: string | null; updatedAt: string | null; contractCount: number }[];
+  volSurfaces?: VolSurfaceData[];
+  meta?: MarketDepthMeta;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -426,9 +429,9 @@ export default function MarketDepthPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Market Depth</h1>
           <p className="text-sm text-gray-500 dark:text-zinc-400 mt-0.5">
             Options pricing, greeks & order book depth
-            {data?.sources?.length ? (
+            {data?.meta?.contractSource === 'chain' && data.meta.contractCount ? (
               <span className="block text-xs mt-1 font-mono">
-                Feed: {data.sources.filter(s => s.blobKey).map(s => s.symbol).join(', ') || 'no blobs yet'}
+                {data.meta.contractCount} live contracts · {data.meta.volSurfaceSource ?? 'mock'} surfaces
                 {data.timestamp ? ` · ${new Date(data.timestamp).toLocaleString()}` : ''}
               </span>
             ) : null}
@@ -466,7 +469,14 @@ export default function MarketDepthPage() {
         </div>
       ) : data ? (
         <div className="space-y-6">
-          {/* Raw feed table */}
+          {data.volSurfaces && data.volSurfaces.length > 0 && (
+            <MarketDepthVolSection
+              surfaces={data.volSurfaces}
+              contracts={contracts}
+              meta={data.meta}
+            />
+          )}
+
           <RawFeed contracts={contracts} />
 
           {/* Individual contract cards */}

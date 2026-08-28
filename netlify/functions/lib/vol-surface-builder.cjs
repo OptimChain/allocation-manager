@@ -142,21 +142,28 @@ function buildSurfaceFromQuotes(underlying, spot, quotes, opts = {}) {
   const resolvedSpot = spot ?? estimateSpot(valid);
   if (!resolvedSpot || resolvedSpot <= 0) return null;
 
+  const dteSet = [...new Set(valid.map((q) => q.dte))].sort((a, b) => a - b);
+  const expirations = [...new Set(valid.map((q) => q.expiration).filter(Boolean))].sort();
+
+  // When dte buckets collapse (e.g. expired chain → all dte=0), bucket by expiration.
+  const useExpirationRows = dteSet.length < minDtes && expirations.length >= minDtes;
+  const rows = useExpirationRows ? expirations : dteSet.map(String);
+  const dtes = useExpirationRows ? expirations.map((exp) => dteFromExpiry(exp)) : dteSet;
+
+  const strikes = [...new Set(valid.map((q) => q.strike))].sort((a, b) => a - b);
+  if (rows.length < minDtes || strikes.length < minStrikes) return null;
+
   const byKey = new Map();
   for (const q of valid) {
-    const key = `${q.dte}:${q.strike}`;
+    const row = useExpirationRows ? q.expiration : String(q.dte);
+    const key = `${row}:${q.strike}`;
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key).push(q.iv);
   }
 
-  const dtes = [...new Set(valid.map((q) => q.dte))].sort((a, b) => a - b);
-  const strikes = [...new Set(valid.map((q) => q.strike))].sort((a, b) => a - b);
-
-  if (dtes.length < minDtes || strikes.length < minStrikes) return null;
-
-  const iv = dtes.map((dte) =>
+  const iv = rows.map((row) =>
     strikes.map((strike) => {
-      const vals = byKey.get(`${dte}:${strike}`);
+      const vals = byKey.get(`${row}:${strike}`);
       if (!vals) return null;
       return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10000) / 10000;
     }),

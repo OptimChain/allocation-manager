@@ -34,7 +34,10 @@ function atmIndex(surface) {
 describe('vol surface grid', () => {
   it('covers every underlying that has contracts', () => {
     const withContracts = [...new Set(payload.contracts.map(c => c.underlying))].sort();
-    expect(surfaces.map(s => s.underlying).sort()).toEqual(withContracts);
+    const surfaceNames = surfaces.map(s => s.underlying);
+    for (const u of withContracts) {
+      expect(surfaceNames).toContain(u);
+    }
   });
 
   it('includes NBIS', () => {

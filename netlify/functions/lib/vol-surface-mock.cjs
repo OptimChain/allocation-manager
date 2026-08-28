@@ -40,9 +40,12 @@ function buildThetaCurve(dte, currentMid) {
 }
 
 const SURFACE_PARAMS = [
-  { underlying: 'SNDK', spot: 952.50, atmIv: 0.520, skew: -0.28, smile: 0.65, termSlope: -0.06 },
   { underlying: 'IWN', spot: 200.85, atmIv: 0.205, skew: -0.35, smile: 0.45, termSlope: 0.02 },
+  { underlying: 'CRWD', spot: 340.0, atmIv: 0.380, skew: -0.30, smile: 0.55, termSlope: -0.04 },
   { underlying: 'NBIS', spot: 148.30, atmIv: 0.700, skew: -0.22, smile: 0.85, termSlope: -0.10 },
+  { underlying: 'AVGO', spot: 165.0, atmIv: 0.320, skew: -0.25, smile: 0.50, termSlope: -0.03 },
+  { underlying: 'SPY', spot: 580.0, atmIv: 0.160, skew: -0.40, smile: 0.58, termSlope: 0.01 },
+  { underlying: 'MU', spot: 95.0, atmIv: 0.420, skew: -0.28, smile: 0.60, termSlope: -0.05 },
 ];
 
 const SURFACE_DTES = [7, 14, 30, 60, 90, 135, 180];
@@ -87,22 +90,22 @@ function buildVolSurfaces() {
 }
 
 function getContracts() {
-  const sndk1200 = {
-    symbol: 'SNDK260508C01200000',
-    underlying: 'SNDK',
+  const crwd350 = {
+    symbol: 'CRWD260515C00350000',
+    underlying: 'CRWD',
     optionType: 'call',
-    strike: 1200,
-    expiration: '2026-05-08',
-    dte: 23,
-    spot: 952.50,
-    bid: 5.80,
-    ask: 6.40,
-    mid: 6.10,
-    last: 6.05,
-    volume: 1842,
-    openInterest: 5620,
-    greeks: { delta: 0.085, gamma: 0.0004, theta: -0.92, vega: 1.45, rho: 0.08, iv: 0.58 },
-    thetaDecayCurve: buildThetaCurve(23, 6.10),
+    strike: 350,
+    expiration: '2026-05-15',
+    dte: 30,
+    spot: 340.0,
+    bid: 18.5,
+    ask: 19.2,
+    mid: 18.85,
+    last: 18.80,
+    volume: 2100,
+    openInterest: 8200,
+    greeks: { delta: 0.42, gamma: 0.008, theta: -0.18, vega: 0.52, rho: 0.04, iv: 0.385 },
+    thetaDecayCurve: buildThetaCurve(30, 18.85),
   };
   const iwn185 = {
     symbol: 'IWN260515P00185000',
@@ -120,23 +123,6 @@ function getContracts() {
     openInterest: 12450,
     greeks: { delta: -0.155, gamma: 0.0125, theta: -0.032, vega: 0.115, rho: -0.025, iv: 0.215 },
     thetaDecayCurve: buildThetaCurve(30, 1.25),
-  };
-  const sndk770 = {
-    symbol: 'SNDK260417P00007700',
-    underlying: 'SNDK',
-    optionType: 'put',
-    strike: 7.70,
-    expiration: '2026-04-17',
-    dte: 2,
-    spot: 952.50,
-    bid: 0.01,
-    ask: 0.03,
-    mid: 0.02,
-    last: 0.02,
-    volume: 520,
-    openInterest: 8900,
-    greeks: { delta: -0.0001, gamma: 0.00001, theta: -0.005, vega: 0.0005, rho: -0.00001, iv: 2.10 },
-    thetaDecayCurve: buildThetaCurve(2, 0.02),
   };
   const nbis175 = {
     symbol: 'NBIS260515C00175000',
@@ -174,9 +160,8 @@ function getContracts() {
   };
 
   const pairs = [
-    [sndk1200, 6.10, 0.10],
+    [crwd350, 18.85, 0.04],
     [iwn185, 1.25, 0.11],
-    [sndk770, 0.02, 0.5],
     [nbis175, 3.73, 0.08],
     [nbis130, 3.66, 0.10],
   ];
