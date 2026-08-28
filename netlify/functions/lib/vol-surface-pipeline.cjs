@@ -63,8 +63,6 @@ async function resolveSurfaceForSymbol(symbol, config) {
     return {
       surface: mockSurface,
       chainMeta: { source: 'mock' },
-      chain: null,
-      spot: mockSurface?.spot ?? null,
     };
   }
 
@@ -84,8 +82,6 @@ async function resolveSurfaceForSymbol(symbol, config) {
   return {
     surface: mockSurface,
     chainMeta: { source: 'mock', fallback: true, requested: config.source },
-    chain: null,
-    spot: mockSurface?.spot ?? null,
   };
 }
 
@@ -105,12 +101,22 @@ async function buildMarketDepthPayload() {
   const contractBuckets = [];
 
   await Promise.all(config.symbols.map(async (symbol) => {
-    const { surface, chainMeta, chain, spot } = await resolveSurfaceForSymbol(symbol, config);
+    const blobSymbol = config.blobSymbol(symbol);
+
+    if (config.source !== 'mock') {
+      try {
+        const blobResult = await fetchChainFromBlob(blobSymbol);
+        if (blobResult.ok && blobResult.chain) {
+          contractBuckets.push(...chainToContracts(blobResult.chain, blobResult.spot));
+        }
+      } catch (err) {
+        console.warn(`chain contracts ${symbol}:`, err.message);
+      }
+    }
+
+    const { surface, chainMeta } = await resolveSurfaceForSymbol(symbol, config);
     perSymbol[symbol] = chainMeta;
     if (surface) surfaces.push(surface);
-    if (chain && Object.keys(chain).length > 0) {
-      contractBuckets.push(...chainToContracts(chain, spot));
-    }
   }));
 
   surfaces.sort((a, b) => a.underlying.localeCompare(b.underlying));

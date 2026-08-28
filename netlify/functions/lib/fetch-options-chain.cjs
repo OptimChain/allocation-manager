@@ -18,10 +18,7 @@ function dateFromKey(key) {
 function pickRichestKey(keys) {
   if (!keys || keys.length === 0) return null;
   if (keys.length === 1) return keys[0];
-  const todayUTC = new Date().toISOString().slice(0, 10);
-  for (let i = keys.length - 1; i >= 0; i--) {
-    if (dateFromKey(keys[i]) < todayUTC) return keys[i];
-  }
+  // Keys are ISO timestamps under SYMBOL/ — last is newest.
   return keys[keys.length - 1];
 }
 
