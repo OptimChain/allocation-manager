@@ -1,7 +1,7 @@
 'use strict';
 
 const { getConfig } = require('./vol-surface-config.cjs');
-const { buildMockPayload, getContracts, buildVolSurfaces } = require('./vol-surface-mock.cjs');
+const { buildMockPayload, buildVolSurfaces, getMockContractsBySymbol } = require('./vol-surface-mock.cjs');
 const { extractQuotes, buildSurfaceFromQuotes } = require('./vol-surface-builder.cjs');
 const { fetchChainFromBlob, fetchChainFromAlpaca } = require('./fetch-options-chain.cjs');
 const { chainToContracts, compareContractsLatestDesc } = require('./chain-to-contracts.cjs');
@@ -85,6 +85,27 @@ async function resolveSurfaceForSymbol(symbol, config) {
   };
 }
 
+function mergeLiveAndMockContracts(liveContracts, symbols) {
+  const mockBySymbol = getMockContractsBySymbol();
+  const liveBySymbol = new Map();
+  for (const c of liveContracts) {
+    const list = liveBySymbol.get(c.underlying) ?? [];
+    list.push({ ...c, dataSource: 'live' });
+    liveBySymbol.set(c.underlying, list);
+  }
+
+  const merged = [];
+  for (const symbol of symbols) {
+    const live = liveBySymbol.get(symbol);
+    if (live?.length) {
+      merged.push(...live);
+      continue;
+    }
+    merged.push(...(mockBySymbol.get(symbol) ?? []));
+  }
+  return merged.sort(compareContractsLatestDesc);
+}
+
 /**
  * Build the full market-depth payload, routing vol surfaces through the
  * configured source with per-symbol fallback to parametric mock.
@@ -126,6 +147,15 @@ async function buildMarketDepthPayload() {
     .sort(compareContractsLatestDesc)
     .slice(0, maxContracts);
 
+  const contracts = mergeLiveAndMockContracts(liveContracts, config.symbols);
+  const liveSymbols = new Set(liveContracts.map((c) => c.underlying));
+  const mockSymbols = config.symbols.filter((s) => !liveSymbols.has(s));
+  const contractSource = liveContracts.length === 0
+    ? 'mock'
+    : mockSymbols.length > 0
+      ? 'mixed'
+      : 'chain';
+
   const liveCount = Object.values(perSymbol).filter((m) => m.source !== 'mock').length;
   const volSurfaceSource = liveCount === config.symbols.length && liveCount > 0
     ? config.source === 'auto' ? 'auto' : config.source
@@ -135,15 +165,17 @@ async function buildMarketDepthPayload() {
 
   return {
     timestamp: new Date().toISOString(),
-    contracts: liveContracts.length > 0 ? liveContracts : getContracts(),
+    contracts,
     volSurfaces: surfaces.length > 0 ? surfaces : buildVolSurfaces(),
     meta: {
       volSurfaceSource,
       configuredSource: config.source,
       symbols: config.symbols,
       perSymbol,
-      contractSource: liveContracts.length > 0 ? 'chain' : 'mock',
-      contractCount: liveContracts.length,
+      contractSource,
+      contractCount: contracts.length,
+      liveContractCount: liveContracts.length,
+      mockSymbols,
     },
   };
 }

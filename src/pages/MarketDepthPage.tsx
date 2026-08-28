@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { API_BASE } from '../config/api';
 import {
   RefreshCw,
@@ -43,6 +43,7 @@ interface OptionContract {
   volume: number;
   openInterest: number;
   quotedAt?: string | null;
+  dataSource?: 'live' | 'mock';
   greeks: OptionGreeks;
   bidDepth: DepthLevel[];
   askDepth: DepthLevel[];
@@ -92,6 +93,90 @@ function sortContractsLatestDesc(contracts: OptionContract[]): OptionContract[] 
     const tb = b.quotedAt ? Date.parse(b.quotedAt) : 0;
     return tb - ta;
   });
+}
+
+type DataSourceFilter = 'all' | 'live' | 'mock';
+type OptionTypeFilter = 'all' | 'call' | 'put';
+
+function contractDataSource(c: OptionContract, meta?: MarketDepthMeta): 'live' | 'mock' {
+  if (c.dataSource) return c.dataSource;
+  if (meta?.mockSymbols?.includes(c.underlying)) return 'mock';
+  return meta?.contractSource === 'chain' ? 'live' : 'mock';
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
+        active
+          ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 border-gray-900 dark:border-gray-100'
+          : 'bg-white dark:bg-zinc-900 text-gray-600 dark:text-zinc-300 border-gray-200 dark:border-zinc-700 hover:border-gray-300 dark:hover:border-zinc-600'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MarketDepthFilters({
+  symbols,
+  symbol,
+  onSymbol,
+  dataSource,
+  onDataSource,
+  optionType,
+  onOptionType,
+  counts,
+}: {
+  symbols: string[];
+  symbol: string;
+  onSymbol: (s: string) => void;
+  dataSource: DataSourceFilter;
+  onDataSource: (d: DataSourceFilter) => void;
+  optionType: OptionTypeFilter;
+  onOptionType: (t: OptionTypeFilter) => void;
+  counts: { contracts: number; surfaces: number };
+}) {
+  return (
+    <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 p-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-gray-500 dark:text-zinc-400 w-14 shrink-0">Symbol</span>
+        <FilterChip active={symbol === 'ALL'} onClick={() => onSymbol('ALL')}>All</FilterChip>
+        {symbols.map((s) => (
+          <FilterChip key={s} active={symbol === s} onClick={() => onSymbol(s)}>{s}</FilterChip>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-gray-500 dark:text-zinc-400 w-14 shrink-0">Source</span>
+        {(['all', 'live', 'mock'] as const).map((s) => (
+          <FilterChip key={s} active={dataSource === s} onClick={() => onDataSource(s)}>
+            {s === 'all' ? 'All' : s === 'live' ? 'Live · Chain' : 'Parametric'}
+          </FilterChip>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-gray-500 dark:text-zinc-400 w-14 shrink-0">Type</span>
+        {(['all', 'call', 'put'] as const).map((t) => (
+          <FilterChip key={t} active={optionType === t} onClick={() => onOptionType(t)}>
+            {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1) + 's'}
+          </FilterChip>
+        ))}
+        <span className="ml-auto text-xs text-gray-400 dark:text-zinc-500 font-mono">
+          {counts.contracts} contracts · {counts.surfaces} surfaces
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // ─── DepthLadder ─────────────────────────────────────────────────────────────
@@ -182,7 +267,7 @@ function ThetaDecayChart({ curve, currentDte }: { curve: { dte: number; value: n
 
 // ─── ContractCard ────────────────────────────────────────────────────────────
 
-function ContractCard({ contract }: { contract: OptionContract }) {
+function ContractCard({ contract, dataSource }: { contract: OptionContract; dataSource: 'live' | 'mock' }) {
   const spread = contract.ask - contract.bid;
   const spreadBps = contract.mid > 0 ? (spread / contract.mid) * 10000 : 0;
   const intrinsic = contract.optionType === 'call'
@@ -201,6 +286,13 @@ function ContractCard({ contract }: { contract: OptionContract }) {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{contract.underlying}</span>
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+              dataSource === 'live'
+                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+            }`}>
+              {dataSource === 'live' ? 'Live' : 'Parametric'}
+            </span>
             <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
               contract.optionType === 'call'
                 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
@@ -330,7 +422,7 @@ function ContractCard({ contract }: { contract: OptionContract }) {
 
 // ─── RawFeed ─────────────────────────────────────────────────────────────────
 
-function RawFeed({ contracts }: { contracts: OptionContract[] }) {
+function RawFeed({ contracts, meta }: { contracts: OptionContract[]; meta?: MarketDepthMeta }) {
   return (
     <div className="bg-white dark:bg-zinc-900 rounded-xl border border-gray-200 dark:border-zinc-700 overflow-hidden">
       <div className="px-5 py-3 border-b border-gray-100 dark:border-zinc-800 flex items-center gap-2">
@@ -344,6 +436,7 @@ function RawFeed({ contracts }: { contracts: OptionContract[] }) {
         <table className="w-full text-xs font-mono">
           <thead>
             <tr className="text-gray-400 dark:text-zinc-500 text-left border-b border-gray-100 dark:border-zinc-800">
+              <th className="px-4 py-2">Source</th>
               <th className="px-4 py-2">Contract</th>
               <th className="px-4 py-2 text-right">Spot</th>
               <th className="px-4 py-2 text-right">Bid</th>
@@ -360,8 +453,19 @@ function RawFeed({ contracts }: { contracts: OptionContract[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-zinc-800">
-            {contracts.map((c, i) => (
+            {contracts.map((c, i) => {
+              const src = contractDataSource(c, meta);
+              return (
               <tr key={i} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                <td className="px-4 py-2">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    src === 'live'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
+                  }`}>
+                    {src === 'live' ? 'live' : 'mock'}
+                  </span>
+                </td>
                 <td className="px-4 py-2 text-gray-900 dark:text-gray-100 font-semibold">
                   {c.underlying} {fmt(c.strike)} {c.optionType.charAt(0).toUpperCase()} {c.expiration.slice(5)}
                 </td>
@@ -378,7 +482,7 @@ function RawFeed({ contracts }: { contracts: OptionContract[] }) {
                 <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{fmt(c.greeks.gamma, 4)}</td>
                 <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{fmt(c.greeks.vega)}</td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
       </div>
@@ -393,6 +497,10 @@ export default function MarketDepthPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+
+  const [symbolFilter, setSymbolFilter] = useState('ALL');
+  const [dataSourceFilter, setDataSourceFilter] = useState<DataSourceFilter>('all');
+  const [optionTypeFilter, setOptionTypeFilter] = useState<OptionTypeFilter>('all');
 
   const fetchData = useCallback(async () => {
     try {
@@ -421,6 +529,32 @@ export default function MarketDepthPage() {
     [data?.contracts],
   );
 
+  const symbols = useMemo(() => {
+    const fromMeta = data?.meta?.symbols;
+    if (fromMeta?.length) return fromMeta;
+    return [...new Set([
+      ...(data?.volSurfaces?.map((s) => s.underlying) ?? []),
+      ...contracts.map((c) => c.underlying),
+    ])].sort();
+  }, [data?.meta?.symbols, data?.volSurfaces, contracts]);
+
+  const filteredContracts = useMemo(() => {
+    return contracts.filter((c) => {
+      if (symbolFilter !== 'ALL' && c.underlying !== symbolFilter) return false;
+      const src = contractDataSource(c, data?.meta);
+      if (dataSourceFilter === 'live' && src !== 'live') return false;
+      if (dataSourceFilter === 'mock' && src !== 'mock') return false;
+      if (optionTypeFilter !== 'all' && c.optionType !== optionTypeFilter) return false;
+      return true;
+    });
+  }, [contracts, symbolFilter, dataSourceFilter, optionTypeFilter, data?.meta]);
+
+  const filteredSurfaces = useMemo(() => {
+    const surfaces = data?.volSurfaces ?? [];
+    if (symbolFilter === 'ALL') return surfaces;
+    return surfaces.filter((s) => s.underlying === symbolFilter);
+  }, [data?.volSurfaces, symbolFilter]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -429,9 +563,13 @@ export default function MarketDepthPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Market Depth</h1>
           <p className="text-sm text-gray-500 dark:text-zinc-400 mt-0.5">
             Options pricing, greeks & order book depth
-            {data?.meta?.contractSource === 'chain' && data.meta.contractCount ? (
+            {data?.meta?.contractSource && data.meta.contractCount ? (
               <span className="block text-xs mt-1 font-mono">
-                {data.meta.contractCount} live contracts · {data.meta.volSurfaceSource ?? 'mock'} surfaces
+                {data.meta.contractCount} contracts
+                {data.meta.liveContractCount != null && data.meta.mockSymbols?.length
+                  ? ` (${data.meta.liveContractCount} live · ${data.meta.mockSymbols.length} parametric symbols)`
+                  : ''}
+                {' · '}{data.meta.volSurfaceSource ?? 'mock'} surfaces
                 {data.timestamp ? ` · ${new Date(data.timestamp).toLocaleString()}` : ''}
               </span>
             ) : null}
@@ -469,20 +607,42 @@ export default function MarketDepthPage() {
         </div>
       ) : data ? (
         <div className="space-y-6">
-          {data.volSurfaces && data.volSurfaces.length > 0 && (
+          <MarketDepthFilters
+            symbols={symbols}
+            symbol={symbolFilter}
+            onSymbol={setSymbolFilter}
+            dataSource={dataSourceFilter}
+            onDataSource={setDataSourceFilter}
+            optionType={optionTypeFilter}
+            onOptionType={setOptionTypeFilter}
+            counts={{ contracts: filteredContracts.length, surfaces: filteredSurfaces.length }}
+          />
+
+          {filteredSurfaces.length > 0 && (
             <MarketDepthVolSection
-              surfaces={data.volSurfaces}
-              contracts={contracts}
+              surfaces={filteredSurfaces}
+              contracts={filteredContracts}
               meta={data.meta}
             />
           )}
 
-          <RawFeed contracts={contracts} />
+          {filteredContracts.length > 0 ? (
+            <>
+              <RawFeed contracts={filteredContracts} meta={data.meta} />
 
-          {/* Individual contract cards */}
-          {contracts.map((contract, i) => (
-            <ContractCard key={`${contract.symbol}-${i}`} contract={contract} />
-          ))}
+              {filteredContracts.map((contract, i) => (
+                <ContractCard
+                  key={`${contract.symbol}-${i}`}
+                  contract={contract}
+                  dataSource={contractDataSource(contract, data.meta)}
+                />
+              ))}
+            </>
+          ) : (
+            <div className="text-center py-12 text-gray-500 dark:text-zinc-400">
+              No contracts match the current filters.
+            </div>
+          )}
         </div>
       ) : null}
     </div>

@@ -89,87 +89,143 @@ function buildVolSurfaces() {
   });
 }
 
+function withDepth(contract, mid, spreadPct) {
+  const depth = buildDepth(mid, spreadPct, 6);
+  return { ...contract, bidDepth: depth.bids, askDepth: depth.asks, dataSource: 'mock' };
+}
+
 function getContracts() {
-  const crwd350 = {
-    symbol: 'CRWD260515C00350000',
-    underlying: 'CRWD',
-    optionType: 'call',
-    strike: 350,
-    expiration: '2026-05-15',
-    dte: 30,
-    spot: 340.0,
-    bid: 18.5,
-    ask: 19.2,
-    mid: 18.85,
-    last: 18.80,
-    volume: 2100,
-    openInterest: 8200,
-    greeks: { delta: 0.42, gamma: 0.008, theta: -0.18, vega: 0.52, rho: 0.04, iv: 0.385 },
-    thetaDecayCurve: buildThetaCurve(30, 18.85),
-  };
-  const iwn185 = {
-    symbol: 'IWN260515P00185000',
-    underlying: 'IWN',
-    optionType: 'put',
-    strike: 185,
-    expiration: '2026-05-15',
-    dte: 30,
-    spot: 200.85,
-    bid: 1.18,
-    ask: 1.32,
-    mid: 1.25,
-    last: 1.22,
-    volume: 3210,
-    openInterest: 12450,
-    greeks: { delta: -0.155, gamma: 0.0125, theta: -0.032, vega: 0.115, rho: -0.025, iv: 0.215 },
-    thetaDecayCurve: buildThetaCurve(30, 1.25),
-  };
-  const nbis175 = {
-    symbol: 'NBIS260515C00175000',
-    underlying: 'NBIS',
-    optionType: 'call',
-    strike: 175,
-    expiration: '2026-05-15',
-    dte: 30,
-    spot: 148.30,
-    bid: 3.60,
-    ask: 3.85,
-    mid: 3.73,
-    last: 3.70,
-    volume: 6480,
-    openInterest: 18920,
-    greeks: { delta: 0.237, gamma: 0.0105, theta: -0.155, vega: 0.131, rho: 0.026, iv: 0.693 },
-    thetaDecayCurve: buildThetaCurve(30, 3.73),
-  };
-  const nbis130 = {
-    symbol: 'NBIS260508P00130000',
-    underlying: 'NBIS',
-    optionType: 'put',
-    strike: 130,
-    expiration: '2026-05-08',
-    dte: 23,
-    spot: 148.30,
-    bid: 3.50,
-    ask: 3.85,
-    mid: 3.66,
-    last: 3.60,
-    volume: 4120,
-    openInterest: 9740,
-    greeks: { delta: -0.211, gamma: 0.0103, theta: -0.172, vega: 0.108, rho: -0.022, iv: 0.753 },
-    thetaDecayCurve: buildThetaCurve(23, 3.66),
-  };
-
-  const pairs = [
-    [crwd350, 18.85, 0.04],
-    [iwn185, 1.25, 0.11],
-    [nbis175, 3.73, 0.08],
-    [nbis130, 3.66, 0.10],
+  return [
+    withDepth({
+      symbol: 'CRWD260515C00350000',
+      underlying: 'CRWD',
+      optionType: 'call',
+      strike: 350,
+      expiration: '2026-05-15',
+      dte: 30,
+      spot: 340.0,
+      bid: 18.5,
+      ask: 19.2,
+      mid: 18.85,
+      last: 18.80,
+      volume: 2100,
+      openInterest: 8200,
+      greeks: { delta: 0.42, gamma: 0.008, theta: -0.18, vega: 0.52, rho: 0.04, iv: 0.385 },
+      thetaDecayCurve: buildThetaCurve(30, 18.85),
+    }, 18.85, 0.04),
+    withDepth({
+      symbol: 'IWN260515P00185000',
+      underlying: 'IWN',
+      optionType: 'put',
+      strike: 185,
+      expiration: '2026-05-15',
+      dte: 30,
+      spot: 200.85,
+      bid: 1.18,
+      ask: 1.32,
+      mid: 1.25,
+      last: 1.22,
+      volume: 3210,
+      openInterest: 12450,
+      greeks: { delta: -0.155, gamma: 0.0125, theta: -0.032, vega: 0.115, rho: -0.025, iv: 0.215 },
+      thetaDecayCurve: buildThetaCurve(30, 1.25),
+    }, 1.25, 0.11),
+    withDepth({
+      symbol: 'NBIS260515C00175000',
+      underlying: 'NBIS',
+      optionType: 'call',
+      strike: 175,
+      expiration: '2026-05-15',
+      dte: 30,
+      spot: 148.30,
+      bid: 3.60,
+      ask: 3.85,
+      mid: 3.73,
+      last: 3.70,
+      volume: 6480,
+      openInterest: 18920,
+      greeks: { delta: 0.237, gamma: 0.0105, theta: -0.155, vega: 0.131, rho: 0.026, iv: 0.693 },
+      thetaDecayCurve: buildThetaCurve(30, 3.73),
+    }, 3.73, 0.08),
+    withDepth({
+      symbol: 'NBIS260508P00130000',
+      underlying: 'NBIS',
+      optionType: 'put',
+      strike: 130,
+      expiration: '2026-05-08',
+      dte: 23,
+      spot: 148.30,
+      bid: 3.50,
+      ask: 3.85,
+      mid: 3.66,
+      last: 3.60,
+      volume: 4120,
+      openInterest: 9740,
+      greeks: { delta: -0.211, gamma: 0.0103, theta: -0.172, vega: 0.108, rho: -0.022, iv: 0.753 },
+      thetaDecayCurve: buildThetaCurve(23, 3.66),
+    }, 3.66, 0.10),
+    withDepth({
+      symbol: 'AVGO260515C00170000',
+      underlying: 'AVGO',
+      optionType: 'call',
+      strike: 170,
+      expiration: '2026-05-15',
+      dte: 30,
+      spot: 165.0,
+      bid: 6.20,
+      ask: 6.55,
+      mid: 6.38,
+      last: 6.40,
+      volume: 1850,
+      openInterest: 6200,
+      greeks: { delta: 0.38, gamma: 0.011, theta: -0.12, vega: 0.28, rho: 0.03, iv: 0.325 },
+      thetaDecayCurve: buildThetaCurve(30, 6.38),
+    }, 6.38, 0.05),
+    withDepth({
+      symbol: 'SPY260515C00580000',
+      underlying: 'SPY',
+      optionType: 'call',
+      strike: 580,
+      expiration: '2026-05-15',
+      dte: 30,
+      spot: 580.0,
+      bid: 12.40,
+      ask: 12.65,
+      mid: 12.52,
+      last: 12.50,
+      volume: 84200,
+      openInterest: 125000,
+      greeks: { delta: 0.52, gamma: 0.004, theta: -0.22, vega: 0.65, rho: 0.08, iv: 0.162 },
+      thetaDecayCurve: buildThetaCurve(30, 12.52),
+    }, 12.52, 0.02),
+    withDepth({
+      symbol: 'MU260515P00090000',
+      underlying: 'MU',
+      optionType: 'put',
+      strike: 90,
+      expiration: '2026-05-15',
+      dte: 30,
+      spot: 95.0,
+      bid: 2.85,
+      ask: 3.05,
+      mid: 2.95,
+      last: 2.92,
+      volume: 5200,
+      openInterest: 18400,
+      greeks: { delta: -0.28, gamma: 0.018, theta: -0.08, vega: 0.09, rho: -0.02, iv: 0.435 },
+      thetaDecayCurve: buildThetaCurve(30, 2.95),
+    }, 2.95, 0.07),
   ];
+}
 
-  return pairs.map(([c, mid, spread]) => {
-    const depth = buildDepth(mid, spread, 6);
-    return { ...c, bidDepth: depth.bids, askDepth: depth.asks };
-  });
+function getMockContractsBySymbol() {
+  const bySymbol = new Map();
+  for (const c of getContracts()) {
+    const list = bySymbol.get(c.underlying) ?? [];
+    list.push(c);
+    bySymbol.set(c.underlying, list);
+  }
+  return bySymbol;
 }
 
 function buildMockPayload() {
@@ -179,6 +235,8 @@ function buildMockPayload() {
     volSurfaces: buildVolSurfaces(),
     meta: {
       volSurfaceSource: 'mock',
+      contractSource: 'mock',
+      symbols: SURFACE_PARAMS.map((p) => p.underlying),
       perSymbol: Object.fromEntries(
         SURFACE_PARAMS.map((p) => [p.underlying, { source: 'mock' }]),
       ),
@@ -191,6 +249,7 @@ module.exports = {
   SURFACE_DTES,
   buildVolSurfaces,
   getContracts,
+  getMockContractsBySymbol,
   buildMockPayload,
   surfaceIv,
 };

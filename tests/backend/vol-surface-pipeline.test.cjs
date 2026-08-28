@@ -64,5 +64,6 @@ describe('buildMarketDepthPayload', () => {
     const payload = await buildMarketDepthPayload();
     expect(payload.meta.volSurfaceSource).toBe('mock');
     expect(payload.volSurfaces.length).toBeGreaterThan(0);
+    expect(payload.meta.symbols.length).toBe(6);
   });
 });

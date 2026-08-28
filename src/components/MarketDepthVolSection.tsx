@@ -28,6 +28,8 @@ export interface MarketDepthMeta {
   perSymbol?: Record<string, VolSurfaceSymbolMeta>;
   contractSource?: string;
   contractCount?: number;
+  liveContractCount?: number;
+  mockSymbols?: string[];
 }
 
 interface ContractForMarkers {
