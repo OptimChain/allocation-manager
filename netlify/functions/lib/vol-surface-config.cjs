@@ -11,7 +11,7 @@
 
 const VALID_SOURCES = new Set(['mock', 'blob', 'alpaca', 'auto']);
 
-const DEFAULT_SYMBOLS = ['SNDK', 'IWN', 'NBIS'];
+const DEFAULT_SYMBOLS = ['IWN', 'CRWD', 'NBIS', 'AVGO', 'SPY', 'MU'];
 
 /** Blob store symbol may differ from display ticker (e.g. IWN chain stored as IWN). */
 const BLOB_SYMBOL_MAP = {
@@ -19,6 +19,9 @@ const BLOB_SYMBOL_MAP = {
   SNDK: 'SNDK',
   NBIS: 'NBIS',
   CRWD: 'CRWD',
+  AVGO: 'AVGO',
+  SPY: 'SPY',
+  MU: 'MU',
 };
 
 function parseSource(raw) {

@@ -4,6 +4,7 @@ const { getConfig } = require('./vol-surface-config.cjs');
 const { buildMockPayload, getContracts, buildVolSurfaces } = require('./vol-surface-mock.cjs');
 const { extractQuotes, buildSurfaceFromQuotes } = require('./vol-surface-builder.cjs');
 const { fetchChainFromBlob, fetchChainFromAlpaca } = require('./fetch-options-chain.cjs');
+const { chainToContracts } = require('./chain-to-contracts.cjs');
 
 async function trySource(source, symbol, blobSymbol, config) {
   if (source === 'blob') {
@@ -18,6 +19,8 @@ async function trySource(source, symbol, blobSymbol, config) {
     if (!surface) return null;
     return {
       surface,
+      chain: result.chain,
+      spot: result.spot,
       chainMeta: {
         source: 'blob',
         blobKey: result.blobKey,
@@ -39,6 +42,8 @@ async function trySource(source, symbol, blobSymbol, config) {
     if (!surface) return null;
     return {
       surface,
+      chain: result.chain,
+      spot: result.spot,
       chainMeta: {
         source: 'alpaca',
         timestamp: result.timestamp,
@@ -58,6 +63,8 @@ async function resolveSurfaceForSymbol(symbol, config) {
     return {
       surface: mockSurface,
       chainMeta: { source: 'mock' },
+      chain: null,
+      spot: mockSurface?.spot ?? null,
     };
   }
 
@@ -77,6 +84,8 @@ async function resolveSurfaceForSymbol(symbol, config) {
   return {
     surface: mockSurface,
     chainMeta: { source: 'mock', fallback: true, requested: config.source },
+    chain: null,
+    spot: mockSurface?.spot ?? null,
   };
 }
 
@@ -93,14 +102,23 @@ async function buildMarketDepthPayload() {
 
   const perSymbol = {};
   const surfaces = [];
+  const contractBuckets = [];
 
   await Promise.all(config.symbols.map(async (symbol) => {
-    const { surface, chainMeta } = await resolveSurfaceForSymbol(symbol, config);
+    const { surface, chainMeta, chain, spot } = await resolveSurfaceForSymbol(symbol, config);
     perSymbol[symbol] = chainMeta;
     if (surface) surfaces.push(surface);
+    if (chain && Object.keys(chain).length > 0) {
+      contractBuckets.push(...chainToContracts(chain, spot));
+    }
   }));
 
   surfaces.sort((a, b) => a.underlying.localeCompare(b.underlying));
+
+  const maxContracts = parseInt(process.env.MARKET_DEPTH_MAX_CONTRACTS || '40', 10);
+  const liveContracts = contractBuckets
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, maxContracts);
 
   const liveCount = Object.values(perSymbol).filter((m) => m.source !== 'mock').length;
   const volSurfaceSource = liveCount === config.symbols.length && liveCount > 0
@@ -111,13 +129,15 @@ async function buildMarketDepthPayload() {
 
   return {
     timestamp: new Date().toISOString(),
-    contracts: getContracts(),
+    contracts: liveContracts.length > 0 ? liveContracts : getContracts(),
     volSurfaces: surfaces.length > 0 ? surfaces : buildVolSurfaces(),
     meta: {
       volSurfaceSource,
       configuredSource: config.source,
       symbols: config.symbols,
       perSymbol,
+      contractSource: liveContracts.length > 0 ? 'chain' : 'mock',
+      contractCount: liveContracts.length,
     },
   };
 }
