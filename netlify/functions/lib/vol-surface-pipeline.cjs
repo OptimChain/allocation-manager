@@ -85,6 +85,31 @@ async function resolveSurfaceForSymbol(symbol, config) {
   };
 }
 
+/**
+ * Cap live contracts fairly across symbols so one rich chain (e.g. IWN)
+ * cannot starve others (e.g. CRWD) under MARKET_DEPTH_MAX_CONTRACTS.
+ */
+function selectLiveContractsPerSymbol(contractBuckets, symbols, maxTotal) {
+  const bySymbol = new Map();
+  for (const c of contractBuckets) {
+    const list = bySymbol.get(c.underlying) ?? [];
+    list.push(c);
+    bySymbol.set(c.underlying, list);
+  }
+
+  const liveSymbols = symbols.filter((s) => (bySymbol.get(s) || []).length > 0);
+  if (liveSymbols.length === 0) return [];
+
+  const perSymbolCap = Math.max(1, Math.floor(maxTotal / liveSymbols.length));
+  const selected = [];
+  for (const symbol of liveSymbols) {
+    selected.push(
+      ...bySymbol.get(symbol).sort(compareContractsLatestDesc).slice(0, perSymbolCap),
+    );
+  }
+  return selected.sort(compareContractsLatestDesc);
+}
+
 function mergeLiveAndMockContracts(liveContracts, symbols) {
   const mockBySymbol = getMockContractsBySymbol();
   const liveBySymbol = new Map();
@@ -143,9 +168,11 @@ async function buildMarketDepthPayload() {
   surfaces.sort((a, b) => a.underlying.localeCompare(b.underlying));
 
   const maxContracts = parseInt(process.env.MARKET_DEPTH_MAX_CONTRACTS || '40', 10);
-  const liveContracts = contractBuckets
-    .sort(compareContractsLatestDesc)
-    .slice(0, maxContracts);
+  const liveContracts = selectLiveContractsPerSymbol(
+    contractBuckets,
+    config.symbols,
+    maxContracts,
+  );
 
   const contracts = mergeLiveAndMockContracts(liveContracts, config.symbols);
   const liveSymbols = new Set(liveContracts.map((c) => c.underlying));
@@ -189,4 +216,6 @@ module.exports = {
   buildMarketDepthPayload,
   buildPayload,
   resolveSurfaceForSymbol,
+  selectLiveContractsPerSymbol,
+  mergeLiveAndMockContracts,
 };

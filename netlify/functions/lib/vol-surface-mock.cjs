@@ -94,127 +94,88 @@ function withDepth(contract, mid, spreadPct) {
   return { ...contract, bidDepth: depth.bids, askDepth: depth.asks, dataSource: 'mock' };
 }
 
+/** Calendar date ~dte days ahead (UTC), used so mock OCC symbols stay unexpired. */
+function expirationFromDte(dte, asOf = new Date()) {
+  const d = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + dte);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function occSymbol(underlying, expiration, optionType, strike) {
+  const [y, m, d] = expiration.split('-');
+  const cp = optionType === 'call' ? 'C' : 'P';
+  const strikeStr = String(Math.round(strike * 1000)).padStart(8, '0');
+  return `${underlying}${y.slice(2)}${m}${d}${cp}${strikeStr}`;
+}
+
+function mockContract({ underlying, optionType, strike, dte, spot, bid, ask, mid, last, volume, openInterest, greeks, spreadPct }) {
+  const expiration = expirationFromDte(dte);
+  return withDepth({
+    symbol: occSymbol(underlying, expiration, optionType, strike),
+    underlying,
+    optionType,
+    strike,
+    expiration,
+    dte,
+    spot,
+    bid,
+    ask,
+    mid,
+    last,
+    volume,
+    openInterest,
+    greeks,
+    thetaDecayCurve: buildThetaCurve(dte, mid),
+  }, mid, spreadPct);
+}
+
 function getContracts() {
   return [
-    withDepth({
-      symbol: 'CRWD260515C00350000',
-      underlying: 'CRWD',
-      optionType: 'call',
-      strike: 350,
-      expiration: '2026-05-15',
-      dte: 30,
-      spot: 340.0,
-      bid: 18.5,
-      ask: 19.2,
-      mid: 18.85,
-      last: 18.80,
-      volume: 2100,
-      openInterest: 8200,
+    mockContract({
+      underlying: 'CRWD', optionType: 'call', strike: 350, dte: 30, spot: 340.0,
+      bid: 18.5, ask: 19.2, mid: 18.85, last: 18.80, volume: 2100, openInterest: 8200,
       greeks: { delta: 0.42, gamma: 0.008, theta: -0.18, vega: 0.52, rho: 0.04, iv: 0.385 },
-      thetaDecayCurve: buildThetaCurve(30, 18.85),
-    }, 18.85, 0.04),
-    withDepth({
-      symbol: 'IWN260515P00185000',
-      underlying: 'IWN',
-      optionType: 'put',
-      strike: 185,
-      expiration: '2026-05-15',
-      dte: 30,
-      spot: 200.85,
-      bid: 1.18,
-      ask: 1.32,
-      mid: 1.25,
-      last: 1.22,
-      volume: 3210,
-      openInterest: 12450,
+      spreadPct: 0.04,
+    }),
+    mockContract({
+      underlying: 'IWN', optionType: 'put', strike: 185, dte: 30, spot: 200.85,
+      bid: 1.18, ask: 1.32, mid: 1.25, last: 1.22, volume: 3210, openInterest: 12450,
       greeks: { delta: -0.155, gamma: 0.0125, theta: -0.032, vega: 0.115, rho: -0.025, iv: 0.215 },
-      thetaDecayCurve: buildThetaCurve(30, 1.25),
-    }, 1.25, 0.11),
-    withDepth({
-      symbol: 'NBIS260515C00175000',
-      underlying: 'NBIS',
-      optionType: 'call',
-      strike: 175,
-      expiration: '2026-05-15',
-      dte: 30,
-      spot: 148.30,
-      bid: 3.60,
-      ask: 3.85,
-      mid: 3.73,
-      last: 3.70,
-      volume: 6480,
-      openInterest: 18920,
+      spreadPct: 0.11,
+    }),
+    mockContract({
+      underlying: 'NBIS', optionType: 'call', strike: 175, dte: 30, spot: 148.30,
+      bid: 3.60, ask: 3.85, mid: 3.73, last: 3.70, volume: 6480, openInterest: 18920,
       greeks: { delta: 0.237, gamma: 0.0105, theta: -0.155, vega: 0.131, rho: 0.026, iv: 0.693 },
-      thetaDecayCurve: buildThetaCurve(30, 3.73),
-    }, 3.73, 0.08),
-    withDepth({
-      symbol: 'NBIS260508P00130000',
-      underlying: 'NBIS',
-      optionType: 'put',
-      strike: 130,
-      expiration: '2026-05-08',
-      dte: 23,
-      spot: 148.30,
-      bid: 3.50,
-      ask: 3.85,
-      mid: 3.66,
-      last: 3.60,
-      volume: 4120,
-      openInterest: 9740,
+      spreadPct: 0.08,
+    }),
+    mockContract({
+      underlying: 'NBIS', optionType: 'put', strike: 130, dte: 23, spot: 148.30,
+      bid: 3.50, ask: 3.85, mid: 3.66, last: 3.60, volume: 4120, openInterest: 9740,
       greeks: { delta: -0.211, gamma: 0.0103, theta: -0.172, vega: 0.108, rho: -0.022, iv: 0.753 },
-      thetaDecayCurve: buildThetaCurve(23, 3.66),
-    }, 3.66, 0.10),
-    withDepth({
-      symbol: 'AVGO260515C00170000',
-      underlying: 'AVGO',
-      optionType: 'call',
-      strike: 170,
-      expiration: '2026-05-15',
-      dte: 30,
-      spot: 165.0,
-      bid: 6.20,
-      ask: 6.55,
-      mid: 6.38,
-      last: 6.40,
-      volume: 1850,
-      openInterest: 6200,
+      spreadPct: 0.10,
+    }),
+    mockContract({
+      underlying: 'AVGO', optionType: 'call', strike: 170, dte: 30, spot: 165.0,
+      bid: 6.20, ask: 6.55, mid: 6.38, last: 6.40, volume: 1850, openInterest: 6200,
       greeks: { delta: 0.38, gamma: 0.011, theta: -0.12, vega: 0.28, rho: 0.03, iv: 0.325 },
-      thetaDecayCurve: buildThetaCurve(30, 6.38),
-    }, 6.38, 0.05),
-    withDepth({
-      symbol: 'SPY260515C00580000',
-      underlying: 'SPY',
-      optionType: 'call',
-      strike: 580,
-      expiration: '2026-05-15',
-      dte: 30,
-      spot: 580.0,
-      bid: 12.40,
-      ask: 12.65,
-      mid: 12.52,
-      last: 12.50,
-      volume: 84200,
-      openInterest: 125000,
+      spreadPct: 0.05,
+    }),
+    mockContract({
+      underlying: 'SPY', optionType: 'call', strike: 580, dte: 30, spot: 580.0,
+      bid: 12.40, ask: 12.65, mid: 12.52, last: 12.50, volume: 84200, openInterest: 125000,
       greeks: { delta: 0.52, gamma: 0.004, theta: -0.22, vega: 0.65, rho: 0.08, iv: 0.162 },
-      thetaDecayCurve: buildThetaCurve(30, 12.52),
-    }, 12.52, 0.02),
-    withDepth({
-      symbol: 'MU260515P00090000',
-      underlying: 'MU',
-      optionType: 'put',
-      strike: 90,
-      expiration: '2026-05-15',
-      dte: 30,
-      spot: 95.0,
-      bid: 2.85,
-      ask: 3.05,
-      mid: 2.95,
-      last: 2.92,
-      volume: 5200,
-      openInterest: 18400,
+      spreadPct: 0.02,
+    }),
+    mockContract({
+      underlying: 'MU', optionType: 'put', strike: 90, dte: 30, spot: 95.0,
+      bid: 2.85, ask: 3.05, mid: 2.95, last: 2.92, volume: 5200, openInterest: 18400,
       greeks: { delta: -0.28, gamma: 0.018, theta: -0.08, vega: 0.09, rho: -0.02, iv: 0.435 },
-      thetaDecayCurve: buildThetaCurve(30, 2.95),
-    }, 2.95, 0.07),
+      spreadPct: 0.07,
+    }),
   ];
 }
 
@@ -252,4 +213,6 @@ module.exports = {
   getMockContractsBySymbol,
   buildMockPayload,
   surfaceIv,
+  expirationFromDte,
+  occSymbol,
 };
