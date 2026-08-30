@@ -138,9 +138,12 @@ async function alpacaFetch(path) {
  * Fetch call + put snapshots and merge into one chain map keyed by OCC symbol.
  */
 async function fetchChainFromAlpaca(symbol) {
+  // Alpaca caps limit at 1000. OCC symbols sort date-first, so a small limit
+  // exhausts itself inside the nearest expiry on dense chains (SPY: 250 ≈ one
+  // expiry → surface builder fails its ≥2-expirations threshold).
   const [calls, puts] = await Promise.all([
-    alpacaFetch(`/options/snapshots/${symbol}?feed=indicative&type=call&limit=250`),
-    alpacaFetch(`/options/snapshots/${symbol}?feed=indicative&type=put&limit=250`),
+    alpacaFetch(`/options/snapshots/${symbol}?feed=indicative&type=call&limit=1000`),
+    alpacaFetch(`/options/snapshots/${symbol}?feed=indicative&type=put&limit=1000`),
   ]);
 
   const chain = {
