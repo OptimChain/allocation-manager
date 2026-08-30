@@ -86,6 +86,11 @@ function snapshotToContract(sym, snap, spot) {
   const parsed = parseOcc(sym);
   if (!parsed) return null;
 
+  // Stale chain blobs can carry contracts whose expiry has passed (the chain
+  // producer was down for months at one point). daysToExpiry clamps to 0, so
+  // check the real date — an expired contract must never render on /depth.
+  if (new Date(`${parsed.expiration}T21:00:00Z`).getTime() < Date.now()) return null;
+
   const quote = snap.latest_quote || snap.latestQuote;
   const trade = snap.latest_trade || snap.latestTrade;
   const greeksRaw = snap.greeks || {};
