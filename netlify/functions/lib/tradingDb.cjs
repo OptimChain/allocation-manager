@@ -12,11 +12,7 @@
 
 'use strict';
 
-const CORS = {
-  'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-};
+const { CORS, json, checkWriteAuth } = require('./http.cjs');
 
 // States that count as "open" — everything else is historical
 const OPEN_STATES = new Set(['queued', 'unconfirmed', 'confirmed', 'pending', 'partially_filled', 'new']);
@@ -59,6 +55,8 @@ function createUrlClient(url) {
     connectionString: url,
     max: 2,
     idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 8_000,
     ssl: isLocal ? undefined : { rejectUnauthorized: false },
   });
   return { query: async (text, params = []) => (await pool.query(text, params)).rows };
@@ -918,28 +916,7 @@ function errorEnvelope(resource, action, code, message) {
   return envelope({ resource, action, error: { code, message } });
 }
 
-function respond(statusCode, body) {
-  return {
-    statusCode,
-    headers: { ...CORS, 'Content-Type': 'application/json' },
-    body: typeof body === 'string' ? body : JSON.stringify(body),
-  };
-}
-
-/**
- * Write-guard: when TRADING_DB_TOKEN is set, mutating requests must carry
- * `Authorization: Bearer <token>` or `X-Api-Key: <token>`. Reads stay open.
- * Returns an error message string when denied, null when allowed.
- */
-function checkWriteAuth(event) {
-  const token = process.env.TRADING_DB_TOKEN;
-  if (!token) return null;
-  const headers = event.headers || {};
-  const auth   = headers.authorization || headers.Authorization || '';
-  const apiKey = headers['x-api-key'] || headers['X-Api-Key'] || '';
-  if (auth === `Bearer ${token}` || apiKey === token) return null;
-  return 'Missing or invalid credentials — set Authorization: Bearer <TRADING_DB_TOKEN>';
-}
+const respond = (statusCode, body) => json(statusCode, body);
 
 // ── In-memory client (TRADING_DB_MEMORY=1) ────────────────────────────────────
 // Implements exactly the SQL statements this module issues. Data lives for the

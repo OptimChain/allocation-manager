@@ -3,17 +3,19 @@
 // Uses Netlify Blobs for token persistence
 
 const tokenStore = require('./lib/tokenStore.cjs');
+const { CORS, fetchWithTimeout, checkWriteAuth } = require('./lib/http.cjs');
 
 const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
 
 // In-memory bot action log (resets on cold start)
 let botActions = [];
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-};
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
+
+/** Error carrying an HTTP status for the handler's catch block. */
+function httpError(statusCode, message) {
+  return Object.assign(new Error(message), { statusCode });
+}
 
 /**
  * Get authentication token from Blob store.
@@ -29,7 +31,7 @@ async function getAuthToken() {
 async function fetchWithAuth(endpoint, options = {}) {
   const token = await getAuthToken();
 
-  const response = await fetch(`${ROBINHOOD_API_BASE}${endpoint}`, {
+  const response = await fetchWithTimeout(`${ROBINHOOD_API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -286,18 +288,21 @@ exports.handler = async (event) => {
       case 'quote':
         const symbol = event.queryStringParameters?.symbol;
         if (!symbol) {
-          throw new Error('Symbol parameter required');
+          throw httpError(400, 'Symbol parameter required');
         }
         data = await getQuote(symbol.toUpperCase());
         break;
 
-      case 'order':
+      case 'order': {
         if (event.httpMethod !== 'POST') {
-          throw new Error('POST method required for orders');
+          throw httpError(405, 'POST method required for orders');
         }
+        // Live order placement — same write guard as the trading-DB endpoints
+        const denied = checkWriteAuth(event);
+        if (denied) throw httpError(401, denied);
         const { symbol: orderSymbol, side, quantity, dryRun = true } = body;
         if (!orderSymbol || !side || !quantity) {
-          throw new Error('symbol, side, and quantity are required');
+          throw httpError(400, 'symbol, side, and quantity are required');
         }
         data = await placeOrder(
           orderSymbol.toUpperCase(),
@@ -306,9 +311,10 @@ exports.handler = async (event) => {
           dryRun !== false
         );
         break;
+      }
 
       default:
-        throw new Error(`Unknown action: ${action}. Available: status, actions, analyze, quote, order`);
+        throw httpError(400, `Unknown action: ${action}. Available: status, actions, analyze, quote, order`);
     }
 
     return {
@@ -331,7 +337,7 @@ exports.handler = async (event) => {
     const isAuthError = error.message.includes('Not authenticated') || error.message.includes('expired');
 
     return {
-      statusCode: isAuthError ? 401 : 500,
+      statusCode: error.statusCode || (isAuthError ? 401 : 500),
       headers: {
         ...corsHeaders,
         'Content-Type': 'application/json',

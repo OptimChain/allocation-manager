@@ -9,11 +9,9 @@ const cache = new Map();
 const CACHE_TTL_MS = 10 * 60_000; // 10 minutes
 const MAX_CACHE_ENTRIES = 20;
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
+
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -59,7 +57,7 @@ exports.handler = async (event) => {
 
     const fullName = tickerNames[ticker] || ticker;
 
-    const response = await fetch(PERPLEXITY_API, {
+    const response = await fetchWithTimeout(PERPLEXITY_API, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_KEY}`,
@@ -80,13 +78,20 @@ exports.handler = async (event) => {
         max_tokens: 2000,
         temperature: 0.1,
       }),
-    });
+    }, 9000); // LLM search is slow; stays under Netlify's 10s sync limit
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Perplexity returned ${response.status}: ${errorText}`);
+      if (cached) {
+        return {
+          statusCode: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache': 'STALE' },
+          body: cached.data,
+        };
+      }
       return {
-        statusCode: response.status,
+        statusCode: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: `Perplexity API error: ${response.status}`, articles: [] }),
       };

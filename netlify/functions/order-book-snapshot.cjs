@@ -11,6 +11,7 @@
 // degrades market_data to null rather than failing the whole snapshot.
 
 const t = require('./lib/tradingDb.cjs');
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
 
 // 5thstreetcapital Netlify site ID
 const ORDER_BOOK_SITE_ID = '3d014fc3-e919-4b4d-b374-e8606dee50df';
@@ -18,11 +19,8 @@ const BLOBS_API_BASE = 'https://api.netlify.com/api/v1/blobs';
 const STORE_NAME = 'state-logs';
 const STORE_NAME_HISTORICAL = 'state-logs-historical';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
+const BLOB_TIMEOUT_MS = 5000; // market_data is optional — don't let it eat the 10s budget
 
 function hasCompleteMetrics(snapshot) {
   const btc = snapshot?.state?.symbols?.BTC;
@@ -32,9 +30,10 @@ function hasCompleteMetrics(snapshot) {
 }
 
 async function fetchBlob(token, key, storeName) {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${BLOBS_API_BASE}/${ORDER_BOOK_SITE_ID}/${storeName}/${encodeURIComponent(key)}`,
-    { headers: { 'Authorization': `Bearer ${token}` } }
+    { headers: { 'Authorization': `Bearer ${token}` } },
+    BLOB_TIMEOUT_MS
   );
   if (!res.ok) {
     throw new Error(`Failed to fetch snapshot ${key}: ${res.status}`);
@@ -52,9 +51,9 @@ async function listAllBlobKeys(token, storeName) {
       url += `?cursor=${encodeURIComponent(cursor)}`;
     }
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { 'Authorization': `Bearer ${token}` },
-    });
+    }, BLOB_TIMEOUT_MS);
     if (!res.ok) {
       throw new Error(`Failed to list ${storeName} blobs: ${res.status}`);
     }
@@ -97,16 +96,19 @@ async function fetchMarketData() {
     // keys like 'latest' would otherwise win the sort ('l' > '2').
     const sortedKeys = allKeys.filter(k => /^\d{4}-/.test(k)).sort().reverse();
 
-    // Walk back through recent blobs for the newest complete BTC metrics
-    const maxLookback = Math.min(sortedKeys.length, 6);
-    for (let i = 0; i < maxLookback; i++) {
-      try {
-        const blob = await fetchBlob(token, sortedKeys[i], activeStore);
-        if (hasCompleteMetrics(blob)) {
-          return { timestamp: blob.timestamp, symbols: blob.state.symbols };
-        }
-      } catch (e) {
-        console.error(`Failed to fetch blob ${sortedKeys[i]}:`, e.message);
+    // Fetch the most recent blobs in parallel, then take the newest one with
+    // complete BTC metrics (priority order preserved)
+    const candidates = sortedKeys.slice(0, 6);
+    const results = await Promise.allSettled(
+      candidates.map(key => fetchBlob(token, key, activeStore)));
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === 'rejected') {
+        console.error(`Failed to fetch blob ${candidates[i]}:`, r.reason?.message);
+        continue;
+      }
+      if (hasCompleteMetrics(r.value)) {
+        return { timestamp: r.value.timestamp, symbols: r.value.state.symbols };
       }
     }
     return null;
@@ -216,6 +218,8 @@ async function fetchSnapshot() {
     positions_as_of: account?.updated_at ?? null,
   };
 }
+
+exports.fetchSnapshot = fetchSnapshot;
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {

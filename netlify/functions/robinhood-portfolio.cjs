@@ -3,6 +3,7 @@
 // Uses Netlify Blobs for token persistence
 
 const tokenStore = require('./lib/tokenStore.cjs');
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
 
 const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
 
@@ -10,11 +11,7 @@ const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
 const instrumentCache = {};
 const optionsInstrumentCache = {};
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-};
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 
 /**
  * Get authentication token from Blob store.
@@ -30,7 +27,7 @@ async function getAuthToken() {
 async function fetchWithAuth(endpoint) {
   const token = await getAuthToken();
 
-  const response = await fetch(`${ROBINHOOD_API_BASE}${endpoint}`, {
+  const response = await fetchWithTimeout(`${ROBINHOOD_API_BASE}${endpoint}`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/json',

@@ -9,15 +9,15 @@ const NETLIFY_API = 'https://api.netlify.com/api/v1';
 const ALPACA_DATA_BASE = 'https://data.alpaca.markets/v1beta1';
 const MAX_FALLBACK_ATTEMPTS = 5;
 const { estimateSpot } = require('./chain-to-contracts.cjs');
+const { fetchWithTimeout } = require('./http.cjs');
 
 function dateFromKey(key) {
   const tsStart = key.includes('/') ? key.lastIndexOf('/') + 1 : 0;
   return key.slice(tsStart, tsStart + 10);
 }
 
-function pickRichestKey(keys) {
+function pickLatestKey(keys) {
   if (!keys || keys.length === 0) return null;
-  if (keys.length === 1) return keys[0];
   // Keys are ISO timestamps under SYMBOL/ — last is newest.
   return keys[keys.length - 1];
 }
@@ -29,7 +29,7 @@ async function restListBlobs(siteId, storeName, token, prefix) {
     const url = new URL(`${NETLIFY_API}/blobs/${siteId}/${storeName}`);
     if (prefix) url.searchParams.set('prefix', prefix);
     if (cursor) url.searchParams.set('cursor', cursor);
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -46,7 +46,7 @@ async function restListBlobs(siteId, storeName, token, prefix) {
 async function restGetBlob(siteId, storeName, key, token) {
   const encodedKey = key.split('/').map(encodeURIComponent).join('/');
   const url = `${NETLIFY_API}/blobs/${siteId}/${storeName}/${encodedKey}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 404) return null;
   if (!res.ok) {
     const text = await res.text();
@@ -55,16 +55,26 @@ async function restGetBlob(siteId, storeName, key, token) {
   return res.json();
 }
 
-async function fetchBlobWithFallback(keys, siteId, storeName, token) {
+/**
+ * Walk back from the key chosen by `pick` (default: newest) and return the
+ * first non-empty blob, trying at most MAX_FALLBACK_ATTEMPTS keys.
+ */
+async function fetchBlobWithFallback(keys, siteId, storeName, token, pick = pickLatestKey) {
   if (!keys || keys.length === 0) return null;
-  const richestIdx = keys.indexOf(pickRichestKey(keys));
+  const richestIdx = keys.indexOf(pick(keys));
   const startIdx = richestIdx >= 0 ? richestIdx : keys.length - 1;
-  for (let i = startIdx; i >= Math.max(0, startIdx - MAX_FALLBACK_ATTEMPTS + 1); i--) {
-    const value = await restGetBlob(siteId, storeName, keys[i], token);
-    if (value !== null && typeof value === 'object' && Object.keys(value).length > 0) {
-      return { key: keys[i], value };
-    }
-  }
+  // Fetch the candidates concurrently (worst case is one timeout, not
+  // MAX_FALLBACK_ATTEMPTS in series), then take the first usable one in
+  // priority order.
+  const candidates = keys.slice(Math.max(0, startIdx - MAX_FALLBACK_ATTEMPTS + 1), startIdx + 1).reverse();
+  const results = await Promise.allSettled(candidates.map((key) => restGetBlob(siteId, storeName, key, token)));
+  const i = results.findIndex(
+    (r) => r.status === 'fulfilled' && r.value !== null && typeof r.value === 'object' && Object.keys(r.value).length > 0,
+  );
+  if (i >= 0) return { key: candidates[i], value: results[i].value };
+  // Nothing usable: surface an upstream failure rather than "not found".
+  const failed = results.find((r) => r.status === 'rejected');
+  if (failed) throw failed.reason;
   return null;
 }
 
@@ -121,7 +131,7 @@ async function alpacaFetch(path) {
   const secret = process.env.ALPACA_SECRET_KEY;
   if (!key || !secret) throw new Error('ALPACA_API_KEY and ALPACA_SECRET_KEY must be set');
 
-  const res = await fetch(`${ALPACA_DATA_BASE}${path}`, {
+  const res = await fetchWithTimeout(`${ALPACA_DATA_BASE}${path}`, {
     headers: {
       'APCA-API-KEY-ID': key,
       'APCA-API-SECRET-KEY': secret,
@@ -179,4 +189,5 @@ module.exports = {
   restListBlobs,
   restGetBlob,
   fetchBlobWithFallback,
+  dateFromKey,
 };

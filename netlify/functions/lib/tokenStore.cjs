@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { fetchWithTimeout } = require('./http.cjs');
 
 const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
 const STORE_NAME = 'robinhood-auth';
@@ -169,7 +170,7 @@ async function refreshToken(refreshTokenValue) {
   console.log('[TOKEN] Attempting to refresh token');
 
   try {
-    const response = await fetch(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
+    const response = await fetchWithTimeout(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -237,12 +238,13 @@ async function getAuthStatus() {
  */
 async function validateToken(token) {
   try {
-    const response = await fetch(`${ROBINHOOD_API_BASE}/user/`, {
+    // Short budget: callers follow up with another RH request
+    const response = await fetchWithTimeout(`${ROBINHOOD_API_BASE}/user/`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json',
       },
-    });
+    }, 4000);
     return response.ok;
   } catch (error) {
     return false;

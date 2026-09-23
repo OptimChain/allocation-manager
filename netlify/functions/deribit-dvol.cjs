@@ -1,18 +1,17 @@
 // Deribit DVOL (Volatility Index) Netlify Function
 // Proxies BTC implied volatility data from Deribit public API
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
+
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
-  const days = parseInt(event.queryStringParameters?.days || '365', 10);
+  const rawDays = parseInt(event.queryStringParameters?.days || '365', 10);
+  const days = Number.isFinite(rawDays) ? Math.min(3650, Math.max(1, rawDays)) : 365;
   const now = Date.now();
   const startTs = now - days * 86400000;
 
@@ -21,14 +20,14 @@ exports.handler = async (event) => {
     `?currency=BTC&start_timestamp=${startTs}&end_timestamp=${now}&resolution=86400`;
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: { 'User-Agent': 'bitcoin-tracker/1.0' },
     });
 
     if (!response.ok) {
       console.error(`Deribit returned ${response.status}`);
       return {
-        statusCode: response.status,
+        statusCode: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: `Deribit API: ${response.status}`, data: null }),
       };

@@ -9,11 +9,9 @@ const os = require('os');
 const LOCAL_TOKEN_FILE = path.join(os.homedir(), '.tokens', 'plaid-blobs.json');
 const PLAID_TOKEN_KEY = 'access-token';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-};
+const { CORS } = require('./lib/http.cjs');
+
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 
 // --- Blob storage (same dual-mode pattern as tokenStore.cjs) ---
 

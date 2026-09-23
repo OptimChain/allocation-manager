@@ -21,70 +21,22 @@ const ALLOC_ENGINE_STORES = new Set([
   'option-orders-history',
 ]);
 
-const NETLIFY_API = 'https://api.netlify.com/api/v1';
+// Stores readable through the generic list/get actions. Anything else on this
+// site (e.g. robinhood-auth, plaid-auth token stores) is off-limits.
+const ALLOWED_STORES = new Set([...ALLOC_ENGINE_STORES, 'news-articles']);
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const { CORS, json } = require('./lib/http.cjs');
+const {
+  restListBlobs,
+  restGetBlob,
+  dateFromKey,
+  fetchBlobWithFallback,
+} = require('./lib/fetch-options-chain.cjs');
 
-const MAX_FALLBACK_ATTEMPTS = 5;
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
+const jsonResponse = (statusCode, body) => json(statusCode, body, corsHeaders);
 
-function jsonResponse(statusCode, body) {
-  return {
-    statusCode,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  };
-}
-
-// ── REST API helpers for cross-site blob reads ──────────────
-
-async function restListBlobs(siteId, storeName, token, prefix) {
-  const allBlobs = [];
-  let cursor = null;
-  // Paginate (Netlify returns up to 1000 per page)
-  do {
-    const url = new URL(`${NETLIFY_API}/blobs/${siteId}/${storeName}`);
-    if (prefix) url.searchParams.set('prefix', prefix);
-    if (cursor) url.searchParams.set('cursor', cursor);
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Netlify blobs list failed (${res.status}): ${text}`);
-    }
-    const data = await res.json();
-    allBlobs.push(...(data.blobs || []));
-    cursor = data.next_cursor || null;
-  } while (cursor);
-  return allBlobs;
-}
-
-async function restGetBlob(siteId, storeName, key, token) {
-  // Key may contain slashes (e.g. "CRWD/2026-03-02T20-45-27") that must stay
-  // as literal path separators — only encode each segment individually.
-  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
-  const url = `${NETLIFY_API}/blobs/${siteId}/${storeName}/${encodedKey}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Netlify blobs get failed (${res.status}): ${text}`);
-  }
-  return res.json();
-}
-
-// ── Key selection helpers ───────────────────────────────────
-
-function dateFromKey(key) {
-  const tsStart = key.includes('/') ? key.lastIndexOf('/') + 1 : 0;
-  return key.slice(tsStart, tsStart + 10);
-}
+// ── Key selection ───────────────────────────────────────────
 
 function pickRichestKey(keys) {
   if (!keys || keys.length === 0) return null;
@@ -99,25 +51,6 @@ function pickRichestKey(keys) {
 
   // All keys are from today — return the latest
   return keys[keys.length - 1];
-}
-
-// ── Blob fetch with fallback ────────────────────────────────
-
-async function fetchBlobWithFallback(keys, siteId, storeName, token) {
-  if (!keys || keys.length === 0) return null;
-
-  const richestIdx = keys.indexOf(pickRichestKey(keys));
-  const startIdx = richestIdx >= 0 ? richestIdx : keys.length - 1;
-
-  // Try from richest backwards
-  for (let i = startIdx; i >= Math.max(0, startIdx - MAX_FALLBACK_ATTEMPTS + 1); i--) {
-    const value = await restGetBlob(siteId, storeName, keys[i], token);
-    if (value !== null && typeof value === 'object' && Object.keys(value).length > 0) {
-      return { key: keys[i], value };
-    }
-  }
-
-  return null;
 }
 
 // ── snake_case → camelCase mappers ──────────────────────────
@@ -270,8 +203,8 @@ exports.handler = async (event) => {
 
       // Fetch blobs in parallel with fallback
       const [optionsResult, quotesResult] = await Promise.all([
-        fetchBlobWithFallback(optionKeys, siteId, 'options-chain', token),
-        fetchBlobWithFallback(quoteKeys, siteId, 'market-quotes', token),
+        fetchBlobWithFallback(optionKeys, siteId, 'options-chain', token, pickRichestKey),
+        fetchBlobWithFallback(quoteKeys, siteId, 'market-quotes', token, pickRichestKey),
       ]);
 
       return jsonResponse(200, {
@@ -313,6 +246,9 @@ exports.handler = async (event) => {
     if (!storeName) {
       return jsonResponse(400, { error: 'Missing "store" query parameter' });
     }
+    if (!ALLOWED_STORES.has(storeName)) {
+      return jsonResponse(403, { error: `Store "${storeName}" is not readable` });
+    }
 
     const useRestApi = ALLOC_ENGINE_STORES.has(storeName) && process.env.ALLOC_ENGINE_SITE_ID;
 
@@ -335,11 +271,11 @@ exports.handler = async (event) => {
       }
     }
 
-    // ── SDK path (local stores on this site) ──
+    // ── SDK path (local stores on this site only) ──
     const { getStore } = await import('@netlify/blobs');
     const store = getStore({
       name: storeName,
-      siteID: params.siteId || process.env.NETLIFY_SITE_ID,
+      siteID: process.env.NETLIFY_SITE_ID,
       token,
     });
 
