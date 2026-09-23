@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useCallback, useMemo, type ReactNode } from 'react';
 import { API_BASE } from '../config/api';
+import { fetchJson } from '../services/http';
+import { usePolling } from '../hooks/usePolling';
 import {
   RefreshCw,
   Activity,
@@ -9,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { VolSurfaceData } from '../components/VolSurface3D';
 import MarketDepthVolSection, { type MarketDepthMeta } from '../components/MarketDepthVolSection';
+import { parseUtc, utcMs } from '../utils/time';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -72,8 +75,10 @@ function fmtPct(n: number): string {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
+  // Expiries are calendar dates at UTC midnight — format in UTC so US
+  // browsers don't render them a day early.
+  return parseUtc(iso).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
   });
 }
 
@@ -89,8 +94,8 @@ function sortContractsLatestDesc(contracts: OptionContract[]): OptionContract[] 
     const byUnderlying = a.underlying.localeCompare(b.underlying);
     if (byUnderlying !== 0) return byUnderlying;
     if (a.strike !== b.strike) return a.strike - b.strike;
-    const ta = a.quotedAt ? Date.parse(a.quotedAt) : 0;
-    const tb = b.quotedAt ? Date.parse(b.quotedAt) : 0;
+    const ta = a.quotedAt ? utcMs(a.quotedAt) || 0 : 0;
+    const tb = b.quotedAt ? utcMs(b.quotedAt) || 0 : 0;
     return tb - ta;
   });
 }
@@ -502,27 +507,23 @@ export default function MarketDepthPage() {
   const [dataSourceFilter, setDataSourceFilter] = useState<DataSourceFilter>('all');
   const [optionTypeFilter, setOptionTypeFilter] = useState<OptionTypeFilter>('all');
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/market-depth`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: MarketDepthResponse = await res.json();
+      const json = await fetchJson<MarketDepthResponse>(`${API_BASE}/market-depth`, { signal });
+      if (signal?.aborted) return;
       setData(json);
       setError(null);
       setLastRefresh(new Date());
     } catch (err) {
+      if (signal?.aborted) return;
       setError(err instanceof Error ? err.message : 'Failed to fetch');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+  usePolling(fetchData, 30_000);
 
   const contracts = useMemo(
     () => (data?.contracts ? sortContractsLatestDesc(data.contracts) : []),
@@ -570,7 +571,7 @@ export default function MarketDepthPage() {
                   ? ` (${data.meta.liveContractCount} live · ${data.meta.mockSymbols.length} parametric symbols)`
                   : ''}
                 {' · '}{data.meta.volSurfaceSource ?? 'mock'} surfaces
-                {data.timestamp ? ` · ${new Date(data.timestamp).toLocaleString()}` : ''}
+                {data.timestamp ? ` · ${parseUtc(data.timestamp).toLocaleString()}` : ''}
               </span>
             ) : null}
           </p>
@@ -582,7 +583,7 @@ export default function MarketDepthPage() {
             </span>
           )}
           <button
-            onClick={fetchData}
+            onClick={() => fetchData()}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 dark:bg-zinc-800 rounded-lg text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 disabled:opacity-50"
           >

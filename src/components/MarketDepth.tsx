@@ -27,6 +27,7 @@ import {
   type OptionSnapshot,
   type MarketQuote,
 } from '../services/blobDataService';
+import { parseUtc, utcMs } from '../utils/time';
 
 // ── Parsed types for chart data ───────────────────────────
 
@@ -106,7 +107,7 @@ function extractQuoteTimeSeries(blob: MarketQuotesBlob, symbol: string): QuoteTi
     const quotes = (raw.quotes || raw) as Record<string, unknown>;
     const q = quotes[symbol] as MarketQuote | undefined;
     if (!q || typeof q.mid !== 'number') continue;
-    const time = new Date(ts || q.timestamp).getTime();
+    const time = utcMs(ts || q.timestamp);
     if (isNaN(time)) continue;
     points.push({
       ts: time,
@@ -472,7 +473,7 @@ export default function MarketDepth() {
         </div>
         {optionsBlob && (
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            Snapshot: {new Date(optionsBlob.timestamp).toLocaleString()} &middot;{' '}
+            Snapshot: {parseUtc(optionsBlob.timestamp).toLocaleString()} &middot;{' '}
             {Object.keys(optionsBlob.latestChain || {}).filter((k) => k !== '_meta').length} contracts &middot;{' '}
             {optionsBlob.historyCount} history entries
           </p>

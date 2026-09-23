@@ -5,14 +5,8 @@
 // weekend overnight gap (e.g. how a BTC ETF like the Grayscale Bitcoin Mini
 // Trust gaps Monday after BTC moves over the weekend).
 
-import { WeekendData, WeekendMetrics, HourlyBar } from './weekendMomentumService';
-import { tdProxyUrl } from './tdProxy';
-import { cachedJson } from './twelveDataCache';
-
-// Reuse the shared cache (memory + localStorage + in-flight dedup) so switching
-// tickers / remounting the panel doesn't re-download full bar histories.
-const TTL_DAILY = 30 * 60_000;
-const TTL_HOURLY = 3 * 60_000;
+import { WeekendData, WeekendMetrics } from './weekendMomentumService';
+import { DailyBar, HourlyBar, fetchDailyBars, fetchHourlyBars, getDayOfWeek } from './tdBars';
 
 export interface TickerOption {
   symbol: string;
@@ -25,82 +19,6 @@ export const WEEKEND_GAP_TICKERS: TickerOption[] = [
   { symbol: 'CVS', label: 'CVS Health' },
   { symbol: 'BTC', label: 'Grayscale BTC Mini Trust' },
 ];
-
-interface DailyBar {
-  datetime: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
-
-function getDayOfWeek(dateStr: string): number {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
-}
-
-async function fetchHourlyBars(symbol: string, outputsize: number): Promise<HourlyBar[]> {
-  return cachedJson(`wg:hourly:${symbol}:${outputsize}`, TTL_HOURLY, async () => {
-    const url = tdProxyUrl('time_series');
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('interval', '1h');
-    url.searchParams.set('outputsize', outputsize.toString());
-
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${symbol} hourly: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (data.status === 'error') {
-      throw new Error(data.message || `API error for ${symbol} hourly`);
-    }
-
-    const bars = data.values
-      .map((v: { datetime: string; open: string; high: string; low: string; close: string }) => ({
-        datetime: v.datetime,
-        open: parseFloat(v.open),
-        high: parseFloat(v.high),
-        low: parseFloat(v.low),
-        close: parseFloat(v.close),
-      }))
-      .reverse(); // oldest first
-
-    return bars.map((bar: DailyBar, i: number) => ({
-      ...bar,
-      change: i === 0 ? 0 : ((bar.close - bars[i - 1].close) / bars[i - 1].close) * 100,
-    }));
-  });
-}
-
-async function fetchDailyBars(symbol: string, outputsize: number): Promise<DailyBar[]> {
-  return cachedJson(`wg:daily:${symbol}:${outputsize}`, TTL_DAILY, async () => {
-    const url = tdProxyUrl('time_series');
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('interval', '1day');
-    url.searchParams.set('outputsize', outputsize.toString());
-
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${symbol}: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (data.status === 'error') {
-      throw new Error(data.message || `API error for ${symbol}`);
-    }
-
-    return data.values
-      .map((v: { datetime: string; open: string; high: string; low: string; close: string }) => ({
-        datetime: v.datetime,
-        open: parseFloat(v.open),
-        high: parseFloat(v.high),
-        low: parseFloat(v.low),
-        close: parseFloat(v.close),
-      }))
-      .reverse(); // oldest first
-  });
-}
 
 // For an equity/ETF, the "weekend" is the gap from each Friday close to the next
 // trading session's open (normally Monday, but the next bar handles holidays too).

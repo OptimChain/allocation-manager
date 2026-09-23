@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePolling } from './usePolling';
 import { getQuotes } from '../services/twelveDataService';
 import type { LivePrice, LiveStatus } from './useTwelveDataLivePrices';
 
@@ -31,41 +32,32 @@ export function useTwelveDataQuotePolling(
   const symbolsRef = useRef<string[]>(symbols);
   symbolsRef.current = symbols;
 
+  const active = enabled && symbols.length > 0;
+
   useEffect(() => {
-    if (!enabled || symbols.length === 0) {
-      setStatus('idle');
-      return;
-    }
+    setStatus(active ? 'connecting' : 'idle');
+  }, [active]);
 
-    let cancelled = false;
-    setStatus('connecting');
-
-    const poll = async () => {
-      try {
-        const quotes = await getQuotes(symbolsRef.current);
-        if (cancelled) return;
-        const next: Record<string, LivePrice> = {};
-        for (const [symbol, q] of Object.entries(quotes)) {
-          next[symbol] = { price: q.price, timestamp: q.timestamp };
-        }
-        setPrices(next);
-        // 'open' once we have at least one quote; else treat as an error so the
-        // caller shows "Offline" rather than a permanent "Connecting…".
-        setStatus(Object.keys(next).length > 0 ? 'open' : 'error');
-      } catch {
-        if (!cancelled) setStatus('error');
+  const poll = useCallback(async (signal: AbortSignal) => {
+    try {
+      const quotes = await getQuotes(symbolsRef.current);
+      if (signal.aborted) return;
+      const next: Record<string, LivePrice> = {};
+      for (const [symbol, q] of Object.entries(quotes)) {
+        next[symbol] = { price: q.price, timestamp: q.timestamp };
       }
-    };
-
-    poll();
-    const timer = setInterval(poll, intervalMs);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+      setPrices(next);
+      // 'open' once we have at least one quote; else treat as an error so the
+      // caller shows "Offline" rather than a permanent "Connecting…".
+      setStatus(Object.keys(next).length > 0 ? 'open' : 'error');
+    } catch {
+      if (!signal.aborted) setStatus('error');
+    }
+    // symbolsKey restarts the loop when the symbol set actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbolsKey, enabled, intervalMs]);
+  }, [symbolsKey]);
+
+  usePolling(poll, intervalMs, active);
 
   return { prices, status };
 }

@@ -1,18 +1,28 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Bitcoin, LayoutDashboard, GitCompare, TrendingUp, FlaskConical, Moon, Sun, Menu, X, Settings, Layers, PieChart, Newspaper } from 'lucide-react';
 import { ThemeProvider, useTheme, FontMode } from './contexts/ThemeContext';
 
-// Import page components
 import LandingPage from './pages/LandingPage';
-import DashboardPage from './pages/DashboardPage';
-import ComparePage from './pages/ComparePage';
-import TradePage from './pages/TradePage';
-import PnLAllocationPage from './pages/PnLAllocationPage';
-import StrategiesPage from './pages/StrategiesPage';
-import ConfigurePage from './pages/ConfigurePage';
-import MarketDepthPage from './pages/MarketDepthPage';
-import NewsPage from './pages/NewsPage';
+
+// Route-level code splitting: each page (and its recharts / 3D surface /
+// static financials payload) loads on first visit instead of in the entry bundle.
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const ComparePage = lazy(() => import('./pages/ComparePage'));
+const TradePage = lazy(() => import('./pages/TradePage'));
+const PnLAllocationPage = lazy(() => import('./pages/PnLAllocationPage'));
+const StrategiesPage = lazy(() => import('./pages/StrategiesPage'));
+const ConfigurePage = lazy(() => import('./pages/ConfigurePage'));
+const MarketDepthPage = lazy(() => import('./pages/MarketDepthPage'));
+const NewsPage = lazy(() => import('./pages/NewsPage'));
+
+function PageFallback() {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="animate-pulse h-8 w-48 rounded bg-gray-200 dark:bg-zinc-800" />
+    </div>
+  );
+}
 
 const FONT_LABELS: Record<FontMode, string> = {
   clean: 'Aa',
@@ -148,16 +158,18 @@ function AppShell() {
       </header>
 
       <main className="flex-1">
-        <Routes>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/compare" element={<ComparePage />} />
-          <Route path="/trade" element={<TradePage />} />
-          <Route path="/depth" element={<MarketDepthPage />} />
-          <Route path="/news" element={<NewsPage />} />
-          <Route path="/pnl-allocation" element={<PnLAllocationPage />} />
-          <Route path="/configure" element={<ConfigurePage />} />
-          <Route path="/strategies" element={<StrategiesPage />} />
-        </Routes>
+        <Suspense fallback={<PageFallback />}>
+          <Routes>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/compare" element={<ComparePage />} />
+            <Route path="/trade" element={<TradePage />} />
+            <Route path="/depth" element={<MarketDepthPage />} />
+            <Route path="/news" element={<NewsPage />} />
+            <Route path="/pnl-allocation" element={<PnLAllocationPage />} />
+            <Route path="/configure" element={<ConfigurePage />} />
+            <Route path="/strategies" element={<StrategiesPage />} />
+          </Routes>
+        </Suspense>
       </main>
 
       <footer className="bg-white dark:bg-zinc-950 border-t border-gray-100 dark:border-zinc-900 mt-auto">
