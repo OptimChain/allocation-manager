@@ -7,6 +7,7 @@
  */
 
 import { API_BASE } from '../config/api';
+import { fetchJson } from './http';
 
 const BASE = `${API_BASE}/vend-blobs`;
 
@@ -108,12 +109,7 @@ export interface MarketDataResult {
 
 async function vendBlobs<T>(params: Record<string, string>): Promise<T> {
   const qs = new URLSearchParams(params);
-  const res = await fetch(`${BASE}?${qs}`);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`vend-blobs failed (${res.status}): ${text}`);
-  }
-  return res.json();
+  return fetchJson<T>(`${BASE}?${qs}`);
 }
 
 // ── Public API (3 functions) ─────────────────────────────────

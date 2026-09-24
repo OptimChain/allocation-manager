@@ -9,17 +9,20 @@
 //        (.SHADOW mirrors) survive
 //
 //   GET /.netlify/functions/snapshot-refresh            — refresh now
-//   GET /.netlify/functions/snapshot-refresh?full=1     — pull full order history
+//   GET /.netlify/functions/snapshot-refresh?full=1     — pull full order history (write auth)
+//   GET /.netlify/functions/snapshot-refresh?force=1    — bypass the 60s floor (write auth)
 //   GET /.netlify/functions/snapshot-refresh?dry=1      — pull + report, write nothing
 //
-// A companion scheduled function (snapshot-refresh-cron) runs this every
-// 10 minutes. Repeated manual triggers are floored to once per 60s.
+// No scheduled companion — triggered manually or by an external scheduler.
+// Repeated triggers are floored to once per 60s. `full`/`force` require
+// TRADING_DB_TOKEN credentials when that token is set.
 //
 // Every response is a diagnostics object: { ok, elapsed_ms, steps, errors }.
 
 'use strict';
 
 const t = require('./lib/tradingDb.cjs');
+const { fetchWithTimeout } = require('./lib/http.cjs');
 
 const RH = 'https://api.robinhood.com';
 const SITE_ID = process.env.NETLIFY_SITE_ID || '3d014fc3-e919-4b4d-b374-e8606dee50df';
@@ -30,6 +33,11 @@ const CORS = { ...t.CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 function num(v) { const n = parseFloat(v); return Number.isNaN(n) ? 0 : n; }
 function r2(n) { return Math.round(n * 100) / 100; }
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 // ── Auth box → Robinhood token ────────────────────────────────────────────────
 
@@ -39,7 +47,7 @@ async function getRhToken(errors) {
   if (!base || !exec) throw new Error('RH_AUTH_SERVICE_URL / RH_EXEC_TOKEN not configured');
   let res;
   try {
-    res = await fetch(`${base}/token`, { headers: { Authorization: `Bearer ${exec}` } });
+    res = await fetchWithTimeout(`${base}/token`, { headers: { Authorization: `Bearer ${exec}` } }, 5000);
   } catch (e) {
     const cause = e.cause ? ` (${e.cause.code || e.cause.message || e.cause})` : '';
     throw new Error(`auth box unreachable at ${base}/token: ${e.message}${cause}`);
@@ -67,7 +75,7 @@ function rhClient(token) {
   async function get(pathOrUrl) {
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${RH}${pathOrUrl}`;
     if (cache.has(url)) return cache.get(url);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
     if (!res.ok) throw new Error(`RH ${url.replace(RH, '')} → ${res.status}`);
     const body = await res.json();
     cache.set(url, body);
@@ -166,12 +174,12 @@ async function pullSnapshot(rh, { full }, errors) {
     ...optionPositions.map(p => p.chain_symbol),
   ].filter(Boolean))];
   const quotes = {};
-  for (let i = 0; i < symbols.length; i += 30) {
+  await rh.mapLimit(chunk(symbols, 30), 4, async batch => {
     try {
-      const page = await rh.get(`/quotes/?symbols=${symbols.slice(i, i + 30).join(',')}`);
+      const page = await rh.get(`/quotes/?symbols=${batch.join(',')}`);
       for (const q of page.results || []) if (q) quotes[q.symbol] = q;
     } catch (e) { errors.push(`quotes: ${e.message}`); }
-  }
+  });
   const priceOf = sym => {
     const q = quotes[sym];
     return q ? num(q.last_extended_hours_trade_price || q.last_trade_price) : 0;
@@ -212,12 +220,12 @@ async function pullSnapshot(rh, { full }, errors) {
     catch (e) { errors.push(`option instrument ${url}: ${e.message}`); }
   });
   const marketdata = {};
-  for (let i = 0; i < optInstrumentUrls.length; i += 15) {
+  await rh.mapLimit(chunk(optInstrumentUrls, 15), 4, async batch => {
     try {
-      const page = await rh.get(`/marketdata/options/?instruments=${encodeURIComponent(optInstrumentUrls.slice(i, i + 15).join(','))}`);
+      const page = await rh.get(`/marketdata/options/?instruments=${encodeURIComponent(batch.join(','))}`);
       for (const m of page.results || []) if (m) marketdata[m.instrument] = m;
     } catch (e) { errors.push(`option marketdata: ${e.message}`); }
-  }
+  });
 
   const blobOptions = optionPositions.map(p => {
     const inst = optInstruments[p.option] || {};
@@ -328,19 +336,14 @@ async function writeBlob(blob) {
 }
 
 async function upsertOrders(db, stockOrders, optionOrders, errors) {
+  const pairs = (rows, normalize) => rows
+    .map(raw => ({ value: normalize(raw), raw }))
+    .filter(r => r.value);
   let stock = 0, option = 0;
-  for (const raw of stockOrders) {
-    const o = t.normalizeStockOrder(raw);
-    if (!o) continue;
-    try { await t.upsertStockOrder(db, o, raw); stock++; }
-    catch (e) { errors.push(`upsert stock ${o.order_id}: ${e.message}`); }
-  }
-  for (const raw of optionOrders) {
-    const o = t.normalizeOptionOrder(raw);
-    if (!o) continue;
-    try { await t.upsertOptionOrder(db, o, raw); option++; }
-    catch (e) { errors.push(`upsert option ${o.order_id}: ${e.message}`); }
-  }
+  try { stock = await t.upsertStockOrders(db, pairs(stockOrders, t.normalizeStockOrder)); }
+  catch (e) { errors.push(`upsert stock orders: ${e.message}`); }
+  try { option = await t.upsertOptionOrders(db, pairs(optionOrders, t.normalizeOptionOrder)); }
+  catch (e) { errors.push(`upsert option orders: ${e.message}`); }
   return { stock, option };
 }
 
@@ -421,6 +424,16 @@ module.exports.runSnapshotRefresh = runSnapshotRefresh;
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
   const params = event.queryStringParameters || {};
+  if (params.full === '1' || params.force === '1') {
+    const denied = t.checkWriteAuth(event);
+    if (denied) {
+      return {
+        statusCode: 401,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ok: false, error: denied }),
+      };
+    }
+  }
   try {
     const result = await runSnapshotRefresh({
       full: params.full === '1',

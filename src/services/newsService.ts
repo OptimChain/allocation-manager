@@ -3,6 +3,7 @@
 // Polygon.io + Finnhub for equities, CoinDesk + Finnhub for BTC/crypto
 
 import { API_BASE } from '../config/api';
+import { fetchJson } from './http';
 
 export interface NewsPublisher {
   name: string;
@@ -54,15 +55,6 @@ function mergeAndDedupe(
   return merged.slice(0, limit);
 }
 
-async function fetchJson(url: string): Promise<NewsResponse> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || `HTTP ${response.status}`);
-  }
-  return response.json();
-}
-
 export async function getMarketNews(
   ticker?: string,
   limit = 10
@@ -82,8 +74,8 @@ export async function getMarketNews(
 
   // Fire both in parallel — settle so one failure doesn't block the other
   const [polygonResult, finnhubResult] = await Promise.allSettled([
-    fetchJson(`${API_BASE}/polygon-news?${polygonParams}`),
-    fetchJson(`${API_BASE}/finnhub-news?${finnhubParams}`),
+    fetchJson<NewsResponse>(`${API_BASE}/polygon-news?${polygonParams}`),
+    fetchJson<NewsResponse>(`${API_BASE}/finnhub-news?${finnhubParams}`),
   ]);
 
   const sources: NewsArticle[][] = [];
@@ -115,8 +107,8 @@ export async function getBtcNews(limit = 10): Promise<NewsResponse> {
 
   // Fire both in parallel
   const [coindeskResult, finnhubResult] = await Promise.allSettled([
-    fetchJson(`${API_BASE}/coindesk-news?${coindeskParams}`),
-    fetchJson(`${API_BASE}/finnhub-news?${finnhubParams}`),
+    fetchJson<NewsResponse>(`${API_BASE}/coindesk-news?${coindeskParams}`),
+    fetchJson<NewsResponse>(`${API_BASE}/finnhub-news?${finnhubParams}`),
   ]);
 
   const sources: NewsArticle[][] = [];

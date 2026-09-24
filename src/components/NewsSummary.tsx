@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Newspaper, ExternalLink, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { getMarketNews, getBtcNews, NewsArticle } from '../services/newsService';
 
@@ -33,7 +33,11 @@ export default function NewsSummary() {
   const [selectedTicker, setSelectedTicker] = useState('');
   const [expanded, setExpanded] = useState(true);
 
+  // Only the most recent request may write state (ignores slow, superseded responses).
+  const requestId = useRef(0);
+
   const fetchNews = async (isRefresh = false) => {
+    const id = ++requestId.current;
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
@@ -42,17 +46,22 @@ export default function NewsSummary() {
       const data = selectedTicker === 'BTC'
         ? await getBtcNews(10)
         : await getMarketNews(selectedTicker || undefined, 10);
+      if (id !== requestId.current) return;
       setArticles(data.results);
     } catch (err) {
+      if (id !== requestId.current) return;
       setError(err instanceof Error ? err.message : 'Failed to fetch news');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (id === requestId.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchNews();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTicker]);
 
   return (

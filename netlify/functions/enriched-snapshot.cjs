@@ -20,27 +20,14 @@
 
 'use strict';
 
-const t = require('./lib/tradingDb.cjs');
+// ── Data source: order-book-snapshot's core, called in-process ───────────────
+// (was an HTTP round-trip to our own site, which doubled cold starts and the
+// 10s budget)
 
-// ── Data source: delegate blob-reading to order-book-snapshot ────────────────
-// Netlify sets URL to the current deploy's base URL (e.g. https://xxx--site.netlify.app)
+const { fetchSnapshot: fetchRawSnapshot } = require('./order-book-snapshot.cjs');
+const { CORS: BASE_CORS } = require('./lib/http.cjs');
 
-const CORS = {
-  'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
-
-// ── Fetch raw snapshot from order-book-snapshot function ─────────────────────
-
-async function fetchRawSnapshot() {
-  const base = (process.env.URL || '').replace(/\/$/, '');
-  if (!base) throw new Error('URL env var not set — cannot resolve order-book-snapshot');
-
-  const res = await fetch(`${base}/.netlify/functions/order-book-snapshot`);
-  if (!res.ok) throw new Error(`order-book-snapshot returned ${res.status}`);
-  return res.json();
-}
+const CORS = { ...BASE_CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 // ── Enrichment helpers (ported from app/server.py) ───────────────────────────
 

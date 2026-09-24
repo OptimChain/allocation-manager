@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { PortfolioChart } from '../components/PortfolioChart';
 import { getPortfolioData, getRangeConfig, PORTFOLIO_ASSETS, PortfolioAsset, NormalizedPriceData } from '../services/twelveDataService';
@@ -40,7 +40,11 @@ export default function ComparePage() {
   );
   const enabledKey = enabledSymbols.join(',');
 
+  // Only the most recent request may write state (ignores slow, superseded responses).
+  const requestId = useRef(0);
+
   const fetchData = async (isRefresh = false) => {
+    const id = ++requestId.current;
     if (enabledSymbols.length === 0) {
       setPortfolioData([]);
       setLoading(false);
@@ -52,12 +56,16 @@ export default function ComparePage() {
 
     try {
       const data = await getPortfolioData(selectedRange, enabledSymbols, isRefresh);
+      if (id !== requestId.current) return;
       setPortfolioData(data);
     } catch (err) {
+      if (id !== requestId.current) return;
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (id === requestId.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 

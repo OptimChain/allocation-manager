@@ -1,22 +1,9 @@
 // Weekend Momentum Strategy Service
 // Fetches BTC/USD daily history and computes weekend metrics
 
-import { tdProxyUrl } from './tdProxy';
-import { cachedJson } from './twelveDataCache';
+import { DailyBar, HourlyBar, fetchDailyBars, fetchHourlyBars, getDayOfWeek } from './tdBars';
 
-// Bar histories change at most once per day (daily) / per hour (hourly), so
-// reuse the shared cache — memory + localStorage + in-flight dedup — instead of
-// re-downloading multi-thousand-bar payloads on every tab remount.
-const TTL_DAILY = 30 * 60_000;
-const TTL_HOURLY = 3 * 60_000;
-
-interface DailyBar {
-  datetime: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
+export type { HourlyBar } from './tdBars';
 
 export interface WeekendData {
   fridayDate: string;
@@ -55,74 +42,6 @@ export interface WeekendMetrics {
   avgWeekendDrawdown: number;
   worstWeekendDrawdown: number;
   mondayRecoveryPositivePct: number;
-}
-
-function getDayOfWeek(dateStr: string): number {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
-}
-
-async function fetchHourlyBars(symbol: string, outputsize: number): Promise<HourlyBar[]> {
-  return cachedJson(`wm:hourly:${symbol}:${outputsize}`, TTL_HOURLY, async () => {
-    const url = tdProxyUrl('time_series');
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('interval', '1h');
-    url.searchParams.set('outputsize', outputsize.toString());
-
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${symbol} hourly: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (data.status === 'error') {
-      throw new Error(data.message || `API error for ${symbol} hourly`);
-    }
-
-    const bars = data.values
-      .map((v: { datetime: string; open: string; high: string; low: string; close: string }) => ({
-        datetime: v.datetime,
-        open: parseFloat(v.open),
-        high: parseFloat(v.high),
-        low: parseFloat(v.low),
-        close: parseFloat(v.close),
-      }))
-      .reverse(); // oldest first
-
-    return bars.map((bar: DailyBar, i: number) => ({
-      ...bar,
-      change: i === 0 ? 0 : ((bar.close - bars[i - 1].close) / bars[i - 1].close) * 100,
-    }));
-  });
-}
-
-async function fetchDailyBars(symbol: string, outputsize: number): Promise<DailyBar[]> {
-  return cachedJson(`wm:daily:${symbol}:${outputsize}`, TTL_DAILY, async () => {
-    const url = tdProxyUrl('time_series');
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('interval', '1day');
-    url.searchParams.set('outputsize', outputsize.toString());
-
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${symbol}: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (data.status === 'error') {
-      throw new Error(data.message || `API error for ${symbol}`);
-    }
-
-    return data.values
-      .map((v: { datetime: string; open: string; high: string; low: string; close: string }) => ({
-        datetime: v.datetime,
-        open: parseFloat(v.open),
-        high: parseFloat(v.high),
-        low: parseFloat(v.low),
-        close: parseFloat(v.close),
-      }))
-      .reverse(); // oldest first
-  });
 }
 
 function buildWeekendData(bars: DailyBar[]): WeekendData[] {
@@ -267,15 +186,6 @@ function computeMetrics(weekends: WeekendData[]): WeekendMetrics {
     worstWeekendDrawdown: Math.min(...drawdowns),
     mondayRecoveryPositivePct: (recoveryCount / n) * 100,
   };
-}
-
-export interface HourlyBar {
-  datetime: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  change: number;
 }
 
 export interface WeekendMomentumResult {

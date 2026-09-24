@@ -6,9 +6,10 @@ const { extractQuotes, buildSurfaceFromQuotes } = require('./vol-surface-builder
 const { fetchChainFromBlob, fetchChainFromAlpaca } = require('./fetch-options-chain.cjs');
 const { chainToContracts, compareContractsLatestDesc } = require('./chain-to-contracts.cjs');
 
-async function trySource(source, symbol, blobSymbol, config) {
+// `prefetchedBlob`: optional in-flight fetchChainFromBlob promise to reuse
+async function trySource(source, symbol, blobSymbol, config, prefetchedBlob) {
   if (source === 'blob') {
-    const result = await fetchChainFromBlob(blobSymbol);
+    const result = await (prefetchedBlob || fetchChainFromBlob(blobSymbol));
     if (!result.ok) return null;
     const quotes = extractQuotes(result.chain, 'blob');
     const surface = buildSurfaceFromQuotes(symbol, result.spot, quotes, {
@@ -55,7 +56,7 @@ async function trySource(source, symbol, blobSymbol, config) {
   return null;
 }
 
-async function resolveSurfaceForSymbol(symbol, config) {
+async function resolveSurfaceForSymbol(symbol, config, prefetchedBlob) {
   const blobSymbol = config.blobSymbol(symbol);
   const mockSurface = buildVolSurfaces().find((s) => s.underlying === symbol) || null;
 
@@ -72,7 +73,7 @@ async function resolveSurfaceForSymbol(symbol, config) {
 
   for (const src of attemptOrder) {
     try {
-      const live = await trySource(src, symbol, blobSymbol, config);
+      const live = await trySource(src, symbol, blobSymbol, config, prefetchedBlob);
       if (live) return live;
     } catch (err) {
       console.warn(`vol-surface ${symbol} via ${src}:`, err.message);
@@ -148,19 +149,19 @@ async function buildMarketDepthPayload() {
 
   await Promise.all(config.symbols.map(async (symbol) => {
     const blobSymbol = config.blobSymbol(symbol);
+    // One blob fetch per symbol, shared by contracts and the surface
+    const blobPromise = fetchChainFromBlob(blobSymbol);
 
-    if (config.source !== 'mock') {
-      try {
-        const blobResult = await fetchChainFromBlob(blobSymbol);
-        if (blobResult.ok && blobResult.chain) {
-          contractBuckets.push(...chainToContracts(blobResult.chain, blobResult.spot));
-        }
-      } catch (err) {
-        console.warn(`chain contracts ${symbol}:`, err.message);
+    try {
+      const blobResult = await blobPromise;
+      if (blobResult.ok && blobResult.chain) {
+        contractBuckets.push(...chainToContracts(blobResult.chain, blobResult.spot));
       }
+    } catch (err) {
+      console.warn(`chain contracts ${symbol}:`, err.message);
     }
 
-    const { surface, chainMeta } = await resolveSurfaceForSymbol(symbol, config);
+    const { surface, chainMeta } = await resolveSurfaceForSymbol(symbol, config, blobPromise);
     perSymbol[symbol] = chainMeta;
     if (surface) surfaces.push(surface);
   }));

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { RefreshCw, Bitcoin } from 'lucide-react';
 import PriceCard from '../components/PriceCard';
 import BtcEtfProjection from '../components/BtcEtfProjection';
@@ -21,7 +22,7 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = async (isRefresh = false) => {
+  const fetchData = useCallback(async (isRefresh = false, signal?: AbortSignal) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
@@ -31,23 +32,25 @@ export default function DashboardPage() {
         getBitcoinQuote(),
         getCoinGeckoMarketData(),
       ]);
+      if (signal?.aborted) return;
       setQuoteData(quote);
       setGeckoData(gecko);
       setLastUpdated(new Date());
     } catch (err) {
+      if (signal?.aborted) return;
       setError(err instanceof Error ? err.message : 'Failed to fetch data');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  };
-
-  useEffect(() => {
-    fetchData();
-
-    const interval = setInterval(() => fetchData(true), 60000);
-    return () => clearInterval(interval);
   }, []);
+
+  // Initial load shows the full-page spinner (loading starts true); later
+  // ticks refresh in place and pause while the tab is hidden.
+  const poll = useCallback((signal: AbortSignal) => fetchData(true, signal), [fetchData]);
+  usePolling(poll, 60_000);
 
   if (loading) {
     return (

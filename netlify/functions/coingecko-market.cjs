@@ -3,18 +3,16 @@
 // Fallback: CoinGecko
 // In-memory cache to avoid rate-limiting (429s)
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
+
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 // Cache lives across invocations within the same Lambda container
 let cache = { data: null, source: null, timestamp: 0 };
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
 async function fetchFromCoinCap() {
-  const response = await fetch('https://api.coincap.io/v2/assets/bitcoin');
+  const response = await fetchWithTimeout('https://api.coincap.io/v2/assets/bitcoin', {}, 4000);
   if (!response.ok) throw new Error(`CoinCap ${response.status}`);
   const { data } = await response.json();
   return {
@@ -24,8 +22,9 @@ async function fetchFromCoinCap() {
 }
 
 async function fetchFromCoinGecko() {
-  const response = await fetch(
-    'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true'
+  const response = await fetchWithTimeout(
+    'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true',
+    {}, 4500
   );
   if (!response.ok) throw new Error(`CoinGecko ${response.status}`);
   const data = await response.json();

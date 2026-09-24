@@ -32,22 +32,25 @@ const formatVolume = (vol: number) => {
 function CandlestickRenderer({ xAxisMap, yAxisMap, data }: any) {
   if (!xAxisMap || !yAxisMap) return null;
 
-  const xAxis = Object.values(xAxisMap)[0] as any;
-  const yAxis = yAxisMap?.price as any;
+  type Axis = { scale?: (v: number) => number; bandSize?: number };
+  const xAxis = Object.values(xAxisMap)[0] as Axis | undefined;
+  const yAxis = yAxisMap?.price as Axis | undefined;
 
-  if (!xAxis?.scale || !yAxis?.scale) return null;
+  const xScale = xAxis?.scale;
+  const yScale = yAxis?.scale;
+  if (!xScale || !yScale) return null;
 
-  const bandWidth = xAxis.bandSize || 10;
+  const bandWidth = xAxis?.bandSize || 10;
   const candleWidth = Math.max(1, bandWidth * 0.7);
 
   return (
     <g>
       {(data as OHLCVPriceData[]).map((d, i) => {
-        const xPos = xAxis.scale(d.timestamp) + bandWidth / 2;
-        const yHigh = yAxis.scale(d.high);
-        const yLow = yAxis.scale(d.low);
-        const yOpen = yAxis.scale(d.open);
-        const yClose = yAxis.scale(d.close);
+        const xPos = xScale(d.timestamp) + bandWidth / 2;
+        const yHigh = yScale(d.high);
+        const yLow = yScale(d.low);
+        const yOpen = yScale(d.open);
+        const yClose = yScale(d.close);
         const isUp = d.close >= d.open;
         const color = isUp ? '#22c55e' : '#ef4444';
 

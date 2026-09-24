@@ -7,13 +7,8 @@ import {
   EnrichedSnapshot,
   PnLPeriod,
 } from '../services/robinhoodService';
-import {
-  PortfolioAllocation,
-  RealizedPnLSummary,
-  PnLBySymbolTable,
-  PNL_PERIODS,
-  PERIOD_LABEL,
-} from './TradePage';
+import { PortfolioAllocation, RealizedPnLSummary, PnLBySymbolTable } from '../components/PnLPanels';
+import { PNL_PERIODS, PERIOD_LABEL } from '../utils/pnlPeriods';
 
 export default function PnLAllocationPage() {
   const [snapshot,   setSnapshot]   = useState<EnrichedSnapshot | null>(null);

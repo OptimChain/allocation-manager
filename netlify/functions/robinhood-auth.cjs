@@ -3,17 +3,19 @@
 // Stores tokens in Netlify Blobs for persistence
 
 const tokenStore = require('./lib/tokenStore.cjs');
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
 
 const ROBINHOOD_API_BASE = 'https://api.robinhood.com';
 
 // Store pending verification in memory (per function instance)
 let pendingVerification = null;
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-};
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
+
+/** Error carrying an HTTP status for the handler's catch block. */
+function httpError(statusCode, message) {
+  return Object.assign(new Error(message), { statusCode });
+}
 
 function generateDeviceToken() {
   if (process.env.RH_DEVICE_TOKEN) {
@@ -52,7 +54,7 @@ async function initiateAuth() {
 
   console.log('[AUTH] Initiating authentication for:', username);
 
-  const response = await fetch(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
+  const response = await fetchWithTimeout(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -137,7 +139,7 @@ async function checkVerification() {
   console.log('[VERIFY] Checking verification status...');
 
   // Retry auth to see if device was approved
-  const response = await fetch(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
+  const response = await fetchWithTimeout(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -198,7 +200,7 @@ async function submitMFA(code) {
 
   console.log('[MFA] Submitting MFA code');
 
-  const response = await fetch(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
+  const response = await fetchWithTimeout(`${ROBINHOOD_API_BASE}/oauth2/token/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -279,7 +281,7 @@ exports.handler = async (event) => {
 
       case 'mfa':
         if (!mfaCode) {
-          throw new Error('MFA code required. Use ?action=mfa&code=YOUR_CODE');
+          throw httpError(400, 'MFA code required. Use ?action=mfa&code=YOUR_CODE');
         }
         result = await submitMFA(mfaCode);
         break;
@@ -290,7 +292,7 @@ exports.handler = async (event) => {
         break;
 
       default:
-        throw new Error(`Unknown action: ${action}. Available: status, connect, verify, mfa, disconnect`);
+        throw httpError(400, `Unknown action: ${action}. Available: status, connect, verify, mfa, disconnect`);
     }
 
     return {
@@ -305,7 +307,7 @@ exports.handler = async (event) => {
     console.error('Auth error:', error);
 
     return {
-      statusCode: 500,
+      statusCode: error.statusCode || 500,
       headers: {
         ...corsHeaders,
         'Content-Type': 'application/json',

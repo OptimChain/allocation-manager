@@ -3,7 +3,8 @@
 
 import { API_BASE } from '../config/api';
 import { cachedJson } from './twelveDataCache';
-import { tdProxyUrl } from './tdProxy';
+import { tdFetch } from './tdProxy';
+import { fetchJson } from './http';
 
 // Cache TTLs (ms). Daily/weekly bars change at most once per day; intraday
 // series and quotes refresh faster. Historical point lookups are immutable.
@@ -77,6 +78,30 @@ export function getRangeConfig(range: string) {
   return RANGE_CONFIG[range] || RANGE_CONFIG['1Y'];
 }
 
+/** TwelveData series come newest-first; normalise to chronological OHLCV. */
+function toBars(values: TimeSeriesData[] | undefined): OHLCVPriceData[] {
+  return (values ?? [])
+    .map((item) => {
+      const close = parseFloat(item.close);
+      return {
+        date: item.datetime,
+        timestamp: new Date(item.datetime).getTime(),
+        price: close,
+        open: parseFloat(item.open),
+        high: parseFloat(item.high),
+        low: parseFloat(item.low),
+        close,
+        volume: parseFloat(item.volume || '0'),
+      };
+    })
+    .filter((bar) => Number.isFinite(bar.price))
+    .reverse();
+}
+
+function fetchSeries(params: Record<string, string | number | undefined>): Promise<TimeSeriesResponse> {
+  return tdFetch<TimeSeriesResponse>('time_series', params);
+}
+
 export async function getTimeSeries(
   symbol: string,
   range: string = '1Y',
@@ -86,34 +111,15 @@ export async function getTimeSeries(
   const ttl = config.interval === '1day' || config.interval === '1week' ? TTL_DAILY : TTL_INTRADAY;
 
   return cachedJson(`ts:${symbol}:${range}`, ttl, async () => {
-    const url = tdProxyUrl('time_series');
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('interval', config.interval);
-    url.searchParams.set('outputsize', config.outputsize.toString());
-    // Propagate an explicit user refresh to the proxy so it re-pulls upstream
-    // (subject to its own 15s floor) instead of serving its cached payload.
-    if (forceRefresh) url.searchParams.set('refresh', '1');
-
-    const response = await fetch(url.toString());
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${symbol}: ${response.status}`);
-    }
-
-    const data: TimeSeriesResponse = await response.json();
-
-    if (data.status === 'error') {
-      throw new Error(data.message || `API error for ${symbol}`);
-    }
-
-    // Normalize and reverse to chronological order (oldest first)
-    return data.values
-      .map((item) => ({
-        date: item.datetime,
-        timestamp: new Date(item.datetime).getTime(),
-        price: parseFloat(item.close),
-      }))
-      .reverse();
+    const data = await fetchSeries({
+      symbol,
+      interval: config.interval,
+      outputsize: config.outputsize,
+      // Propagate an explicit user refresh to the proxy so it re-pulls upstream
+      // (subject to its own 15s floor) instead of serving its cached payload.
+      refresh: forceRefresh ? '1' : undefined,
+    });
+    return toBars(data.values).map(({ date, timestamp, price }) => ({ date, timestamp, price }));
   });
 }
 
@@ -169,29 +175,45 @@ export interface Quote {
   timestamp: number; // ms epoch
 }
 
+/** Raw TwelveData `quote` payload (numeric fields arrive as strings). */
+interface RawQuote {
+  symbol: string;
+  name?: string;
+  datetime: string;
+  timestamp?: number;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume?: string;
+  previous_close: string;
+  change: string;
+  percent_change: string;
+  is_market_open?: boolean;
+}
+
+/**
+ * Every quote shape below is derived from one cached raw payload per symbol,
+ * so the Dashboard, Compare and projection widgets share a single upstream
+ * credit and can never read back each other's (differently shaped) entries.
+ */
+function getRawQuote(symbol: string): Promise<RawQuote> {
+  return cachedJson(`quote:raw:${symbol}`, TTL_QUOTE, () => tdFetch<RawQuote>('quote', { symbol }));
+}
+
 /**
  * Fetch the latest quote for a symbol through the proxy (`quote` endpoint).
  * Works on plans without WebSocket streaming — the proxy caches quotes for
  * ~60s, so polling callers share one upstream credit per symbol per window.
  */
-export async function getQuote(symbol: string): Promise<Quote> {
-  return cachedJson(`quote:${symbol}`, TTL_QUOTE, async () => {
-    const url = tdProxyUrl('quote');
-    url.searchParams.set('symbol', symbol);
-
-    const response = await fetch(url.toString());
-    if (!response.ok) throw new Error(`Failed to fetch quote ${symbol}: ${response.status}`);
-
-    const data = await response.json();
-    if (data.status === 'error') throw new Error(data.message || `Quote error for ${symbol}`);
-
-    return {
-      symbol,
-      price: parseFloat(data.close),
-      // TwelveData quote `timestamp` is epoch seconds for the last trade.
-      timestamp: typeof data.timestamp === 'number' ? data.timestamp * 1000 : Date.now(),
-    };
-  });
+async function getQuote(symbol: string): Promise<Quote> {
+  const data = await getRawQuote(symbol);
+  return {
+    symbol,
+    price: parseFloat(data.close),
+    // TwelveData quote `timestamp` is epoch seconds for the last trade.
+    timestamp: typeof data.timestamp === 'number' ? data.timestamp * 1000 : Date.now(),
+  };
 }
 
 /** Fetch quotes for several symbols, tolerating per-symbol failures. */
@@ -199,7 +221,7 @@ export async function getQuotes(symbols: string[]): Promise<Record<string, Quote
   const results = await Promise.allSettled(symbols.map((s) => getQuote(s)));
   const out: Record<string, Quote> = {};
   results.forEach((r) => {
-    if (r.status === 'fulfilled' && !Number.isNaN(r.value.price)) out[r.value.symbol] = r.value;
+    if (r.status === 'fulfilled' && Number.isFinite(r.value.price)) out[r.value.symbol] = r.value;
   });
   return out;
 }
@@ -214,24 +236,13 @@ export interface CoinGeckoMarketData {
 
 export async function getCoinGeckoMarketData(): Promise<CoinGeckoMarketData> {
   try {
-    const response = await fetch(`${API_BASE}/coingecko-market`);
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return {
-        market_cap: null,
-        total_volume: null,
-        error: data.error || `${response.status} ${response.statusText}`,
-      };
-    }
-
+    const data = await fetchJson<{ market_cap?: number; total_volume?: number }>(`${API_BASE}/coingecko-market`);
     return {
       market_cap: data.market_cap ?? null,
       total_volume: data.total_volume ?? null,
     };
-  } catch {
-    return { market_cap: null, total_volume: null, error: '503 Service Unavailable' };
+  } catch (err) {
+    return { market_cap: null, total_volume: null, error: err instanceof Error ? err.message : '503 Service Unavailable' };
   }
 }
 
@@ -252,20 +263,7 @@ export interface BitcoinQuote {
 }
 
 export async function getBitcoinQuote(): Promise<BitcoinQuote> {
-  return cachedJson('quote:BTC/USD', TTL_QUOTE, async () => {
-  const url = tdProxyUrl('quote');
-  url.searchParams.set('symbol', 'BTC/USD');
-
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new Error(`Failed to fetch BTC quote: ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (data.status === 'error') {
-    throw new Error(data.message || 'API error fetching BTC quote');
-  }
-
+  const data = await getRawQuote('BTC/USD');
   return {
     symbol: data.symbol,
     name: data.name || 'Bitcoin',
@@ -279,7 +277,6 @@ export async function getBitcoinQuote(): Promise<BitcoinQuote> {
     percent_change: parseFloat(data.percent_change),
     datetime: data.datetime,
   };
-  });
 }
 
 // --- ETF Quote functions ---
@@ -296,20 +293,7 @@ export interface EtfQuote {
 }
 
 export async function getEtfQuote(symbol: string = 'BTC'): Promise<EtfQuote> {
-  return cachedJson(`quote:${symbol}`, TTL_QUOTE, async () => {
-  const url = tdProxyUrl('quote');
-  url.searchParams.set('symbol', symbol);
-
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${symbol} quote: ${response.status}`);
-  }
-
-  const data = await response.json();
-  if (data.status === 'error') {
-    throw new Error(data.message || `API error fetching ${symbol} quote`);
-  }
-
+  const data = await getRawQuote(symbol);
   return {
     symbol: data.symbol,
     name: data.name || 'Grayscale Bitcoin Mini Trust ETF',
@@ -318,34 +302,16 @@ export async function getEtfQuote(symbol: string = 'BTC'): Promise<EtfQuote> {
     change: parseFloat(data.change),
     percent_change: parseFloat(data.percent_change),
     datetime: data.datetime,
-    is_market_open: data.is_market_open,
+    is_market_open: Boolean(data.is_market_open),
   };
-  });
 }
 
 export async function getBtcPriceAtTime(datetime: string): Promise<number> {
   return cachedJson(`btcAt:${datetime}`, TTL_HISTORICAL_POINT, async () => {
-  const url = tdProxyUrl('time_series');
-  url.searchParams.set('symbol', 'BTC/USD');
-  url.searchParams.set('interval', '1h');
-  url.searchParams.set('outputsize', '1');
-  url.searchParams.set('end_date', datetime);
-
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new Error(`Failed to fetch BTC price at ${datetime}: ${response.status}`);
-  }
-
-  const data: TimeSeriesResponse = await response.json();
-  if (data.status === 'error') {
-    throw new Error(data.message || 'API error fetching BTC historical price');
-  }
-
-  if (!data.values || data.values.length === 0) {
-    throw new Error('No BTC price data available for the specified time');
-  }
-
-  return parseFloat(data.values[0].close);
+    const data = await fetchSeries({ symbol: 'BTC/USD', interval: '1h', outputsize: 1, end_date: datetime });
+    const [bar] = toBars(data.values);
+    if (!bar) throw new Error('No BTC price data available for the specified time');
+    return bar.close;
   });
 }
 
@@ -366,32 +332,7 @@ export async function getBitcoinPriceHistory(
   const ttl = config.interval === '1day' || config.interval === '1week' ? TTL_DAILY : TTL_INTRADAY;
 
   return cachedJson(`btcHist:${days}`, ttl, async () => {
-    const url = tdProxyUrl('time_series');
-    url.searchParams.set('symbol', 'BTC/USD');
-    url.searchParams.set('interval', config.interval);
-    url.searchParams.set('outputsize', config.outputsize.toString());
-
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`Failed to fetch BTC price history: ${response.status}`);
-    }
-
-    const data: TimeSeriesResponse = await response.json();
-    if (data.status === 'error') {
-      throw new Error(data.message || 'API error fetching BTC history');
-    }
-
-    return data.values
-      .map((item) => ({
-        date: item.datetime,
-        timestamp: new Date(item.datetime).getTime(),
-        price: parseFloat(item.close),
-        open: parseFloat(item.open),
-        high: parseFloat(item.high),
-        low: parseFloat(item.low),
-        close: parseFloat(item.close),
-        volume: parseFloat(item.volume || '0'),
-      }))
-      .reverse();
+    const data = await fetchSeries({ symbol: 'BTC/USD', interval: config.interval, outputsize: config.outputsize });
+    return toBars(data.values);
   });
 }

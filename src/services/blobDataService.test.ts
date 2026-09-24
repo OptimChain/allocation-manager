@@ -128,6 +128,6 @@ describe('getMarketData', () => {
   it('throws on HTTP error', async () => {
     mockFetch.mockReturnValueOnce(errorResponse(500, 'Internal Server Error'));
 
-    await expect(getMarketData('CRWD')).rejects.toThrow('vend-blobs failed (500)');
+    await expect(getMarketData('CRWD')).rejects.toMatchObject({ name: 'HttpError', status: 500 });
   });
 });

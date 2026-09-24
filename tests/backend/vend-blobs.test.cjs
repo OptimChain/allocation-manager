@@ -234,3 +234,14 @@ describe('vend-blobs: backward compat', () => {
     expect(body.value.blob_key).toBeDefined();
   });
 });
+
+describe('vend-blobs: store allowlist', () => {
+  it.each(['robinhood-auth', 'plaid-auth', 'state-logs'])('rejects %s with 403', async (store) => {
+    global.fetch.mockClear();
+    const res = await handler(makeEvent({ store, action: 'list', siteId: 'other-site' }));
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toMatch(store);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});

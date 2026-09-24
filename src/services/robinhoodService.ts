@@ -1,7 +1,7 @@
 // Robinhood API Service
 // Connects to Netlify functions for Robinhood data
 
-import { API_BASE } from '../config/api';
+import { apiJson } from './http';
 
 // Auth types
 export interface AuthStatus {
@@ -202,27 +202,7 @@ export interface BotAction {
   dryRun?: boolean;
 }
 
-async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || `Request failed: ${response.status}`);
-  }
-
-  return response.json();
-}
-
-// Portfolio functions
-export async function getPortfolio(): Promise<Portfolio> {
-  return fetchApi<Portfolio>('/robinhood-portfolio?action=portfolio');
-}
+const fetchApi = apiJson;
 
 // ── Trading DB endpoints (Postgres via db-* functions) ─────────────────────────────────────
 // db-orders / db-bot-activity / db-pnl all return this envelope. The same
@@ -275,12 +255,9 @@ export interface DbBotEvent {
 }
 
 async function fetchDb<T>(endpoint: string): Promise<DbEnvelope<T>> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    headers: { 'Content-Type': 'application/json' },
-  });
-  const body = await response.json().catch(() => null) as DbEnvelope<T> | null;
-  if (!response.ok || !body || body.ok === false) {
-    throw new Error(body?.error?.message || `Request failed: ${response.status}`);
+  const body = await apiJson<DbEnvelope<T> | null>(endpoint);
+  if (!body || body.ok === false) {
+    throw new Error(body?.error?.message || 'Request failed: empty trading DB response');
   }
   return body;
 }
@@ -338,13 +315,6 @@ export function getGainColor(value: number | null | undefined): string {
   if (value > 0) return 'text-green-600 dark:text-green-400';
   if (value < 0) return 'text-red-600 dark:text-red-400';
   return 'text-gray-600 dark:text-gray-400';
-}
-
-// Get background color class based on value
-export function getGainBgColor(value: number): string {
-  if (value > 0) return 'bg-green-100';
-  if (value < 0) return 'bg-red-100';
-  return 'bg-gray-100';
 }
 
 // ── Enriched snapshot types ───────────────────────────────────────────────────

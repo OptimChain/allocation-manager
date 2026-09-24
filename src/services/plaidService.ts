@@ -1,8 +1,7 @@
 // Plaid Service
 // Frontend service layer for Plaid Link integration
 
-import type { Portfolio } from './robinhoodService';
-import { API_BASE } from '../config/api';
+import { apiJson } from './http';
 
 export interface PlaidAuthStatus {
   connected: boolean;
@@ -15,22 +14,7 @@ export interface LinkTokenResponse {
   linkToken: string;
 }
 
-async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || `Request failed: ${response.status}`);
-  }
-
-  return response.json();
-}
+const fetchApi = apiJson;
 
 export async function createLinkToken(): Promise<LinkTokenResponse> {
   return fetchApi<LinkTokenResponse>('/plaid-link?action=create-link-token');
@@ -45,10 +29,6 @@ export async function exchangePublicToken(publicToken: string): Promise<PlaidAut
 
 export async function getPlaidStatus(): Promise<PlaidAuthStatus> {
   return fetchApi<PlaidAuthStatus>('/plaid-link?action=status');
-}
-
-export async function getPlaidPortfolio(): Promise<Portfolio> {
-  return fetchApi<Portfolio>('/plaid-link?action=holdings');
 }
 
 export async function disconnectPlaid(): Promise<{ message: string }> {

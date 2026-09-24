@@ -23,6 +23,7 @@
 'use strict';
 
 const t = require('./lib/tradingDb.cjs');
+const { CORS: BASE_CORS, json, fetchWithTimeout } = require('./lib/http.cjs');
 
 const TD_API = 'https://api.twelvedata.com';
 const ALLOWED_ENDPOINTS = new Set(['time_series', 'quote', 'price', 'exchange_rate']);
@@ -31,7 +32,7 @@ const REFRESH_FLOOR_S = 15;
 // Params forwarded upstream — apikey (server-owned) and refresh (ours) excluded
 const PARAM_BLOCKLIST = new Set(['apikey', 'refresh']);
 
-const CORS = { ...t.CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
+const CORS = { ...BASE_CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 // In-flight upstream fetches, deduped per lambda instance
 const inFlight = new Map();
@@ -48,13 +49,7 @@ function ttlSecondsFor(endpoint, params) {
   return 3600; // 1week / 1month
 }
 
-function respond(statusCode, body, extraHeaders = {}) {
-  return {
-    statusCode,
-    headers: { ...CORS, 'Content-Type': 'application/json', ...extraHeaders },
-    body: typeof body === 'string' ? body : JSON.stringify(body),
-  };
-}
+const respond = (statusCode, body, extraHeaders = {}) => json(statusCode, body, { ...CORS, ...extraHeaders });
 
 function isErrorPayload(payload) {
   // TwelveData returns HTTP 200 with { code, message, status: 'error' } on
@@ -66,7 +61,7 @@ async function fetchUpstream(endpoint, params, apiKey) {
   const url = new URL(`${TD_API}/${endpoint}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   url.searchParams.set('apikey', apiKey);
-  const res = await fetch(url.toString());
+  const res = await fetchWithTimeout(url.toString());
   const payload = await res.json().catch(() => null);
   return { httpOk: res.ok, payload };
 }

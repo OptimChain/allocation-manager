@@ -2,7 +2,8 @@
 // Fetches and calculates IV z-score, ETF flows, 200-week MA, historical vol
 
 import { API_BASE } from '../config/api';
-import { tdProxyUrl } from './tdProxy';
+import { tdFetch } from './tdProxy';
+import { fetchJson } from './http';
 
 const BTC_ETFS = ['BTC'];
 
@@ -88,16 +89,7 @@ async function fetchOHLCV(
   outputsize: number,
   interval: string = '1day',
 ): Promise<OHLCVData[]> {
-  const url = tdProxyUrl('time_series');
-  url.searchParams.set('symbol', symbol);
-  url.searchParams.set('interval', interval);
-  url.searchParams.set('outputsize', outputsize.toString());
-
-  const response = await fetch(url.toString());
-  if (!response.ok) throw new Error(`Failed to fetch ${symbol}: ${response.status}`);
-
-  const data = await response.json();
-  if (data.status === 'error') throw new Error(data.message || `API error for ${symbol}`);
+  const data = await tdFetch<{ values?: Record<string, string>[] }>('time_series', { symbol, interval, outputsize });
   if (!data.values || !Array.isArray(data.values)) return [];
 
   return data.values
@@ -115,9 +107,7 @@ async function fetchOHLCV(
 
 async function fetchDeribitDVOL(days: number): Promise<DVOLDataPoint[]> {
   try {
-    const response = await fetch(`${API_BASE}/deribit-dvol?days=${days}`);
-    if (!response.ok) return [];
-    const json = await response.json();
+    const json = await fetchJson<{ data?: { timestamp: number; close: number }[] }>(`${API_BASE}/deribit-dvol?days=${days}`);
     if (!json.data) return [];
     return json.data.map((d: { timestamp: number; close: number }) => ({
       timestamp: d.timestamp,

@@ -12,11 +12,9 @@ const cache = new Map(); // key -> { data, timestamp }
 const CACHE_TTL_MS = 5 * 60_000; // 5 minutes
 const MAX_CACHE_ENTRIES = 20;
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
+
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 // Check if article matches any of the filter keywords
 const matchesFilter = (article, keywords) => {
@@ -49,6 +47,24 @@ exports.handler = async (event) => {
     };
   }
 
+  // Hoisted: the catch block serves stale cache
+  const now = Date.now();
+  let cached = null;
+
+  const serveStale = () => {
+    console.log('[COINDESK] Serving stale cache (age:', Math.round((now - cached.timestamp) / 1000), 's)');
+    return {
+      statusCode: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=60',
+        'X-Cache': 'STALE',
+      },
+      body: cached.data,
+    };
+  };
+
   try {
     const params = event.queryStringParameters || {};
     const requestedLimit = parseInt(params.limit || '10', 10);
@@ -57,8 +73,7 @@ exports.handler = async (event) => {
 
     // Check in-memory cache
     const cacheKey = `${categories}|${filter}|${requestedLimit}`;
-    const now = Date.now();
-    const cached = cache.get(cacheKey);
+    cached = cache.get(cacheKey) || null;
     if (cached && now - cached.timestamp < CACHE_TTL_MS) {
       return {
         statusCode: 200,
@@ -87,13 +102,14 @@ exports.handler = async (event) => {
     }
     url.searchParams.set('api_key', API_KEY);
 
-    const response = await fetch(url.toString());
+    const response = await fetchWithTimeout(url.toString(), {}, 6000); // leaves room for blob writes
 
     if (!response.ok) {
       const errorCode = `${response.status} ${response.statusText}`;
       console.error(`CoinDesk returned ${errorCode}`);
+      if (cached) return serveStale();
       return {
-        statusCode: response.status,
+        statusCode: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: errorCode, results: [] }),
       };
@@ -149,8 +165,9 @@ exports.handler = async (event) => {
       cache.delete(oldest[0]);
     }
 
-    // Store articles to blob storage (fire-and-forget, don't block response)
-    (async () => {
+    // Store articles to blob storage — awaited (settled) before returning, since
+    // Lambda freezes the container once the response is sent
+    const blobWrite = (async () => {
       try {
         const { getStore } = await import('@netlify/blobs');
         const store = getStore({
@@ -167,15 +184,13 @@ exports.handler = async (event) => {
         const existingIndex = await store.get(indexKey, { type: 'json' }) || { articleIds: [] };
         const existingIds = new Set(existingIndex.articleIds);
 
-        for (const article of articles) {
-          if (!article.id) continue;
-          await store.setJSON(`${datePath}/${article.id}`, {
-            ...article,
-            _source: 'coindesk',
-            _storedAt: now.toISOString(),
-          });
-          existingIds.add(article.id);
-        }
+        const toStore = articles.filter(a => a.id);
+        await Promise.allSettled(toStore.map(article => store.setJSON(`${datePath}/${article.id}`, {
+          ...article,
+          _source: 'coindesk',
+          _storedAt: now.toISOString(),
+        })));
+        for (const article of toStore) existingIds.add(article.id);
 
         const allIds = Array.from(existingIds).slice(-200);
         await store.setJSON(indexKey, {
@@ -190,6 +205,7 @@ exports.handler = async (event) => {
         console.error('[COINDESK] Blob storage error:', err.message);
       }
     })();
+    await Promise.allSettled([blobWrite]);
 
     return {
       statusCode: 200,
@@ -205,19 +221,7 @@ exports.handler = async (event) => {
     console.error('CoinDesk news API error:', error);
 
     // Serve stale cache if available
-    if (cached) {
-      console.log('[COINDESK] Serving stale cache (age:', Math.round((now - cached.timestamp) / 1000), 's)');
-      return {
-        statusCode: 200,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=60',
-          'X-Cache': 'STALE',
-        },
-        body: cached.data,
-      };
-    }
+    if (cached) return serveStale();
 
     return {
       statusCode: 502,

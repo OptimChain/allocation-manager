@@ -11,11 +11,9 @@ const cache = new Map(); // key -> { data, timestamp }
 const CACHE_TTL_MS = 5 * 60_000; // 5 minutes
 const MAX_CACHE_ENTRIES = 20;
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const { CORS, fetchWithTimeout } = require('./lib/http.cjs');
+
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -73,13 +71,25 @@ exports.handler = async (event) => {
     }
     url.searchParams.set('token', API_KEY);
 
-    const response = await fetch(url.toString());
+    const response = await fetchWithTimeout(url.toString());
 
     if (!response.ok) {
       const errorCode = `${response.status} ${response.statusText}`;
       console.error(`Finnhub returned ${errorCode}`);
+      if (cached) {
+        return {
+          statusCode: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=60',
+            'X-Cache': 'STALE',
+          },
+          body: cached.data,
+        };
+      }
       return {
-        statusCode: response.status,
+        statusCode: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: errorCode, results: [] }),
       };

@@ -1,11 +1,10 @@
 // Slack Alert Proxy
 // Forwards alert messages to SLACK_WEBHOOK_URL
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+const { CORS, json, fetchWithTimeout } = require('./lib/http.cjs');
+
+const corsHeaders = { ...CORS, 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+const respond = (statusCode, body) => json(statusCode, body, corsHeaders);
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -31,23 +30,19 @@ exports.handler = async (event) => {
       errorMsg ? `\`\`\`${errorMsg}\`\`\`` : null,
     ].filter(Boolean).join('\n');
 
-    await fetch(webhookUrl, {
+    const res = await fetchWithTimeout(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
+    if (!res.ok) {
+      console.error(`Slack webhook returned ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      return respond(200, { sent: false, status: res.status });
+    }
 
-    return {
-      statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sent: true }),
-    };
+    return respond(200, { sent: true });
   } catch (err) {
     console.error('Slack alert error:', err);
-    return {
-      statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sent: false }),
-    };
+    return respond(200, { sent: false });
   }
 };

@@ -15,6 +15,7 @@ import {
   type OptionPositionsHistoryBlob,
 } from '../services/blobDataService';
 import { formatCurrency, getGainColor } from '../services/robinhoodService';
+import { parseUtc } from '../utils/time';
 
 interface ChartRow {
   ts: string;
@@ -37,7 +38,7 @@ function toRow(b: OptionPositionsHistoryBlob): ChartRow {
     pl += p.unrealized_pl ?? 0;
     if (p.mark_stale) stale = true;
   }
-  const d = new Date(b.timestamp);
+  const d = parseUtc(b.timestamp);
   const label = d.toLocaleString('en-US', {
     month: 'numeric',
     day: 'numeric',

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { BarChart3, TrendingUp, TrendingDown, Clock } from 'lucide-react';
 import { getEtfQuote, getBtcPriceAtTime, EtfQuote } from '../services/twelveDataService';
 import { formatCurrency, formatPercentage } from '../utils/formatters';
@@ -7,52 +8,40 @@ interface BtcEtfProjectionProps {
   currentBtcPrice: number;
 }
 
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function BtcEtfProjection({ currentBtcPrice }: BtcEtfProjectionProps) {
   const [etfQuote, setEtfQuote] = useState<EtfQuote | null>(null);
   const [btcAtClose, setBtcAtClose] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastFetched, setLastFetched] = useState<number | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  // Bumping `attempt` gives fetchEtfData a new identity, which restarts the poll.
+  const [attempt, setAttempt] = useState(0);
 
-    async function fetchEtfData() {
-      if (lastFetched && Date.now() - lastFetched < CACHE_DURATION) return;
+  // getEtfQuote / getBtcPriceAtTime are cached in twelveDataCache, so each
+  // tick costs at most one upstream quote credit.
+  const fetchEtfData = useCallback(async (signal: AbortSignal) => {
+    setError(null);
+    try {
+      const quote = await getEtfQuote('BTC');
+      if (signal.aborted) return;
+      setEtfQuote(quote);
 
-      setLoading(!etfQuote);
-      setError(null);
-
-      try {
-        const quote = await getEtfQuote('BTC');
-        if (!mounted) return;
-        setEtfQuote(quote);
-
-        if (!quote.is_market_open) {
-          const btcPrice = await getBtcPriceAtTime(quote.datetime);
-          if (!mounted) return;
-          setBtcAtClose(btcPrice);
-        }
-
-        setLastFetched(Date.now());
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : 'Failed to fetch ETF data');
-      } finally {
-        if (mounted) setLoading(false);
+      if (!quote.is_market_open) {
+        const btcPrice = await getBtcPriceAtTime(quote.datetime);
+        if (signal.aborted) return;
+        setBtcAtClose(btcPrice);
       }
+    } catch (err) {
+      if (signal.aborted) return;
+      setError(err instanceof Error ? err.message : 'Failed to fetch ETF data');
+    } finally {
+      if (!signal.aborted) setLoading(false);
     }
+  }, [attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    fetchEtfData();
-
-    const interval = setInterval(fetchEtfData, CACHE_DURATION);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, []);
+  usePolling(fetchEtfData, REFRESH_MS);
 
   const projectedPrice = useMemo(() => {
     if (!etfQuote || !btcAtClose || etfQuote.is_market_open) return null;
@@ -102,7 +91,7 @@ export default function BtcEtfProjection({ currentBtcPrice }: BtcEtfProjectionPr
         </div>
         <p className="text-sm text-red-600">{error}</p>
         <button
-          onClick={() => { setLastFetched(null); setError(null); }}
+          onClick={() => { setError(null); setLoading(true); setAttempt((a) => a + 1); }}
           className="text-sm text-gray-600 dark:text-gray-400 hover:underline mt-1"
         >
           Try again

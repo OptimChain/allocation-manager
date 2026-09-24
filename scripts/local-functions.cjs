@@ -10,6 +10,7 @@ const url = require('url');
 require('dotenv').config();
 
 const PORT = process.env.FUNCTIONS_PORT || 9000;
+const { CORS } = require('../netlify/functions/lib/http.cjs');
 
 // Function handlers
 const functions = {
@@ -26,10 +27,8 @@ const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
 
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // CORS headers (shared with the functions — incl. Authorization for write auth)
+  for (const [k, v] of Object.entries(CORS)) res.setHeader(k, v);
 
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {

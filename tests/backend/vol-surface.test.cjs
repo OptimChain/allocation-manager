@@ -155,10 +155,13 @@ describe('contracts agree with their surface', () => {
 
   it('carries the NBIS contracts', () => {
     const nbis = payload.contracts.filter(c => c.underlying === 'NBIS');
-    expect(nbis.map(c => c.symbol).sort()).toEqual([
-      'NBIS260508P00130000',
-      'NBIS260515C00175000',
-    ]);
+    // Expiry digits come from DTE relative to today — match the shape only
+    const symbols = nbis.map(c => c.symbol);
+    expect(symbols).toHaveLength(2);
+    expect(symbols).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^NBIS\d{6}P00130000$/),
+      expect.stringMatching(/^NBIS\d{6}C00175000$/),
+    ]));
     for (const c of nbis) {
       expect(c.bid).toBeLessThanOrEqual(c.mid);
       expect(c.mid).toBeLessThanOrEqual(c.ask);

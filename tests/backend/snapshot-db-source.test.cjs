@@ -140,16 +140,9 @@ describe('order-book-snapshot (DB-sourced)', () => {
 });
 
 describe('enriched-snapshot', () => {
-  let fetchMock;
-  afterEach(() => fetchMock && fetchMock.mockRestore());
-
   test('enriches the DB snapshot and carries provenance through', async () => {
     await seedBook();
-    const raw = await snapshot();
-    process.env.URL = 'https://test.example';
-    fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true, json: () => Promise.resolve(raw),
-    });
+    const fetchSpy = jest.spyOn(global, 'fetch');
 
     const res = await es.handler({ httpMethod: 'GET' });
     expect(res.statusCode).toBe(200);
@@ -161,6 +154,8 @@ describe('enriched-snapshot', () => {
     expect(body.option_pnl.total_realized_pnl).toBe(550);   // CRWD credit
     expect(body.option_pnl.symbols[0].symbol).toBe('CRWD'); // grouped by chain, not 'OPT'
     expect(body.combined_7d_pnl).toBe(570);
-    delete process.env.URL;
+    // Reads order-book-snapshot in-process — no HTTP hop to our own site
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 });

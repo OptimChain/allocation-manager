@@ -13,11 +13,7 @@ const {
   buildMarketDepthPayload,
 } = require('./lib/vol-surface-pipeline.cjs');
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-};
+const CORS = { ...require('./lib/http.cjs').CORS, 'Access-Control-Allow-Methods': 'GET, OPTIONS' };
 
 exports.buildPayload = buildPayload;
 exports.buildMarketDepthPayload = buildMarketDepthPayload;
