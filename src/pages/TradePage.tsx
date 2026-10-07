@@ -26,6 +26,7 @@ import {
   EnrichedPortfolio,
   BotAction,
   SnapshotOrder,
+  SnapshotPosition,
   OptionPosition,
   formatCurrency,
   formatPercent,
@@ -147,6 +148,25 @@ function PortfolioSummary({ portfolio }: { portfolio: EnrichedPortfolio }) {
   );
 }
 
+// Robinhood reports average_buy_price = 0 for shares it has no cost basis for
+// (e.g. transferred in), and the engine then books the full market value as
+// gain. Show "—" instead of a $0 cost and a fake gain.
+const NO_COST = <span className="text-gray-400 dark:text-gray-500">—</span>;
+
+export function AvgCost({ pos }: { pos: SnapshotPosition }) {
+  return num(pos.avg_buy_price) > 0 ? <>{formatCurrency(pos.avg_buy_price)}</> : NO_COST;
+}
+
+export function TotalGain({ pos }: { pos: SnapshotPosition }) {
+  if (!(num(pos.avg_buy_price) > 0)) return NO_COST;
+  return (
+    <>
+      <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>{formatCurrency(pos.profit_loss)}</div>
+      <div className={`text-sm ${getGainColor(pos.profit_loss_pct)}`}>{formatPercent(pos.profit_loss_pct)}</div>
+    </>
+  );
+}
+
 // ─── PositionsTable ───────────────────────────────────────────────────────────
 
 function PositionsTable({ portfolio }: { portfolio: EnrichedPortfolio }) {
@@ -174,11 +194,10 @@ function PositionsTable({ portfolio }: { portfolio: EnrichedPortfolio }) {
                 </td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{num(pos.quantity).toFixed(4)}</td>
                 <td className="px-4 py-3 text-right text-gray-900 dark:text-gray-100">{formatCurrency(pos.current_price)}</td>
-                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
+                <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400"><AvgCost pos={pos} /></td>
                 <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
                 <td className="px-4 py-3 text-right">
-                  <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>{formatCurrency(pos.profit_loss)}</div>
-                  <div className={`text-sm ${getGainColor(pos.profit_loss_pct)}`}>{formatPercent(pos.profit_loss_pct)}</div>
+                  <TotalGain pos={pos} />
                 </td>
               </tr>
             ))}
@@ -493,14 +512,13 @@ function OrderBookSnapshotView({ snapshot, dbOrders }: { snapshot: EnrichedSnaps
                         ? <span className={`text-sm font-medium ${getGainColor(pos.percent_change)}`}>{num(pos.percent_change) >= 0 ? '+' : ''}{num(pos.percent_change).toFixed(2)}%</span>
                         : <span className="text-sm text-gray-400">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{formatCurrency(pos.avg_buy_price)}</td>
+                    <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400"><AvgCost pos={pos} /></td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatCurrency(pos.equity)}</td>
                     <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">
                       {pos.percentage != null ? `${num(pos.percentage).toFixed(1)}%` : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className={`font-medium ${getGainColor(pos.profit_loss)}`}>{formatCurrency(pos.profit_loss)}</div>
-                      <div className={`text-sm ${getGainColor(pos.profit_loss_pct)}`}>{formatPercent(pos.profit_loss_pct)}</div>
+                      <TotalGain pos={pos} />
                     </td>
                   </tr>
                 ))}
