@@ -93,7 +93,7 @@ export function RealizedPnLSummary({ stock, option, periodLabel, openOrders }: {
         ))}
       </div>
       <p className="text-xs text-gray-400 mt-2">
-        Based on filled orders from the {periodLabel}. Positions held before this window may show incomplete cost basis.
+        Based on filled orders from the {periodLabel}.
       </p>
     </div>
   );
