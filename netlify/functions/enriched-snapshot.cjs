@@ -40,12 +40,16 @@ function periodCutoff(period) {
 function r2(n) { return Math.round(n * 100) / 100; }
 
 function computeStockPnl(orders, cutoff) {
-  const filtered = orders.filter(o =>
-    o.state === 'filled' && o.symbol && new Date(o.created_at) >= cutoff
-  ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  // Cost basis is built from every fill, so a sell inside the window is
+  // matched against shares bought before it; only in-window fills count
+  // toward realized P&L, volumes, and counts.
+  const filled = orders.filter(o => o.state === 'filled' && o.symbol)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   const book = {};
-  for (const o of filtered) {
+  const active = new Set();
+  let filledCount = 0;
+  for (const o of filled) {
     const sym = o.symbol;
     if (!book[sym]) book[sym] = {
       symbol: sym, realized_pnl: 0,
@@ -57,23 +61,27 @@ function computeStockPnl(orders, cutoff) {
     const qty   = parseFloat(o.filled_quantity ?? o.quantity ?? 0) || 0;
     const price = parseFloat(o.average_price   ?? o.limit_price ?? 0) || 0;
     const total = qty * price;
+    const inWindow = new Date(o.created_at) >= cutoff;
+    if (inWindow) { active.add(sym); filledCount++; }
 
     if ((o.side || '').toUpperCase() === 'BUY') {
       s.shares_held  += qty;
       s.cost_basis   += total;
-      s.total_bought += total;
-      s.buy_count++;
+      if (inWindow) { s.total_bought += total; s.buy_count++; }
     } else {
       const avg = s.shares_held > 0 ? s.cost_basis / s.shares_held : 0;
-      s.realized_pnl += (price - avg) * qty;
+      if (inWindow) {
+        s.realized_pnl += (price - avg) * qty;
+        s.total_sold   += total;
+        s.sell_count++;
+      }
       s.cost_basis   -= avg * qty;
       s.shares_held  -= qty;
-      s.total_sold   += total;
-      s.sell_count++;
     }
   }
 
   const symbols = Object.values(book)
+    .filter(s => active.has(s.symbol))
     .map(s => ({ ...s, realized_pnl: r2(s.realized_pnl), total_bought: r2(s.total_bought), total_sold: r2(s.total_sold) }))
     .sort((a, b) => Math.abs(b.realized_pnl) - Math.abs(a.realized_pnl));
 
@@ -81,7 +89,7 @@ function computeStockPnl(orders, cutoff) {
     total_realized_pnl: r2(symbols.reduce((s, x) => s + x.realized_pnl, 0)),
     total_buy_volume:   r2(symbols.reduce((s, x) => s + x.total_bought, 0)),
     total_sell_volume:  r2(symbols.reduce((s, x) => s + x.total_sold,   0)),
-    filled_count: filtered.length,
+    filled_count: filledCount,
     symbols,
   };
 }
@@ -144,9 +152,11 @@ function normalizePosition(p) {
   const current = parseFloat(p.current_price) || avgBuy;
   const equity = parseFloat(p.equity ?? p.market_value ?? qty * current) || 0;
   const pl = parseFloat(p.profit_loss ?? p.unrealized_pl) || 0;
-  const plPctRaw = parseFloat(p.profit_loss_pct ?? p.unrealized_pl_pct) || 0;
-  // Engine sends decimal fractions (0.09 = 9%); contract wants percentage points
-  const plPct = Math.abs(plPctRaw) < 1 ? plPctRaw * 100 : plPctRaw;
+  // profit_loss_pct is already a percent (rowToPosition scales it);
+  // the engine's unrealized_pl_pct is a fraction (0.09 = 9%)
+  const plPct = p.profit_loss_pct != null
+    ? parseFloat(p.profit_loss_pct) || 0
+    : (parseFloat(p.unrealized_pl_pct) || 0) * 100;
 
   // Asset-class tagging. `.SHADOW` rows are engine bookkeeping mirrors of a
   // real position (same quantity, shadow-ledger marks) — they must never count
@@ -381,3 +391,4 @@ exports.handler = async (event) => {
     };
   }
 };
+module.exports.normalizePosition = normalizePosition;
