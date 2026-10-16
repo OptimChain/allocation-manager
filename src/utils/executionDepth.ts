@@ -75,8 +75,10 @@ export interface DepthProfile {
   ask_range: [number, number] | null;
   /** NBBO mid 5s after the fill vs. our price, bps; + = the market moved against us after */
   markout_bps: number | null;
-  /** Prints within ±2s at our price and size — likely our own execution */
+  /** Prints within ±2s at our price and size, closest in time first */
   matching_prints: DepthTrade[];
+  /** The closest of those — most likely our own execution */
+  likely_print: DepthTrade | null;
 }
 
 const CENT = 0.01;
@@ -140,6 +142,14 @@ export function depthProfile(depth: ExecutionDepth, fill: StockFill): DepthProfi
   const laterMid = later && later.bid != null && later.ask != null ? (later.bid + later.ask) / 2 : null;
   const s = fill.side === 'BUY' ? 1 : -1;
 
+  // Small or round-lot orders can match several identical prints: rank by time
+  const matching = trades
+    .filter(tr =>
+      Math.abs(utcMs(tr.t) - fill.time) <= 2000 &&
+      Math.abs(tr.price - fill.price) < CENT / 2 + 1e-9 &&
+      (tr.size === fill.quantity || tr.size === Math.round(fill.quantity)))
+    .sort((a, b) => Math.abs(utcMs(a.t) - fill.time) - Math.abs(utcMs(b.t) - fill.time));
+
   return {
     nbbo,
     ladder: [...levels.values()].sort((a, b) => b.price - a.price),
@@ -155,9 +165,7 @@ export function depthProfile(depth: ExecutionDepth, fill: StockFill): DepthProfi
     ask_range: asks.length ? [Math.min(...asks), Math.max(...asks)] : null,
     // + = the market moved away from us after we traded (we bought before a drop / sold before a rise)
     markout_bps: laterMid ? -s * (laterMid - fill.price) / fill.price * 10_000 : null,
-    matching_prints: trades.filter(tr =>
-      Math.abs(utcMs(tr.t) - fill.time) <= 2000 &&
-      Math.abs(tr.price - fill.price) < CENT / 2 + 1e-9 &&
-      (tr.size === fill.quantity || tr.size === Math.round(fill.quantity))),
+    matching_prints: matching,
+    likely_print: matching[0] ?? null,
   };
 }

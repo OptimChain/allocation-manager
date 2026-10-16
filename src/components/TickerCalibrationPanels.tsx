@@ -295,8 +295,8 @@ export function ExecutionDepthPanel({ symbol, fill }: { symbol: string; fill: St
             <span className={costColor(p.markout_bps)}>{fmtBps(p.markout_bps)} at +5 s</span>
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            {p.matching_prints.length
-              ? `Our print: ${p.matching_prints.map(tr => `${fmtClock(tr.t)} on ${tr.exchange ?? '?'}`).join(', ')}`
+            {p.likely_print
+              ? `Our print: ${fmtClock(p.likely_print.t)} on ${p.likely_print.exchange ?? '?'}${p.matching_prints.length > 1 ? ` (closest of ${p.matching_prints.length} at our price and size)` : ''}`
               : 'No print matching our price and size within ±2 s'}
           </div>
         </div>

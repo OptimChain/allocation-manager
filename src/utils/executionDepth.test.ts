@@ -65,7 +65,7 @@ describe('depthProfile', () => {
 
   it('finds our own print and the markout after the fill', () => {
     expect(p.matching_prints).toHaveLength(1);
-    expect(p.matching_prints[0].exchange).toBe('D');
+    expect(p.likely_print?.exchange).toBe('D');
     // mid 5s later 186.45 vs our 186.5965 buy → market fell after we bought (cost)
     expect(p.markout_bps).toBeCloseTo((186.5965 - 186.45) / 186.5965 * 1e4, 6);
   });
@@ -83,6 +83,20 @@ describe('depthProfile', () => {
     const noUpdate = depthProfile({ ...DEPTH, quotes: DEPTH.quotes.slice(0, 2) }, fill('BUY', 45, 186.5965));
     // No quote after the fill: the mid is still 186.59 → (186.5965 − 186.59) / 186.5965
     expect(noUpdate.markout_bps).toBeCloseTo((186.5965 - 186.59) / 186.5965 * 1e4, 6);
+  });
+
+  it('ranks identical prints by time and keeps the closest', () => {
+    const crowded = depthProfile({
+      ...DEPTH,
+      trades: [
+        { t: iso(-1500), price: 186.5965, size: 45, exchange: 'Q', conditions: [] },
+        { t: iso(200), price: 186.5965, size: 45, exchange: 'D', conditions: [] },
+        { t: iso(900), price: 186.5965, size: 45, exchange: 'P', conditions: [] },
+        { t: iso(2500), price: 186.5965, size: 45, exchange: 'K', conditions: [] }, // outside ±2s
+      ],
+    }, fill('BUY', 45, 186.5965));
+    expect(crowded.matching_prints.map(tr => tr.exchange)).toEqual(['D', 'P', 'Q']);
+    expect(crowded.likely_print?.exchange).toBe('D');
   });
 
   it('marks our level even with no prints there', () => {

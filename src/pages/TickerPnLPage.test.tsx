@@ -213,6 +213,7 @@ describe('TickerPnLPage', () => {
     expect(text).toContain('150 sh in 2 prints');
     expect(text).toContain('our sell');
     expect(text).toMatch(/Our print: .* on D/);
+    expect(text).not.toContain('closest of');
   });
 
   it('shows the live quote, IV and implied move for a queued option', async () => {
