@@ -30,8 +30,11 @@ jest.mock('../services/robinhoodService', () => {
   };
 });
 
+const mockQuotes = jest.fn();
+
 jest.mock('../services/twelveDataService', () => ({
   getTimeSeries: (...args: unknown[]) => mockSeries(...args),
+  getQuotes: (...args: unknown[]) => mockQuotes(...args),
 }));
 
 const mockFillContext = jest.fn();
@@ -148,6 +151,7 @@ describe('TickerPnLPage', () => {
     mockSnapshot.mockResolvedValue(snapshot());
     mockDbOrders.mockResolvedValue(dbOrders());
     mockSeries.mockResolvedValue(SERIES);
+    mockQuotes.mockResolvedValue({});
     mockFillContext.mockImplementation(quotesAtTouch);
     mockSurface.mockResolvedValue(SURFACE);
     mockOptionSnapshots.mockResolvedValue([{
@@ -227,6 +231,16 @@ describe('TickerPnLPage', () => {
     expect(text).toContain('blob snapshot');
     // 45 sh bought in the snapshot window vs 2 held at Robinhood
     expect(text).toContain('The fill history leaves 45 shares but Robinhood reports 2');
+  });
+
+  it('marks the position at the freshest price source', async () => {
+    // A Twelve Data quote newer than the Robinhood snapshot wins
+    mockQuotes.mockResolvedValue({ NBIS: { symbol: 'NBIS', price: 200, timestamp: Date.parse('2026-10-16T13:00:00Z') } });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('Last $200.00');
+    expect(text).toContain('Twelve Data');
+    expect(text).toContain('+$22.17'); // 2 sh × (200 − 188.91)
   });
 
   it('notes missing price history without failing the page', async () => {

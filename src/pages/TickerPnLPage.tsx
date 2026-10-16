@@ -20,7 +20,7 @@ import {
   type SnapshotOrder,
   type SnapshotOptionOrder,
 } from '../services/robinhoodService';
-import { getTimeSeries, type NormalizedPriceData } from '../services/twelveDataService';
+import { getTimeSeries, getQuotes, type NormalizedPriceData } from '../services/twelveDataService';
 import {
   getFillContext,
   getOptionSnapshots,
@@ -159,6 +159,7 @@ export default function TickerPnLPage() {
   const [snapshot, setSnapshot] = useState<EnrichedSnapshot | null>(null);
   const [db, setDb] = useState<DbResult | null>(null);
   const [series, setSeries] = useState<NormalizedPriceData[]>([]);
+  const [quote, setQuote] = useState<{ price: number; timestamp: number } | null>(null);
   const [errors, setErrors] = useState<{ snapshot?: string; db?: string; prices?: string; surface?: string }>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -177,11 +178,12 @@ export default function TickerPnLPage() {
   const fetchData = useCallback(async (sym: string, isRefresh = false) => {
     const request = ++requestRef.current;
     if (isRefresh) setRefreshing(true); else setLoading(true);
-    const [snap, orders, prices, vol] = await Promise.allSettled([
+    const [snap, orders, prices, vol, quotes] = await Promise.allSettled([
       getEnrichedSnapshot(),
       getDbOrdersForSymbol(sym),
       getTimeSeries(sym, '1Y', isRefresh),
       getVolSurface(sym),
+      getQuotes([sym]),
     ]);
     if (request !== requestRef.current) return;
     const msg = (r: PromiseSettledResult<unknown>) =>
@@ -190,6 +192,7 @@ export default function TickerPnLPage() {
     setDb(orders.status === 'fulfilled' ? orders.value : null);
     setSeries(prices.status === 'fulfilled' ? prices.value : []);
     setSurface(vol.status === 'fulfilled' && vol.value.ok ? vol.value : null);
+    setQuote(quotes.status === 'fulfilled' ? quotes.value[sym] ?? null : null);
     setErrors({ snapshot: msg(snap), db: msg(orders), prices: msg(prices), surface: msg(vol) });
     setAsOf(Date.now());
     setLoading(false);
@@ -207,10 +210,19 @@ export default function TickerPnLPage() {
 
     const position = findPosition(snapshot?.portfolio.positions, symbol);
     const brokerQty = snapshot ? (position?.quantity ?? 0) : null;
-    const marketPrice = snapshot?.market_data?.symbols?.[symbol]?.metrics?.current_price;
-    const lastClose = bars.length ? bars[bars.length - 1].close : null;
-    const livePrice = position?.current_price || marketPrice || lastClose || null;
-    const priceSource = position?.current_price ? 'Robinhood' : marketPrice ? 'market data' : lastClose ? 'last close' : null;
+    // Mark at the freshest price available: a Twelve Data quote, the
+    // Robinhood snapshot (as of its last sync), or the last daily close
+    const snapshotMs = snapshot ? utcMs(snapshot.timestamp) : NaN;
+    const lastBar = bars.length ? bars[bars.length - 1] : null;
+    const marks = [
+      quote && quote.price > 0 ? { price: quote.price, at: quote.timestamp, source: 'Twelve Data' } : null,
+      position?.current_price ? { price: position.current_price, at: snapshotMs, source: 'Robinhood' } : null,
+      lastBar ? { price: lastBar.close, at: Date.parse(`${lastBar.date}T20:00:00Z`), source: 'last close' } : null,
+    ].filter((m): m is { price: number; at: number; source: string } => m != null && Number.isFinite(m.at))
+      .sort((a, b) => b.at - a.at);
+    const mark = marks[0] ?? null;
+    const livePrice = mark?.price ?? null;
+    const priceSource = mark ? `${mark.source}, ${fmtEt(mark.at)}` : null;
 
     // Shares held before the first tracked order, marked at the prior close
     const base = buildStockLedger(orders.stock, symbol);
@@ -289,7 +301,7 @@ export default function TickerPnLPage() {
       optionPositions, points, risk, vol, exposure, queue, staleStubs, unrealized, stockPnl, optionPnl,
       totalPnl: stockPnl + optionPnl, closedTrades, warnings,
     };
-  }, [symbol, db, snapshot, series, errors.prices]);
+  }, [symbol, db, snapshot, series, quote, errors.prices]);
 
   // ── Market at each execution (NBBO + minute bar), most recent fills first ──
   const fillTimes = useMemo(
