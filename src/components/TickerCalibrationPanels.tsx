@@ -315,6 +315,7 @@ export function FillQualityTable({ rows, symbol }: { rows: FillAssessment[]; sym
       <table className="w-full">
         <thead className="bg-gray-50 dark:bg-zinc-800">
           <tr>
+            <th className={`${TH} text-left`}><span className="sr-only">Depth</span></th>
             <th className={`${TH} text-left`}>Filled (ET)</th>
             <th className={`${TH} text-left`}>Session</th>
             <th className={`${TH} text-left`}>Fill</th>
@@ -328,7 +329,6 @@ export function FillQualityTable({ rows, symbol }: { rows: FillAssessment[]; sym
             <th className={`${TH} text-right`}>Minute range</th>
             <th className={`${TH} text-right`}>vs limit</th>
             <th className={`${TH} text-right`}>Quote age</th>
-            <th className={`${TH} text-right`}>Depth</th>
           </tr>
         </thead>
         <tbody>
@@ -338,6 +338,17 @@ export function FillQualityTable({ rows, symbol }: { rows: FillAssessment[]; sym
             return (
               <Fragment key={f.order_id}>
               <tr className={ROW}>
+                <td className={`${TD} pr-0`}>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(isOpen ? null : f.order_id)}
+                    aria-expanded={isOpen}
+                    aria-label={`${isOpen ? 'Hide' : 'Show'} market depth at execution`}
+                    className="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-zinc-800"
+                  >
+                    {isOpen ? '▾ Depth' : '▸ Depth'}
+                  </button>
+                </td>
                 <td className={`${TD} text-gray-600 dark:text-gray-400`}>{fmtTime(f.time)}</td>
                 <td className={`${TD} text-gray-600 dark:text-gray-400`}>{a.session ? SESSION_LABEL[a.session] : '—'}</td>
                 <td className={`${TD} text-gray-900 dark:text-gray-100`}>
@@ -359,21 +370,14 @@ export function FillQualityTable({ rows, symbol }: { rows: FillAssessment[]; sym
                   {fmtBps(a.limit_improvement_bps)}
                 </td>
                 <td className={`${TD} text-right ${a.quote_stale ? 'text-amber-600 dark:text-amber-400' : 'text-gray-600 dark:text-gray-400'}`}>{fmtAge(a.quote?.age_ms)}</td>
-                <td className={`${TD} text-right`}>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(isOpen ? null : f.order_id)}
-                    aria-expanded={isOpen}
-                    className="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                  >
-                    {isOpen ? 'Hide' : 'Show'}
-                  </button>
-                </td>
               </tr>
               {isOpen && (
                 <tr className="bg-gray-50 dark:bg-zinc-800/50">
-                  <td colSpan={14} className="px-4 py-3">
-                    <ExecutionDepthPanel symbol={symbol} fill={f} />
+                  <td colSpan={14} className="p-0">
+                    {/* Pinned to the visible width of the scrolling table */}
+                    <div className="sticky left-0 px-4 py-3" style={{ width: 'min(calc(100vw - 4.5rem), 1212px)' }}>
+                      <ExecutionDepthPanel symbol={symbol} fill={f} />
+                    </div>
                   </td>
                 </tr>
               )}

@@ -203,10 +203,10 @@ describe('TickerPnLPage', () => {
   });
 
   it('opens the market depth at execution for a fill', async () => {
-    const { container, getAllByText } = await renderPage();
+    const { container, getAllByRole } = await renderPage();
     await waitFor(() => expect(container.textContent).toContain('11 of 11 fills have a quote'));
     // Newest fill first: the Oct 15 sale of 110 @ $185
-    await act(async () => { fireEvent.click(getAllByText('Show')[0]); });
+    await act(async () => { fireEvent.click(getAllByRole('button', { name: 'Show market depth at execution' })[0]); });
     await waitFor(() => expect(container.textContent).toContain('Tape ±30 s'));
     const text = container.textContent ?? '';
     expect(mockDepth).toHaveBeenCalledWith('NBIS', '2026-10-15T15:00:00.000Z');

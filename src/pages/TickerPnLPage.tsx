@@ -699,7 +699,7 @@ export default function TickerPnLPage() {
             ? 'Loading the NBBO and minute bar at each fill…'
             : fillCtxState.error
               ? `Market data unavailable: ${fillCtxState.error}`
-              : `Each fill vs. the consolidated NBBO in force when it executed (last quote at or before the fill) and that minute's VWAP · ${fillQuality.summary.with_quote} of ${fillQuality.summary.fills} fills have a quote · "Show" opens the depth at execution: quote updates ±5 s and the tape ±30 s by price`
+              : `Each fill vs. the consolidated NBBO in force when it executed (last quote at or before the fill) and that minute's VWAP · ${fillQuality.summary.with_quote} of ${fillQuality.summary.fills} fills have a quote · "Depth" opens the market at execution: quote updates ±5 s and the tape ±30 s by price`
         }
       >
         <div className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
