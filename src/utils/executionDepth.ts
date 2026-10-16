@@ -1,5 +1,5 @@
 // Market depth around one execution, from the market-context `depth` action:
-// every NBBO update within ±5s and every consolidated trade within ±30s.
+// every NBBO update and every consolidated trade within ±30s.
 //
 // Equity depth-of-book (L2) isn't in any feed the site has, so depth here is
 // the displayed top of book (sizes per venue) plus the tape: how much traded at
@@ -68,18 +68,20 @@ export interface DepthProfile {
   share_of_volume: number | null;
   /** Our quantity ÷ size displayed on the side we took at the fill */
   share_of_displayed: number | null;
-  /** Quote updates in the window and how often the touch moved */
+  /** Quote updates within ±5s of the fill */
   quote_updates: number;
-  /** Best bid / ask range across the quote window */
+  /** Best bid / ask range within ±5s of the fill */
   bid_range: [number, number] | null;
   ask_range: [number, number] | null;
-  /** Mid 5s after the fill vs. our price, bps signed so + = market moved against us after */
+  /** NBBO mid 5s after the fill vs. our price, bps; + = the market moved against us after */
   markout_bps: number | null;
   /** Prints within ±2s at our price and size — likely our own execution */
   matching_prints: DepthTrade[];
 }
 
 const CENT = 0.01;
+/** Horizon for the quote summary and the markout. */
+export const NEAR_MS = 5_000;
 
 function prevailing(quotes: DepthQuote[], atMs: number): DepthQuote | null {
   let best: DepthQuote | null = null;
@@ -128,14 +130,14 @@ export function depthProfile(depth: ExecutionDepth, fill: StockFill): DepthProfi
   }
   if (!levels.has(ourLevel)) levels.set(ourLevel, { price: ourLevel * CENT, buy: 0, sell: 0, mid: 0, total: 0, trades: 0, ours: true });
 
-  const bids = quotes.map(q => q.bid).filter((x): x is number => x != null && x > 0);
-  const asks = quotes.map(q => q.ask).filter((x): x is number => x != null && x > 0);
+  const near = quotes.filter(q => Math.abs(utcMs(q.t) - atMs) <= NEAR_MS);
+  const bids = near.map(q => q.bid).filter((x): x is number => x != null && x > 0);
+  const asks = near.map(q => q.ask).filter((x): x is number => x != null && x > 0);
   const displayed = fill.side === 'BUY' ? nbbo?.ask_size : nbbo?.bid_size;
 
-  // Markout: where the mid sat 5s after the fill (the end of the quote window)
-  const lastQuote = quotes.length ? quotes[quotes.length - 1] : null;
-  const laterMid = lastQuote && utcMs(lastQuote.t) > atMs && lastQuote.bid != null && lastQuote.ask != null
-    ? (lastQuote.bid + lastQuote.ask) / 2 : null;
+  // Markout: the NBBO mid in force 5s after the fill
+  const later = prevailing(quotes, atMs + NEAR_MS);
+  const laterMid = later && later.bid != null && later.ask != null ? (later.bid + later.ask) / 2 : null;
   const s = fill.side === 'BUY' ? 1 : -1;
 
   return {
@@ -148,7 +150,7 @@ export function depthProfile(depth: ExecutionDepth, fill: StockFill): DepthProfi
     volume_after: after,
     share_of_volume: volume > 0 ? fill.quantity / volume : null,
     share_of_displayed: displayed != null && displayed > 0 ? fill.quantity / displayed : null,
-    quote_updates: quotes.length,
+    quote_updates: near.length,
     bid_range: bids.length ? [Math.min(...bids), Math.max(...bids)] : null,
     ask_range: asks.length ? [Math.min(...asks), Math.max(...asks)] : null,
     // + = the market moved away from us after we traded (we bought before a drop / sold before a rise)

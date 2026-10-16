@@ -8,8 +8,8 @@
 //         1-minute bar containing t (OHLC, volume, VWAP). Historical lookups are
 //         immutable, so they are cached in the trading DB's market_cache.
 //   GET /.netlify/functions/market-context?action=depth&symbol=NBIS&t=<iso>
-//       → the market around one execution: every NBBO update within ±5s and
-//         every consolidated trade within ±30s (price, size, venue), for the
+//       → the market around one execution: every NBBO update and every
+//         consolidated trade within ±30s (price, size, venue), for the
 //         execution-time depth view. Equity depth-of-book (L2) isn't in any
 //         feed the site has, so this is top-of-book plus the tape.
 //   GET /.netlify/functions/market-context?action=options&occ=NBIS261127C00220000,…
@@ -40,7 +40,9 @@ const FETCH_TIMEOUT_MS = 4000;   // Netlify sync functions die at 10s
 const QUOTE_LOOKBACK_MS = 10 * 60_000;
 const IMMUTABLE_AFTER_MS = 20 * 60_000; // SIP history is final (and queryable) after ~15 min
 const SURFACE_TTL_MS = 5 * 60_000;
-const DEPTH_QUOTE_WINDOW_MS = 5_000;
+// Quotes span the same window as trades so every print is classified against
+// the NBBO in force when it printed
+const DEPTH_QUOTE_WINDOW_MS = 30_000;
 const DEPTH_TRADE_WINDOW_MS = 30_000;
 const DEPTH_SIDE_LIMIT = 1000; // per side of the fill, per series
 const SYMBOL_RE = /^[A-Z][A-Z0-9.]{0,9}$/;
@@ -224,7 +226,7 @@ async function handleDepth(db, params, headers) {
   if (!Number.isFinite(atMs)) return respond(400, { ok: false, error: 't (ISO execution time) is required' });
   const iso = new Date(atMs).toISOString();
 
-  const cacheKey = `market-context:depth:v1:${symbol}:${iso}`;
+  const cacheKey = `market-context:depth:v2:${symbol}:${iso}`;
   if (db) {
     try {
       const hit = await t.getMarketCache(db, cacheKey);

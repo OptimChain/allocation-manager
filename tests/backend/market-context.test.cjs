@@ -127,7 +127,7 @@ describe('action=fills', () => {
 });
 
 describe('action=depth', () => {
-  test('returns quotes ±5s and trades ±30s around the execution, oldest first', async () => {
+  test('returns quotes and trades ±30s around the execution, oldest first', async () => {
     const at = '2026-10-14T20:16:54.540Z';
     fetchMock.mockImplementation((url) => {
       const u = String(url);
@@ -149,7 +149,7 @@ describe('action=depth', () => {
     const res = await mc.handler(event({ action: 'depth', symbol: 'NBIS', t: at }));
     expect(res.statusCode).toBe(200);
     const body = parse(res);
-    expect(body.window_ms).toEqual({ quotes: 5000, trades: 30000 });
+    expect(body.window_ms).toEqual({ quotes: 30000, trades: 30000 });
     expect(body.quotes.map(q => q.t)).toEqual(['2026-10-14T20:16:51.000Z', '2026-10-14T20:16:54.040Z', '2026-10-14T20:16:58.000Z']);
     expect(body.quotes[1]).toMatchObject({ bid: 186.58, ask: 186.6, bid_size: 400, ask_size: 200 });
     expect(body.trades.map(tr => tr.size)).toEqual([50, 45, 80]);
@@ -158,7 +158,7 @@ describe('action=depth', () => {
 
     const urls = fetchMock.mock.calls.map(c => String(c[0]));
     expect(urls.some(u => u.includes('/trades?start=2026-10-14T20:16:24.540Z&end=2026-10-14T20:16:54.540Z'))).toBe(true);
-    expect(urls.some(u => u.includes('/quotes?start=2026-10-14T20:16:54.540Z&end=2026-10-14T20:16:59.540Z'))).toBe(true);
+    expect(urls.some(u => u.includes('/quotes?start=2026-10-14T20:16:54.540Z&end=2026-10-14T20:17:24.540Z'))).toBe(true);
 
     // Historical → cached
     const again = await mc.handler(event({ action: 'depth', symbol: 'NBIS', t: at }));

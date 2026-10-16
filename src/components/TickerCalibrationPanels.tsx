@@ -255,7 +255,7 @@ export function ExecutionDepthPanel({ symbol, fill }: { symbol: string; fill: St
   }, [symbol, at]);
 
   if (state.error) return <p className="text-sm text-red-600 dark:text-red-400">Depth unavailable: {state.error}</p>;
-  if (!state.depth) return <p className="text-sm text-gray-500 dark:text-gray-400">Loading quotes ±5 s and the tape ±30 s around this fill…</p>;
+  if (!state.depth) return <p className="text-sm text-gray-500 dark:text-gray-400">Loading the NBBO and the tape ±30 s around this fill…</p>;
 
   const depth = state.depth;
   const p = depthProfile(depth, fill);

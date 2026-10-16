@@ -14,7 +14,7 @@ function fill(side: 'BUY' | 'SELL', quantity: number, price: number): StockFill 
 
 const DEPTH: ExecutionDepth = {
   ok: true, symbol: 'NBIS', t: iso(0), session: 'post', feed: 'sip',
-  window_ms: { quotes: 5000, trades: 30000 },
+  window_ms: { quotes: 30000, trades: 30000 },
   quotes: [
     { t: iso(-4000), bid: 186.5, ask: 186.62, bid_size: 300, ask_size: 100, bid_exchange: 'Q', ask_exchange: 'P' },
     { t: iso(-500), bid: 186.58, ask: 186.6, bid_size: 400, ask_size: 200, bid_exchange: 'Q', ask_exchange: 'Q' },
@@ -70,9 +70,19 @@ describe('depthProfile', () => {
     expect(p.markout_bps).toBeCloseTo((186.5965 - 186.45) / 186.5965 * 1e4, 6);
   });
 
-  it('ranges the touch across the quote window', () => {
+  it('ranges the touch within ±5s of the fill', () => {
     expect(p.bid_range).toEqual([186.4, 186.58]);
     expect(p.ask_range).toEqual([186.5, 186.62]);
+    expect(p.quote_updates).toBe(3);
+    const wide = depthProfile({ ...DEPTH, quotes: [{ ...DEPTH.quotes[0], t: iso(-20000), bid: 180 }, ...DEPTH.quotes] }, fill('BUY', 45, 186.5965));
+    expect(wide.quote_updates).toBe(3);         // the −20s quote is outside ±5s
+    expect(wide.bid_range).toEqual([186.4, 186.58]);
+  });
+
+  it('marks out against the NBBO in force 5s after the fill', () => {
+    const noUpdate = depthProfile({ ...DEPTH, quotes: DEPTH.quotes.slice(0, 2) }, fill('BUY', 45, 186.5965));
+    // No quote after the fill: the mid is still 186.59 → (186.5965 − 186.59) / 186.5965
+    expect(noUpdate.markout_bps).toBeCloseTo((186.5965 - 186.59) / 186.5965 * 1e4, 6);
   });
 
   it('marks our level even with no prints there', () => {
