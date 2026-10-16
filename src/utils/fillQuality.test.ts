@@ -60,6 +60,11 @@ describe('assessFill', () => {
     expect(none.session).toBe('overnight');
     const stale = assessFill(fill('BUY', 1, 100), ctx(99.9, 100.1, { quote: { ...ctx(99.9, 100.1).quote!, age_ms: 5 * 60_000 } }));
     expect(stale.quote_stale).toBe(true);
+    // A 5-minute-old quote is not a reference: shown, but not scored
+    expect(stale.placement).toBe('stale');
+    expect(stale.mid).toBeNull();
+    expect(stale.vs_mid_bps).toBeNull();
+    expect(summarizeFillQuality([stale]).with_quote).toBe(0);
     expect(assessFill(fill('BUY', 1, 100), undefined).placement).toBe('no-quote');
   });
 });

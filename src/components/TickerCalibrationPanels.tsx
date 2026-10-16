@@ -123,6 +123,7 @@ function PlacementBadge({ placement }: { placement: Placement }) {
     inside: 'text-green-700 dark:text-green-400',
     touch: 'text-gray-700 dark:text-gray-300',
     through: 'text-red-600 dark:text-red-400',
+    stale: 'text-amber-600 dark:text-amber-400',
     'no-quote': 'text-gray-500 dark:text-gray-400',
   };
   return <span className={tone[placement]}>{PLACEMENT_LABEL[placement]}</span>;

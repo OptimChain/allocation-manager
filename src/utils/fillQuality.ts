@@ -42,17 +42,22 @@ export interface FillMarketContext {
 }
 
 /** Where the fill printed relative to the NBBO, from our side's point of view. */
-export type Placement = 'better' | 'inside' | 'touch' | 'through' | 'no-quote';
+export type Placement = 'better' | 'inside' | 'touch' | 'through' | 'stale' | 'no-quote';
 
 export const PLACEMENT_LABEL: Record<Placement, string> = {
   better: 'Better than NBBO',
   inside: 'Inside spread',
   touch: 'At the touch',
   through: 'Through the NBBO',
+  stale: 'Stale quote',
   'no-quote': 'No quote',
 };
 
-/** Quotes older than this at execution are flagged as stale. */
+/**
+ * Quotes older than this at execution are not a usable reference (e.g. the
+ * last post-market quote before an overnight 24 Hour Market fill): they are
+ * shown but excluded from slippage and placement.
+ */
 export const STALE_QUOTE_MS = 60_000;
 const TICK = 0.005; // half a cent: tolerance for "at the touch"
 
@@ -88,10 +93,11 @@ export function assessFill(fill: StockFill, ctx: FillMarketContext | null | unde
   const bar = ctx?.bar ?? null;
   const bid = quote?.bid != null && quote.bid > 0 ? quote.bid : null;
   const ask = quote?.ask != null && quote.ask > 0 ? quote.ask : null;
-  const valid = bid != null && ask != null && ask >= bid;
+  const stale = quote?.age_ms != null && quote.age_ms > STALE_QUOTE_MS;
+  const valid = bid != null && ask != null && ask >= bid && !stale;
   const mid = valid ? (bid! + ask!) / 2 : null;
 
-  let placement: Placement = 'no-quote';
+  let placement: Placement = bid != null && ask != null && stale ? 'stale' : 'no-quote';
   if (valid) {
     const near = fill.side === 'BUY' ? ask! : bid!; // the side we lift/hit
     const far = fill.side === 'BUY' ? bid! : ask!;
@@ -118,7 +124,7 @@ export function assessFill(fill: StockFill, ctx: FillMarketContext | null | unde
     bar,
     mid,
     spread_bps: valid && mid ? bps((ask! - bid!) / mid) : null,
-    quote_stale: quote?.age_ms != null && quote.age_ms > STALE_QUOTE_MS,
+    quote_stale: stale,
     vs_mid_bps: mid ? bps(s * (fill.price - mid) / mid) : null,
     vs_mid_usd: mid ? s * (fill.price - mid) * fill.quantity : null,
     vs_vwap_bps: vwap ? bps(s * (fill.price - vwap) / vwap) : null,
@@ -190,7 +196,7 @@ function group(rows: FillAssessment[], keyOf: (a: FillAssessment) => string): Qu
 }
 
 export function summarizeFillQuality(rows: FillAssessment[]): FillQualitySummary {
-  const placements: Record<Placement, number> = { better: 0, inside: 0, touch: 0, through: 0, 'no-quote': 0 };
+  const placements: Record<Placement, number> = { better: 0, inside: 0, touch: 0, through: 0, stale: 0, 'no-quote': 0 };
   for (const a of rows) placements[a.placement]++;
   const spreads = rows.map(a => a.spread_bps).filter((x): x is number => x != null);
   const stops = rows.filter(a => a.fill.kind === 'Stop' || a.fill.kind === 'Stop limit');

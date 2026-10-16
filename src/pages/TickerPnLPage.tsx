@@ -726,7 +726,7 @@ export default function TickerPnLPage() {
           <StatTile
             label="Spread at execution"
             value={fillQuality.summary.avg_spread_bps != null ? `${fillQuality.summary.avg_spread_bps.toFixed(1)} bps` : '—'}
-            sub={`${fillQuality.summary.stale_quotes} stale quotes (> 60 s)`}
+            sub={`${fillQuality.summary.stale_quotes} fills with a stale quote (> 60 s) not scored`}
           />
           <StatTile
             label="Stops vs mid"
