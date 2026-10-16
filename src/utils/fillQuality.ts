@@ -76,8 +76,6 @@ export interface FillAssessment {
   bar_position: number | null;
   /** Fill quantity ÷ displayed size on the side we took (as reported by the feed) */
   size_vs_displayed: number | null;
-  /** Stop orders: fill vs stop trigger, bps (+ = slipped past the stop) */
-  stop_slippage_bps: number | null;
   /** Limit orders: improvement vs the limit price, bps (+ = better than the limit) */
   limit_improvement_bps: number | null;
 }
@@ -127,7 +125,6 @@ export function assessFill(fill: StockFill, ctx: FillMarketContext | null | unde
     placement,
     bar_position: barPosition,
     size_vs_displayed: displayed != null && displayed > 0 ? fill.quantity / displayed : null,
-    stop_slippage_bps: fill.stop_price ? bps(s * (fill.price - fill.stop_price) / fill.stop_price) : null,
     limit_improvement_bps: fill.limit_price ? bps(-s * (fill.price - fill.limit_price) / fill.limit_price) : null,
   };
 }
@@ -156,8 +153,10 @@ export interface FillQualitySummary {
   stale_quotes: number;
   by_kind: QualityGroup[];
   by_session: QualityGroup[];
-  /** Mean slippage past the stop for stop orders, bps */
-  stop_slippage_bps: number | null;
+  /** Stop orders vs. the NBBO mid at execution (notional-weighted, bps). Trailing
+   *  stops store the trail's starting level, not the trigger, so the NBBO is
+   *  the only meaningful reference. */
+  stops_vs_mid_bps: number | null;
   stop_fills: number;
 }
 
@@ -194,7 +193,7 @@ export function summarizeFillQuality(rows: FillAssessment[]): FillQualitySummary
   const placements: Record<Placement, number> = { better: 0, inside: 0, touch: 0, through: 0, 'no-quote': 0 };
   for (const a of rows) placements[a.placement]++;
   const spreads = rows.map(a => a.spread_bps).filter((x): x is number => x != null);
-  const stops = rows.filter(a => a.stop_slippage_bps != null);
+  const stops = rows.filter(a => a.fill.kind === 'Stop' || a.fill.kind === 'Stop limit');
   return {
     fills: rows.length,
     with_quote: rows.filter(a => a.mid != null).length,
@@ -208,7 +207,7 @@ export function summarizeFillQuality(rows: FillAssessment[]): FillQualitySummary
     stale_quotes: rows.filter(a => a.quote_stale).length,
     by_kind: group(rows, a => a.fill.kind),
     by_session: group(rows, a => a.session ?? 'unknown'),
-    stop_slippage_bps: stops.length ? stops.reduce((s, a) => s + a.stop_slippage_bps!, 0) / stops.length : null,
+    stops_vs_mid_bps: weighted(stops, a => a.vs_mid_bps),
     stop_fills: stops.length,
   };
 }

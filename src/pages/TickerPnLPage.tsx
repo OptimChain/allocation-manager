@@ -166,7 +166,8 @@ export default function TickerPnLPage() {
   const [tickerInput, setTickerInput] = useState('');
   const [surface, setSurface] = useState<SurfaceResponse | null>(null);
   const [fillCtx, setFillCtx] = useState<Map<string, FillMarketContext>>(() => new Map());
-  const [fillCtxState, setFillCtxState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
+  // `key` is the symbol + fill set the context belongs to; a different key means it is still loading
+  const [fillCtxState, setFillCtxState] = useState<{ key: string | null; error: string | null }>({ key: null, error: null });
   const [optionSnaps, setOptionSnaps] = useState<Map<string, OptionSnapshot>>(() => new Map());
   const [sync, setSync] = useState<{ running: boolean; ok: boolean | null; message: string | null }>({ running: false, ok: null, message: null });
   // Only the latest request may write state — switching tickers mid-load must
@@ -297,17 +298,16 @@ export default function TickerPnLPage() {
   );
   const fillKey = `${symbol}|${fillTimes.join(',')}`;
   useEffect(() => {
-    if (!fillTimes.length) { setFillCtx(new Map()); return; }
+    if (!fillTimes.length) { setFillCtx(new Map()); setFillCtxState({ key: fillKey, error: null }); return; }
     let cancelled = false;
-    setFillCtxState({ loading: true, error: null });
     getFillContext(symbol, [...fillTimes].reverse())
       .then(rows => {
         if (cancelled) return;
         setFillCtx(new Map(rows.map(r => [new Date(r.t).toISOString(), r])));
-        setFillCtxState({ loading: false, error: null });
+        setFillCtxState({ key: fillKey, error: null });
       })
       .catch(err => {
-        if (!cancelled) setFillCtxState({ loading: false, error: err instanceof Error ? err.message : String(err) });
+        if (!cancelled) setFillCtxState({ key: fillKey, error: err instanceof Error ? err.message : String(err) });
       });
     return () => { cancelled = true; };
     // fillKey captures symbol + fill times
@@ -678,7 +678,7 @@ export default function TickerPnLPage() {
       <Card
         title="Fill quality at execution"
         subtitle={
-          fillCtxState.loading
+          fillCtxState.key !== fillKey
             ? 'Loading the NBBO and minute bar at each fill…'
             : fillCtxState.error
               ? `Market data unavailable: ${fillCtxState.error}`
@@ -717,10 +717,11 @@ export default function TickerPnLPage() {
             sub={`${fillQuality.summary.stale_quotes} stale quotes (> 60 s)`}
           />
           <StatTile
-            label="Stop slippage"
-            value={formatBps(fillQuality.summary.stop_slippage_bps)}
-            tone={fillQuality.summary.stop_slippage_bps != null ? -fillQuality.summary.stop_slippage_bps : undefined}
-            sub={`${fillQuality.summary.stop_fills} stop fills vs their trigger`}
+            label="Stops vs mid"
+            value={formatBps(fillQuality.summary.stops_vs_mid_bps)}
+            tone={fillQuality.summary.stops_vs_mid_bps != null ? -fillQuality.summary.stops_vs_mid_bps : undefined}
+            sub={`${fillQuality.summary.stop_fills} stop fills (trailing stops gap at the open)`}
+            title="Stop and trailing-stop fills vs. the NBBO mid when they executed, notional-weighted"
           />
         </div>
         <FillQualityGroups summary={fillQuality.summary} />

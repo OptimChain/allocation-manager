@@ -48,9 +48,7 @@ describe('assessFill', () => {
     expect(assessFill(fill('SELL', 1, 100.2), ctx(99.9, 100.1)).placement).toBe('better');
   });
 
-  it('measures stop slippage and limit improvement', () => {
-    const stop = assessFill(fill('SELL', 35, 195.14, { kind: 'Stop', stop_price: 195.5 }), ctx(195, 195.3));
-    expect(stop.stop_slippage_bps).toBeCloseTo((195.5 - 195.14) / 195.5 * 1e4, 6);
+  it('measures limit improvement', () => {
     const limit = assessFill(fill('BUY', 45, 186.5965, { limit_price: 186.6 }), ctx(186.5, 186.7));
     expect(limit.limit_improvement_bps).toBeCloseTo((186.6 - 186.5965) / 186.6 * 1e4, 6);
   });
@@ -81,6 +79,17 @@ describe('summarizeFillQuality', () => {
     expect(s.placements).toMatchObject({ touch: 1, inside: 1, 'no-quote': 1 });
     expect(s.by_kind.map(g => g.key)).toEqual(['Limit', 'Market']);
     expect(s.by_session.find(g => g.key === 'overnight')!.with_quote).toBe(0);
+    expect(s.stop_fills).toBe(0);
+    expect(s.stops_vs_mid_bps).toBeNull();
+  });
+
+  it('rates stop fills against the NBBO mid', () => {
+    // A trailing stop that sold 85¢ under a $196.00 / $196.50 market at the open
+    const rows = [assessFill(fill('SELL', 35, 195.14, { kind: 'Stop', stop_price: 194.96 }), ctx(196, 196.5))];
+    const s = summarizeFillQuality(rows);
+    expect(rows[0].placement).toBe('through');
+    expect(s.stop_fills).toBe(1);
+    expect(s.stops_vs_mid_bps).toBeCloseTo((196.25 - 195.14) / 196.25 * 1e4, 6);
   });
 });
 

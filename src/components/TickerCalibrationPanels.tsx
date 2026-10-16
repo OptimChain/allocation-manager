@@ -185,7 +185,7 @@ export function FillQualityTable({ rows }: { rows: FillAssessment[] }) {
             <th className={`${TH} text-right`}>Cost</th>
             <th className={`${TH} text-right`}>vs VWAP</th>
             <th className={`${TH} text-right`}>Minute range</th>
-            <th className={`${TH} text-right`}>Stop / limit</th>
+            <th className={`${TH} text-right`}>vs limit</th>
             <th className={`${TH} text-right`}>Quote age</th>
           </tr>
         </thead>
@@ -211,10 +211,8 @@ export function FillQualityTable({ rows }: { rows: FillAssessment[] }) {
                   {a.bar ? `${formatCurrency(a.bar.low)}–${formatCurrency(a.bar.high)}` : '—'}
                   {a.bar_position != null && <span className="ml-1 text-xs">({Math.round(a.bar_position * 100)}%)</span>}
                 </td>
-                <td className={`${TD} text-right ${costColor(a.stop_slippage_bps ?? (a.limit_improvement_bps != null ? -a.limit_improvement_bps : null))}`}>
-                  {a.stop_slippage_bps != null
-                    ? `${fmtBps(a.stop_slippage_bps)} past stop`
-                    : a.limit_improvement_bps != null ? `${fmtBps(a.limit_improvement_bps)} vs limit` : '—'}
+                <td className={`${TD} text-right ${costColor(a.limit_improvement_bps != null ? -a.limit_improvement_bps : null)}`} title="Improvement vs the limit price (limit orders)">
+                  {fmtBps(a.limit_improvement_bps)}
                 </td>
                 <td className={`${TD} text-right ${a.quote_stale ? 'text-amber-600 dark:text-amber-400' : 'text-gray-600 dark:text-gray-400'}`}>{fmtAge(a.quote?.age_ms)}</td>
               </tr>
