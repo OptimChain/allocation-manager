@@ -41,3 +41,9 @@ export function formatSignedFraction(value: number | null | undefined, digits = 
   if (value == null || !Number.isFinite(value)) return '—';
   return `${value >= 0 ? '+' : '−'}${Math.abs(value * 100).toFixed(digits)}%`;
 }
+
+/** Signed basis points: +12.3 bps / −4.0 bps; "—" when missing. */
+export function formatBps(value: number | null | undefined, digits = 1): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value).toFixed(digits)} bps`;
+}

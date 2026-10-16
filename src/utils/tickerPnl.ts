@@ -70,6 +70,10 @@ export interface StockFill {
   unmatched_quantity: number;
   /** True for a partial fill of an order that is still working or was cancelled */
   partial: boolean;
+  /** Order's limit / stop price (null when absent) and submission time (epoch ms) */
+  limit_price: number | null;
+  stop_price: number | null;
+  submitted: number | null;
 }
 
 export interface StockLedger {
@@ -249,6 +253,9 @@ export function buildStockLedger(
       cumulative_realized: r2(cumulative),
       unmatched_quantity: unmatched,
       partial: order.state !== 'filled',
+      limit_price: order.limit_price > 0 && (order.order_type || '').toLowerCase() === 'limit' ? order.limit_price : null,
+      stop_price: order.stop_price != null && order.stop_price > 0 ? order.stop_price : null,
+      submitted: Number.isFinite(utcMs(order.created_at)) ? utcMs(order.created_at) : null,
     });
   }
 

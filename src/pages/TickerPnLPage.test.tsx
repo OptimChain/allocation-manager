@@ -1,5 +1,5 @@
 import type React from 'react';
-import { render, act, waitFor } from '@testing-library/react';
+import { render, act, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import TickerPnLPage from './TickerPnLPage';
 import { findDarkModeViolations, describeViolations } from '../testUtils/darkMode';
@@ -32,6 +32,18 @@ jest.mock('../services/robinhoodService', () => {
 
 jest.mock('../services/twelveDataService', () => ({
   getTimeSeries: (...args: unknown[]) => mockSeries(...args),
+}));
+
+const mockFillContext = jest.fn();
+const mockOptionSnapshots = jest.fn();
+const mockSurface = jest.fn();
+const mockRefresh = jest.fn();
+
+jest.mock('../services/marketContextService', () => ({
+  getFillContext: (...args: unknown[]) => mockFillContext(...args),
+  getOptionSnapshots: (...args: unknown[]) => mockOptionSnapshots(...args),
+  getVolSurface: (...args: unknown[]) => mockSurface(...args),
+  triggerSnapshotRefresh: (...args: unknown[]) => mockRefresh(...args),
 }));
 
 let n = 0;
@@ -110,11 +122,39 @@ async function renderPage(path = '/ticker/NBIS') {
   return result!;
 }
 
+// NBBO one cent either side of each fill: buys lift the ask, sells hit the bid
+function quotesAtTouch(_symbol: string, times: string[]) {
+  const byTime = new Map(HISTORY.map(o => [new Date(o.updated_at!).toISOString(), o]));
+  return Promise.resolve(times.map(t => {
+    const o = byTime.get(t)!;
+    const px = o.average_price!;
+    const [bid, ask] = o.side === 'BUY' ? [px - 0.02, px] : [px, px + 0.02];
+    return {
+      t, session: 'regular', feed: 'sip', error: null,
+      quote: { bid, ask, bid_size: 100, ask_size: 200, bid_exchange: 'Q', ask_exchange: 'P', time: t, age_ms: 250 },
+      bar: { time: t, open: px, high: px + 0.5, low: px - 0.5, close: px, volume: 1000, vwap: px, trades: 10 },
+    };
+  }));
+}
+
+const SURFACE = {
+  ok: true, symbol: 'NBIS', cached: false,
+  meta: { source: 'alpaca', timestamp: '2026-10-16T08:58:53.808Z', quoteCount: 1337 },
+  surface: { underlying: 'NBIS', spot: 190, strikes: [150, 190, 230], dtes: [8, 43], iv: [[0.95, 0.9, 0.92], [0.9, 0.85, 0.88]], source: 'alpaca' },
+};
+
 describe('TickerPnLPage', () => {
   beforeEach(() => {
     mockSnapshot.mockResolvedValue(snapshot());
     mockDbOrders.mockResolvedValue(dbOrders());
     mockSeries.mockResolvedValue(SERIES);
+    mockFillContext.mockImplementation(quotesAtTouch);
+    mockSurface.mockResolvedValue(SURFACE);
+    mockOptionSnapshots.mockResolvedValue([{
+      occ: 'NBIS261127C00220000', found: true, bid: 10.06, ask: 12.17, bid_size: 291, ask_size: 291,
+      iv: 0.885, greeks: { delta: 0.3468 },
+    }]);
+    mockRefresh.mockResolvedValue({ ok: false, error: 'auth box unreachable' });
   });
 
   it('shows realized, unrealized and total P&L from the DB fills', async () => {
@@ -134,6 +174,44 @@ describe('TickerPnLPage', () => {
     expect(text).toContain('$220 Call 11/27');
     expect(text).toContain('$231.00');
     expect(text).toContain('option premium at risk $1,100.00');
+  });
+
+  it('measures every fill against the NBBO at execution', async () => {
+    const { container } = await renderPage();
+    await waitFor(() => expect(container.textContent).toContain('11 of 11 fills have a quote'));
+    const text = container.textContent ?? '';
+    expect(mockFillContext).toHaveBeenCalledWith('NBIS', expect.arrayContaining(['2026-10-15T15:00:00.000Z']));
+    // Every fill at the touch → paid half the 2¢ spread vs mid
+    expect(text).toContain('11 at touch');
+    expect(text).toContain('$185.00 × 100'); // the Oct 15 sell hit a $185.00 bid
+    expect(text).toMatch(/Cost vs mid\+\$\d/);
+  });
+
+  it('shows the live quote, IV and implied move for a queued option', async () => {
+    const { container } = await renderPage();
+    await waitFor(() => expect(container.textContent).toContain('$10.06 × 291'));
+    const text = container.textContent ?? '';
+    expect(mockOptionSnapshots).toHaveBeenCalledWith(['NBIS261127C00220000']);
+    expect(text).toContain('$12.17 × 291');
+    expect(text).toContain('88.5%');
+    expect(text).toContain('0.35');
+    expect(text).toMatch(/±\d+\.\d%/); // 1σ move to expiry
+  });
+
+  it('calibrates realized against implied vol', async () => {
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('NBIS volatility calibration');
+    expect(text).toContain('alpaca surface');
+    expect(text).toMatch(/Implied ATM 30D\d+\.\d%alpaca option quotes/);
+    expect(text).toContain('VaR breaches');
+  });
+
+  it('reports a failed broker sync', async () => {
+    const { container, getByText } = await renderPage();
+    await act(async () => { fireEvent.click(getByText('Sync now')); });
+    await waitFor(() => expect(container.textContent).toContain('Sync: auth box unreachable'));
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('flags a short sample instead of hiding Sharpe', async () => {

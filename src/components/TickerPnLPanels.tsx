@@ -390,7 +390,27 @@ function stateLabel(state: string | null | undefined, untracked: boolean): strin
   return (state || 'unknown').replace(/_/g, ' ');
 }
 
-export function QueuedOrdersTables({ queue, livePrice }: { queue: QueueSummary; livePrice: number | null }) {
+/** Live market for a working option order (Alpaca snapshot + vol surface). */
+export interface OptionMarketView {
+  bid: number | null;
+  ask: number | null;
+  bid_size: number | null;
+  ask_size: number | null;
+  mid: number | null;
+  iv: number | null;
+  iv_source: 'contract' | 'surface' | null;
+  delta: number | null;
+  /** ±1σ fractional move of the underlying by expiry implied by `iv` */
+  expected_move: number | null;
+  /** Fractional move the underlying needs to reach breakeven at expiry */
+  needed_move: number | null;
+}
+
+export function QueuedOrdersTables({ queue, livePrice, optionMarket }: {
+  queue: QueueSummary;
+  livePrice: number | null;
+  optionMarket?: Map<string, OptionMarketView>;
+}) {
   if (!queue.stock.length && !queue.options.length) return <Empty>No working orders.</Empty>;
   return (
     <div className="divide-y divide-gray-200 dark:divide-zinc-700">
@@ -441,13 +461,24 @@ export function QueuedOrdersTables({ queue, livePrice }: { queue: QueueSummary; 
                 <th className={`${TH} text-right`}>Contracts</th>
                 <th className={`${TH} text-right`}>Limit</th>
                 <th className={`${TH} text-right`}>Premium</th>
+                <th className={`${TH} text-right`}>Bid × size</th>
+                <th className={`${TH} text-right`}>Ask × size</th>
+                <th className={`${TH} text-right`}>Limit vs mid</th>
+                <th className={`${TH} text-right`}>IV</th>
+                <th className={`${TH} text-right`}>Delta</th>
                 <th className={`${TH} text-right`}>Breakeven</th>
                 <th className={`${TH} text-right`}>To strike</th>
+                <th className={`${TH} text-right`} title="±1σ move of the underlying by expiry implied by the IV">1σ move to exp.</th>
+                <th className={`${TH} text-right`} title="Move needed to breakeven, in implied standard deviations">Needs</th>
                 <th className={`${TH} text-right`}>DTE</th>
               </tr>
             </thead>
             <tbody>
-              {queue.options.map(q => (
+              {queue.options.map(q => {
+                const m = optionMarket?.get(q.order.order_id);
+                const vsMid = m?.mid ? (q.limit_price - m.mid) / m.mid : null;
+                const sigmas = m?.needed_move != null && m.expected_move ? m.needed_move / m.expected_move : null;
+                return (
                 <tr key={q.order.order_id} className={ROW}>
                   <td className={`${TD} text-gray-900 dark:text-gray-100`}>{q.contract.label}</td>
                   <td className={TD}><SideBadge side={q.side} effect={q.position_effect} /></td>
@@ -455,14 +486,24 @@ export function QueuedOrdersTables({ queue, livePrice }: { queue: QueueSummary; 
                   <td className={`${TD} text-right text-gray-900 dark:text-gray-100`}>{fmtQty(q.quantity)}</td>
                   <td className={`${TD} text-right text-gray-900 dark:text-gray-100`}>{formatCurrency(q.limit_price)}</td>
                   <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>{q.side === 'BUY' ? '−' : '+'}{formatCurrency(q.premium)}</td>
+                  <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>{m?.bid != null ? `${formatCurrency(m.bid)} × ${m.bid_size ?? '—'}` : '—'}</td>
+                  <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>{m?.ask != null ? `${formatCurrency(m.ask)} × ${m.ask_size ?? '—'}` : '—'}</td>
+                  <td className={`${TD} text-right text-gray-600 dark:text-gray-400`} title={m?.mid ? `Mid ${formatCurrency(m.mid)}` : undefined}>{fmtPct(vsMid)}</td>
+                  <td className={`${TD} text-right text-gray-600 dark:text-gray-400`} title={m?.iv_source === 'surface' ? 'Interpolated from the vol surface' : 'Contract IV (Alpaca indicative feed)'}>
+                    {m?.iv != null ? `${(m.iv * 100).toFixed(1)}%` : '—'}{m?.iv_source === 'surface' && <span className="ml-0.5 text-xs">*</span>}
+                  </td>
+                  <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>{m?.delta != null ? m.delta.toFixed(2) : '—'}</td>
                   <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>
                     {q.breakeven != null ? formatCurrency(q.breakeven) : '—'}
                     {q.breakeven != null && livePrice ? <span className="ml-1 text-xs">({fmtPct((q.breakeven - livePrice) / livePrice)})</span> : null}
                   </td>
                   <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>{fmtPct(q.to_strike_pct)}</td>
+                  <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>{m?.expected_move != null ? `±${(m.expected_move * 100).toFixed(1)}%` : '—'}</td>
+                  <td className={`${TD} text-right text-gray-900 dark:text-gray-100`}>{sigmas != null ? `${sigmas.toFixed(2)}σ` : '—'}</td>
                   <td className={`${TD} text-right text-gray-600 dark:text-gray-400`}>{q.dte ?? '—'}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

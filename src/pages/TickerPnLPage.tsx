@@ -3,12 +3,14 @@
 // Orders come from the trading DB (every bucket for the ticker), falling back
 // to the blob snapshot's recent orders while the DB is empty or unreachable.
 // The broker position, option positions and account equity come from the
-// enriched snapshot; daily closes from Twelve Data. All math lives in
-// utils/tickerPnl.ts.
+// enriched snapshot; daily closes from Twelve Data. The market at each fill
+// (NBBO, minute bar), live option quotes and the vol surface come from the
+// market-context function (Alpaca). Math lives in utils/tickerPnl.ts,
+// utils/volCalibration.ts and utils/fillQuality.ts.
 
 import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { RefreshCw, AlertTriangle } from 'lucide-react';
+import { RefreshCw, AlertTriangle, DownloadCloud } from 'lucide-react';
 import {
   getEnrichedSnapshot,
   getDbOrdersForSymbol,
@@ -19,6 +21,16 @@ import {
   type SnapshotOptionOrder,
 } from '../services/robinhoodService';
 import { getTimeSeries, type NormalizedPriceData } from '../services/twelveDataService';
+import {
+  getFillContext,
+  getOptionSnapshots,
+  getVolSurface,
+  triggerSnapshotRefresh,
+  type OptionSnapshot,
+  type SurfaceResponse,
+} from '../services/marketContextService';
+import { realizedVolWindows, varBacktest, impliedVolAt, expectedMove } from '../utils/volCalibration';
+import { assessFill, summarizeFillQuality, occSymbol, PLACEMENT_LABEL, type FillMarketContext } from '../utils/fillQuality';
 import {
   buildStockLedger,
   buildOptionLedger,
@@ -47,14 +59,37 @@ import {
   QueuedOrdersTables,
   OptionPositionsTable,
   DailyPnlTable,
+  type OptionMarketView,
 } from '../components/TickerPnLPanels';
-import { formatSignedUsd as fmtSigned, formatSignedFraction as fmtPct } from '../utils/formatters';
+import { VarBacktestChart, FillQualityGroups, FillQualityTable } from '../components/TickerCalibrationPanels';
+import { formatSignedUsd as fmtSigned, formatSignedFraction as fmtPct, formatBps } from '../utils/formatters';
 import { utcMs } from '../utils/time';
 
 const DEFAULT_SYMBOL = 'NBIS';
 const PINNED = ['NBIS'];
 // Placement stubs (no lifecycle state) older than this are stale, not queued
 const STUB_MAX_AGE_MS = 3 * 86_400_000;
+// Broker data older than this is called out as stale
+const SYNC_STALE_MS = 6 * 3_600_000;
+// Fills sent for execution-time market context (most recent first)
+const MAX_FILL_CONTEXT = 120;
+// Tenor for the headline ATM implied vol
+const ATM_IV_DTE = 30;
+
+function fmtEt(ms: number): string {
+  return new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
+}
+
+function fmtAgo(ms: number): string {
+  const h = ms / 3_600_000;
+  if (h < 1) return `${Math.max(1, Math.round(ms / 60_000))} min ago`;
+  if (h < 48) return `${Math.round(h)} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+function fmtVol(v: number | null | undefined): string {
+  return v == null || !Number.isFinite(v) ? '—' : `${(v * 100).toFixed(1)}%`;
+}
 
 type DbResult = DbOrders & { truncated: boolean };
 
@@ -124,11 +159,16 @@ export default function TickerPnLPage() {
   const [snapshot, setSnapshot] = useState<EnrichedSnapshot | null>(null);
   const [db, setDb] = useState<DbResult | null>(null);
   const [series, setSeries] = useState<NormalizedPriceData[]>([]);
-  const [errors, setErrors] = useState<{ snapshot?: string; db?: string; prices?: string }>({});
+  const [errors, setErrors] = useState<{ snapshot?: string; db?: string; prices?: string; surface?: string }>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [asOf, setAsOf] = useState<number | null>(null);
   const [tickerInput, setTickerInput] = useState('');
+  const [surface, setSurface] = useState<SurfaceResponse | null>(null);
+  const [fillCtx, setFillCtx] = useState<Map<string, FillMarketContext>>(() => new Map());
+  const [fillCtxState, setFillCtxState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
+  const [optionSnaps, setOptionSnaps] = useState<Map<string, OptionSnapshot>>(() => new Map());
+  const [sync, setSync] = useState<{ running: boolean; ok: boolean | null; message: string | null }>({ running: false, ok: null, message: null });
   // Only the latest request may write state — switching tickers mid-load must
   // not render the previous ticker's prices under the new one
   const requestRef = useRef(0);
@@ -136,10 +176,11 @@ export default function TickerPnLPage() {
   const fetchData = useCallback(async (sym: string, isRefresh = false) => {
     const request = ++requestRef.current;
     if (isRefresh) setRefreshing(true); else setLoading(true);
-    const [snap, orders, prices] = await Promise.allSettled([
+    const [snap, orders, prices, vol] = await Promise.allSettled([
       getEnrichedSnapshot(),
       getDbOrdersForSymbol(sym),
       getTimeSeries(sym, '1Y', isRefresh),
+      getVolSurface(sym),
     ]);
     if (request !== requestRef.current) return;
     const msg = (r: PromiseSettledResult<unknown>) =>
@@ -147,7 +188,8 @@ export default function TickerPnLPage() {
     setSnapshot(snap.status === 'fulfilled' ? snap.value : null);
     setDb(orders.status === 'fulfilled' ? orders.value : null);
     setSeries(prices.status === 'fulfilled' ? prices.value : []);
-    setErrors({ snapshot: msg(snap), db: msg(orders), prices: msg(prices) });
+    setSurface(vol.status === 'fulfilled' && vol.value.ok ? vol.value : null);
+    setErrors({ snapshot: msg(snap), db: msg(orders), prices: msg(prices), surface: msg(vol) });
     setAsOf(Date.now());
     setLoading(false);
     setRefreshing(false);
@@ -236,13 +278,139 @@ export default function TickerPnLPage() {
     }
     if (ledger.skipped_fills > 0) warnings.push(`${ledger.skipped_fills} filled orders had no fill price and were skipped.`);
     if (errors.prices) warnings.push(`Price history is unavailable (${errors.prices}), so the daily P&L, Sharpe and VaR can't be computed.`);
+    const lastSync = snapshot ? utcMs(snapshot.timestamp) : NaN;
+    if (Number.isFinite(lastSync) && Date.now() - lastSync > SYNC_STALE_MS) {
+      warnings.push(`Robinhood data was last synced ${fmtEt(lastSync)} (${fmtAgo(Date.now() - lastSync)}). Fills and order changes since then aren't included. Use "Sync now" to pull them.`);
+    }
 
     return {
-      today, orders, bars, position, brokerQty, livePrice, priceSource, ledger, optionLedger,
+      today, orders, bars, position, brokerQty, livePrice, priceSource, ledger, optionLedger, lastSync,
       optionPositions, points, risk, vol, exposure, queue, staleStubs, unrealized, stockPnl, optionPnl,
       totalPnl: stockPnl + optionPnl, closedTrades, warnings,
     };
   }, [symbol, db, snapshot, series, errors.prices]);
+
+  // ── Market at each execution (NBBO + minute bar), most recent fills first ──
+  const fillTimes = useMemo(
+    () => model.ledger.fills.slice(-MAX_FILL_CONTEXT).map(f => new Date(f.time).toISOString()),
+    [model.ledger.fills],
+  );
+  const fillKey = `${symbol}|${fillTimes.join(',')}`;
+  useEffect(() => {
+    if (!fillTimes.length) { setFillCtx(new Map()); return; }
+    let cancelled = false;
+    setFillCtxState({ loading: true, error: null });
+    getFillContext(symbol, [...fillTimes].reverse())
+      .then(rows => {
+        if (cancelled) return;
+        setFillCtx(new Map(rows.map(r => [new Date(r.t).toISOString(), r])));
+        setFillCtxState({ loading: false, error: null });
+      })
+      .catch(err => {
+        if (!cancelled) setFillCtxState({ loading: false, error: err instanceof Error ? err.message : String(err) });
+      });
+    return () => { cancelled = true; };
+    // fillKey captures symbol + fill times
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillKey]);
+
+  // ── Live quotes for working option orders and held contracts ──
+  const occList = useMemo(() => {
+    const set = new Set<string>();
+    for (const q of model.queue.options) {
+      const c = q.contract;
+      if (c.strike != null && c.expiration && c.option_type && c.option_type !== 'spread') {
+        const occ = occSymbol(symbol, c.expiration, c.option_type, c.strike);
+        if (occ) set.add(occ);
+      }
+    }
+    for (const p of model.optionPositions) {
+      const exp = p.expiration_date ?? p.expiration;
+      const strike = Number(p.strike_price ?? p.strike);
+      const occ = exp ? occSymbol(symbol, exp, p.option_type, strike) : null;
+      if (occ) set.add(occ);
+    }
+    return [...set].sort();
+  }, [model.queue.options, model.optionPositions, symbol]);
+  const occKey = occList.join(',');
+  useEffect(() => {
+    if (!occList.length) { setOptionSnaps(new Map()); return; }
+    let cancelled = false;
+    getOptionSnapshots(occList)
+      .then(rows => { if (!cancelled) setOptionSnaps(new Map(rows.filter(r => r.found).map(r => [r.occ, r]))); })
+      .catch(() => { if (!cancelled) setOptionSnaps(new Map()); });
+    return () => { cancelled = true; };
+    // occKey captures the contract list
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [occKey]);
+
+  // ── Vol calibration ──
+  const calibration = useMemo(() => {
+    const windows = realizedVolWindows(model.bars);
+    const backtest = varBacktest(model.points, model.bars);
+    const grid = surface?.surface ?? null;
+    const spot = model.livePrice ?? grid?.spot ?? null;
+    const atmIv = grid && spot ? impliedVolAt(grid, ATM_IV_DTE, spot) : null;
+    const rv1m = windows.find(w => w.label === '1M')?.vol ?? null;
+    return {
+      windows,
+      backtest,
+      grid,
+      atmIv,
+      rv1m,
+      ivSource: surface?.meta?.source ?? null,
+      ivAsOf: surface?.meta?.timestamp ?? null,
+    };
+  }, [model.bars, model.points, model.livePrice, surface]);
+
+  const optionMarket = useMemo(() => {
+    const out = new Map<string, OptionMarketView>();
+    for (const q of model.queue.options) {
+      const c = q.contract;
+      const occ = c.strike != null && c.expiration && c.option_type !== 'spread' ? occSymbol(symbol, c.expiration, c.option_type, c.strike) : null;
+      const snap = occ ? optionSnaps.get(occ) : undefined;
+      const surfaceIv = calibration.grid && c.strike != null && q.dte != null ? impliedVolAt(calibration.grid, q.dte, c.strike) : null;
+      const iv = snap?.iv ?? surfaceIv;
+      const bid = snap?.bid ?? null;
+      const ask = snap?.ask ?? null;
+      out.set(q.order.order_id, {
+        bid, ask,
+        bid_size: snap?.bid_size ?? null,
+        ask_size: snap?.ask_size ?? null,
+        mid: bid != null && ask != null && ask >= bid && ask > 0 ? (bid + ask) / 2 : null,
+        iv: iv ?? null,
+        iv_source: snap?.iv != null ? 'contract' : surfaceIv != null ? 'surface' : null,
+        delta: snap?.greeks?.delta ?? null,
+        expected_move: iv != null && q.dte != null ? expectedMove(iv, q.dte) : null,
+        needed_move: q.breakeven != null && model.livePrice ? (q.breakeven - model.livePrice) / model.livePrice : null,
+      });
+    }
+    return out;
+  }, [model.queue.options, model.livePrice, optionSnaps, calibration.grid, symbol]);
+
+  // ── Fill quality ──
+  const fillQuality = useMemo(() => {
+    const rows = model.ledger.fills.map(f => assessFill(f, fillCtx.get(new Date(f.time).toISOString())));
+    return { rows, summary: summarizeFillQuality(rows) };
+  }, [model.ledger.fills, fillCtx]);
+
+  const runSync = async () => {
+    setSync({ running: true, ok: null, message: null });
+    try {
+      const r = await triggerSnapshotRefresh();
+      if (r.skipped) {
+        setSync({ running: false, ok: true, message: `Already fresh: ${r.skipped}` });
+      } else if (r.ok) {
+        const warn = r.errors?.length ? `, ${r.errors.length} warning${r.errors.length > 1 ? 's' : ''}` : '';
+        setSync({ running: false, ok: true, message: `Synced in ${((r.elapsed_ms ?? 0) / 1000).toFixed(1)}s${warn}` });
+        await fetchData(symbol, true);
+      } else {
+        setSync({ running: false, ok: false, message: r.error || 'Sync failed' });
+      }
+    } catch (err) {
+      setSync({ running: false, ok: false, message: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   // Tickers worth one click: pinned, held, or with working orders
   const tickerChips = useMemo(() => {
@@ -329,7 +497,28 @@ export default function TickerPnLPage() {
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
+          <button
+            onClick={runSync}
+            disabled={sync.running}
+            title="Pull the latest orders and positions from Robinhood into the trading DB (at most once a minute)"
+            className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-50 text-sm"
+          >
+            <DownloadCloud className={`w-4 h-4 ${sync.running ? 'animate-pulse' : ''}`} />
+            {sync.running ? 'Syncing…' : 'Sync now'}
+          </button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 -mt-3 text-xs text-gray-500 dark:text-gray-400">
+        {Number.isFinite(model.lastSync) && (
+          <span className={Date.now() - model.lastSync > SYNC_STALE_MS ? 'text-amber-700 dark:text-amber-400' : undefined}>
+            Robinhood sync {fmtEt(model.lastSync)} · {fmtAgo(Date.now() - model.lastSync)}
+          </span>
+        )}
+        {ledger.fills.length > 0 && <span>Last fill {fmtEt(ledger.fills[ledger.fills.length - 1].time)}</span>}
+        {sync.message && (
+          <span className={sync.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>Sync: {sync.message}</span>
+        )}
       </div>
 
       {model.warnings.length > 0 && (
@@ -419,6 +608,58 @@ export default function TickerPnLPage() {
         </Card>
       </div>
 
+      {/* ── Vol calibration ────────────────────────────────────────── */}
+      <Card
+        title={`${symbol} volatility calibration`}
+        subtitle={
+          <>
+            Realized close-to-close vol vs. implied ({calibration.ivSource ? `${calibration.ivSource} surface` : 'no surface'}
+            {calibration.ivAsOf ? `, ${fmtEt(utcMs(calibration.ivAsOf))}` : ''}), and a backtest of the 1-day 95% VaR against what the P&amp;L actually did
+          </>
+        }
+      >
+        <div className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          {calibration.windows.map(w => (
+            <StatTile key={w.label} label={`Realized ${w.label}`} value={fmtVol(w.vol)} sub={`${w.days} trading days`} />
+          ))}
+          <StatTile
+            label={`Implied ATM ${ATM_IV_DTE}D`}
+            value={fmtVol(calibration.atmIv)}
+            sub={calibration.ivSource === 'mock' ? 'mock surface, not market data' : calibration.ivSource ? `${calibration.ivSource} option quotes` : errors.surface ?? 'unavailable'}
+          />
+          <StatTile
+            label="Implied − realized 1M"
+            value={calibration.atmIv != null && calibration.rv1m != null ? `${calibration.atmIv - calibration.rv1m >= 0 ? '+' : '−'}${(Math.abs(calibration.atmIv - calibration.rv1m) * 100).toFixed(1)} pts` : '—'}
+            sub={calibration.atmIv != null && calibration.rv1m != null ? (calibration.atmIv > calibration.rv1m ? 'Options price more movement than realized' : 'Options price less movement than realized') : undefined}
+          />
+        </div>
+        <div className="px-4 pb-2 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatTile
+            label="VaR breaches"
+            value={`${calibration.backtest.exceedances} of ${calibration.backtest.n}`}
+            sub={`${calibration.backtest.expected.toFixed(1)} expected at 95%`}
+            title="Days whose loss exceeded the 1-day 95% VaR forecast from the prior close (exposure × 21-day σ × 1.645)"
+          />
+          <StatTile
+            label="Kupiec test"
+            value={calibration.backtest.kupiec_p != null ? `p = ${calibration.backtest.kupiec_p.toFixed(2)}` : '—'}
+            sub={calibration.backtest.kupiec_p == null ? 'No forecast days yet' : calibration.backtest.kupiec_p < 0.05 ? 'Breach rate inconsistent with 95%' : 'Breach rate consistent with 95%'}
+          />
+          <StatTile
+            label="P&L vol ÷ predicted"
+            value={calibration.backtest.vol_ratio != null ? `${calibration.backtest.vol_ratio.toFixed(2)}×` : '—'}
+            sub={calibration.backtest.vol_ratio == null ? undefined : calibration.backtest.vol_ratio > 1.2 ? 'P&L swings more than exposure × vol' : calibration.backtest.vol_ratio < 0.8 ? 'P&L swings less than exposure × vol' : 'In line with exposure × vol'}
+            title="σ of realized day P&L ÷ RMS of the predicted 1σ (prior-close exposure × trailing σ)"
+          />
+          <StatTile
+            label="Trading-driven days"
+            value={String(calibration.backtest.trading_days)}
+            sub="Day P&L mostly from intraday trades, which overnight VaR can't see"
+          />
+        </div>
+        <VarBacktestChart backtest={calibration.backtest} />
+      </Card>
+
       {/* ── Queue ──────────────────────────────────────────────────── */}
       <Card
         title="Working orders"
@@ -430,7 +671,62 @@ export default function TickerPnLPage() {
             : model.staleStubs ? `${model.staleStubs} stale unconfirmed stubs hidden` : undefined
         }
       >
-        <QueuedOrdersTables queue={queue} livePrice={livePrice} />
+        <QueuedOrdersTables queue={queue} livePrice={livePrice} optionMarket={optionMarket} />
+      </Card>
+
+      {/* ── Fill quality ───────────────────────────────────────────── */}
+      <Card
+        title="Fill quality at execution"
+        subtitle={
+          fillCtxState.loading
+            ? 'Loading the NBBO and minute bar at each fill…'
+            : fillCtxState.error
+              ? `Market data unavailable: ${fillCtxState.error}`
+              : `Each fill vs. the consolidated NBBO in force when it executed (last quote at or before the fill) and that minute's VWAP · ${fillQuality.summary.with_quote} of ${fillQuality.summary.fills} fills have a quote`
+        }
+      >
+        <div className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          <StatTile
+            label="vs mid (wtd)"
+            value={formatBps(fillQuality.summary.vs_mid_bps)}
+            tone={fillQuality.summary.vs_mid_bps != null ? -fillQuality.summary.vs_mid_bps : undefined}
+            sub="+ = paid away from mid"
+            title="Notional-weighted signed distance from the NBBO midpoint: buys above mid and sells below mid are costs"
+          />
+          <StatTile
+            label="Cost vs mid"
+            value={fmtSigned(fillQuality.summary.vs_mid_usd)}
+            tone={-fillQuality.summary.vs_mid_usd}
+            sub={`on ${formatCurrency(fillQuality.summary.notional)} traded`}
+          />
+          <StatTile
+            label="vs 1-min VWAP"
+            value={formatBps(fillQuality.summary.vs_vwap_bps)}
+            tone={fillQuality.summary.vs_vwap_bps != null ? -fillQuality.summary.vs_vwap_bps : undefined}
+            sub={`${fillQuality.summary.with_bar} fills with a bar`}
+          />
+          <StatTile
+            label="Inside or better"
+            value={fillQuality.summary.with_quote ? `${Math.round(((fillQuality.summary.placements.inside + fillQuality.summary.placements.better) / fillQuality.summary.with_quote) * 100)}%` : '—'}
+            sub={`${fillQuality.summary.placements.touch} at touch · ${fillQuality.summary.placements.through} through`}
+            title={(Object.keys(fillQuality.summary.placements) as (keyof typeof fillQuality.summary.placements)[]).map(k => `${PLACEMENT_LABEL[k]}: ${fillQuality.summary.placements[k]}`).join(' · ')}
+          />
+          <StatTile
+            label="Spread at execution"
+            value={fillQuality.summary.avg_spread_bps != null ? `${fillQuality.summary.avg_spread_bps.toFixed(1)} bps` : '—'}
+            sub={`${fillQuality.summary.stale_quotes} stale quotes (> 60 s)`}
+          />
+          <StatTile
+            label="Stop slippage"
+            value={formatBps(fillQuality.summary.stop_slippage_bps)}
+            tone={fillQuality.summary.stop_slippage_bps != null ? -fillQuality.summary.stop_slippage_bps : undefined}
+            sub={`${fillQuality.summary.stop_fills} stop fills vs their trigger`}
+          />
+        </div>
+        <FillQualityGroups summary={fillQuality.summary} />
+        <div className="border-t border-gray-200 dark:border-zinc-700">
+          <FillQualityTable rows={fillQuality.rows} />
+        </div>
       </Card>
 
       {/* ── Positions & ledgers ────────────────────────────────────── */}
