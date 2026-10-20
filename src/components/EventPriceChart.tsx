@@ -11,7 +11,14 @@ import {
   YAxis,
 } from 'recharts';
 import { getIntradaySeries } from '../services/twelveDataService';
-import { eventTs, type CoverageName, type PriceTick, type StopRiskEvent } from '../services/stopEventStream';
+import {
+  eventTs,
+  inEarnings,
+  type CoverageName,
+  type EarningsWindow,
+  type PriceTick,
+  type StopRiskEvent,
+} from '../services/stopEventStream';
 import {
   overlayTargets,
   visibleOnChart,
@@ -27,6 +34,7 @@ const SELL = '#ef4444';
 const PRICE = '#71717a';
 const STOP = '#f59e0b';
 const LIVE = '#3b82f6';
+const EARNINGS = '#a855f7';
 const TARGET_COLOR: Record<TargetKind, string> = {
   stop: STOP,
   held: '#5ecfc8',
@@ -163,6 +171,7 @@ export default function EventPriceChart({
   names,
   designated,
   focusSymbol,
+  earnings = [],
   loadBackfill = getIntradaySeries,
 }: {
   events: StopRiskEvent[];
@@ -170,6 +179,7 @@ export default function EventPriceChart({
   names: CoverageName[];
   designated: string[];
   focusSymbol?: string;
+  earnings?: EarningsWindow[];
   loadBackfill?: (symbol: string) => Promise<{ timestamp: number; price: number }[]>;
 }) {
   const symbols = useMemo(() => chartSymbols(events, designated), [events, designated]);
@@ -217,6 +227,10 @@ export default function EventPriceChart({
   const xs = [...line, ...tags].map((p) => p.t);
   const stop = names.find((n) => n.symbol === symbol)?.stop_price || null;
   const lastPrice = line.length ? line[line.length - 1].price : null;
+  // During an earnings window the whole price line switches to the earnings color.
+  const isEarnings = inEarnings(earnings, symbol);
+  const priceColor = isEarnings ? EARNINGS : PRICE;
+  const liveColor = isEarnings ? EARNINGS : LIVE;
   const targets = useMemo(
     () => overlayTargets({ symbol, stopPrice: stop }),
     [symbol, stop],
@@ -307,11 +321,16 @@ export default function EventPriceChart({
           <svg width="10" height="10"><polygon points="1,1 9,1 5,9" fill="none" stroke={PRICE} strokeWidth="1.5" /></svg> Open (hollow)
         </span>
         <span className="inline-flex items-center gap-1">
-          <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={PRICE} strokeWidth="2" /></svg> 1-min close
+          <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={priceColor} strokeWidth="2" /></svg> 1-min close
         </span>
+        {isEarnings && (
+          <span data-testid="earnings-legend" className="inline-flex items-center gap-1" style={{ color: EARNINGS }}>
+            <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={EARNINGS} strokeWidth="2" /></svg> Earnings window
+          </span>
+        )}
         {liveLine.length > 0 && (
           <span data-testid="engine-quote-legend" className="inline-flex items-center gap-1">
-            <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={LIVE} strokeWidth="2" /><circle cx="7" cy="5" r="2.5" fill={LIVE} /></svg> Engine quote (live)
+            <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={liveColor} strokeWidth="2" /><circle cx="7" cy="5" r="2.5" fill={liveColor} /></svg> Engine quote (live)
           </span>
         )}
         {stop && (
@@ -394,7 +413,7 @@ export default function EventPriceChart({
             <Line
               data={intraday}
               dataKey="price"
-              stroke={PRICE}
+              stroke={priceColor}
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}
@@ -403,9 +422,9 @@ export default function EventPriceChart({
             <Line
               data={liveLine}
               dataKey="price"
-              stroke={LIVE}
+              stroke={liveColor}
               strokeWidth={2}
-              dot={{ r: 3, fill: LIVE, strokeWidth: 0 }}
+              dot={{ r: 3, fill: liveColor, strokeWidth: 0 }}
               isAnimationActive={false}
               name="Engine quote"
             />

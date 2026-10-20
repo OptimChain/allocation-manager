@@ -51,11 +51,19 @@ export interface PriceTick {
   ts: string;
 }
 
+/** Engine custom_overrides earnings window (ISO bounds, end exclusive). */
+export interface EarningsWindow {
+  symbol: string;
+  start_time: string;
+  end_time: string;
+}
+
 export interface StopRiskSnapshot {
   as_of: string;
   names: CoverageName[];
   events: StopRiskEvent[];
   prices?: Record<string, PriceTick>;
+  earnings?: EarningsWindow[];
 }
 
 export interface SseFrame {
@@ -89,6 +97,14 @@ export function parseSseFrames(raw: string): SseFrame[] {
     frames.push({ event, id, data, retry });
   }
   return frames;
+}
+
+/** True when `at` falls inside one of `symbol`'s earnings windows. */
+export function inEarnings(windows: EarningsWindow[], symbol: string, at = Date.now()): boolean {
+  return windows.some(
+    (w) => w.symbol.toUpperCase() === symbol.toUpperCase() &&
+      Date.parse(w.start_time) <= at && at < Date.parse(w.end_time),
+  );
 }
 
 export function eventTs(e: StopRiskEvent): number {
