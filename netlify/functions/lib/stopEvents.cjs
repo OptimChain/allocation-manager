@@ -165,6 +165,7 @@ function buildStopRiskSnapshot({
   activity = [],
   history = [],
   quotes = {},
+  earnings = [],
   asOf = new Date().toISOString(),
 } = {}) {
   const names = Object.keys(DESIGNATED_STOPS).map((symbol) => {
@@ -182,7 +183,7 @@ function buildStopRiskSnapshot({
     if (!name.mark && prices[name.symbol]) name.mark = prices[name.symbol].price;
   }
 
-  return { as_of: asOf, names, events, prices };
+  return { as_of: asOf, names, events, prices, earnings };
 }
 
 function encodeSse({ event, id, data, retry } = {}) {

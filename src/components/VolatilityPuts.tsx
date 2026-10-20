@@ -312,6 +312,7 @@ export default function VolatilityPuts({
             names={snapshot.names}
             designated={[...DESIGNATED_SYMBOLS, ...OVERLAY_SYMBOLS]}
             focusSymbol={focus || undefined}
+            earnings={snapshot.earnings}
           />
         </div>
 

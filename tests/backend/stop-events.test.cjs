@@ -150,6 +150,12 @@ describe('buildStopRiskSnapshot', () => {
     expect(snap.events.every((e) => e.type === 'engine')).toBe(true);
   });
 
+  it('passes engine earnings windows through to the snapshot', () => {
+    const earnings = [{ symbol: 'NBIS', start_time: '2026-11-09T21:00:00+00:00', end_time: '2026-11-10T21:00:00+00:00' }];
+    expect(buildStopRiskSnapshot({ positions, stops, earnings }).earnings).toEqual(earnings);
+    expect(buildStopRiskSnapshot({ positions, stops }).earnings).toEqual([]);
+  });
+
   it('emits a price frame per quoted symbol and fills a missing mark from it', () => {
     const snap = buildStopRiskSnapshot({
       positions: [{ symbol: 'NBIS', quantity: 10 }],

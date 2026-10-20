@@ -104,8 +104,9 @@ async function loadSnapshot() {
     getJson(`${ENGINE_API}/api/orders`),
     getJson(`${ENGINE_API}/api/positions`),
     getJson(`${ENGINE_API}/api/orders/history?limit=${EVENT_TAIL}`),
+    getJson(`${ENGINE_API}/api/earnings`),
   ]);
-  const [dbPos, dbAct, trailing, orders, enginePos, history] = settled.map((r) =>
+  const [dbPos, dbAct, trailing, orders, enginePos, history, earnings] = settled.map((r) =>
     r.status === 'fulfilled' ? r.value : null
   );
   const symbols = quoteSymbols(history);
@@ -121,6 +122,7 @@ async function loadSnapshot() {
     activity: pickActivity(dbAct),
     history: history?.orders || [],
     quotes: quotes || {},
+    earnings: earnings?.windows || [],
     asOf: new Date().toISOString(),
   });
 }

@@ -134,4 +134,31 @@ describe('EventPriceChart target overlay', () => {
     expect(note.textContent).toMatch(/ask/i);
     expect(screen.queryByTestId('engine-quote-legend')).toBeNull();
   });
+
+  it('switches the price line to the earnings color inside an earnings window', async () => {
+    const now = Date.now();
+    const props = {
+      events: EVENTS,
+      ticks: {},
+      names: [NAME],
+      designated: ['NBIS'],
+      focusSymbol: 'NBIS',
+      loadBackfill: async () => [{ timestamp: now, price: 165.46 }],
+    };
+    const { unmount } = render(<EventPriceChart {...props} />);
+    expect(await screen.findByTestId('event-price-chart')).toBeTruthy();
+    expect(screen.queryByTestId('earnings-legend')).toBeNull();
+    unmount();
+
+    render(
+      <EventPriceChart
+        {...props}
+        earnings={[
+          { symbol: 'NBIS', start_time: new Date(now - 3600e3).toISOString(), end_time: new Date(now + 3600e3).toISOString() },
+        ]}
+      />,
+    );
+    const legend = await screen.findByTestId('earnings-legend');
+    expect(legend.querySelector('line')?.getAttribute('stroke')).toBe('#a855f7');
+  });
 });
