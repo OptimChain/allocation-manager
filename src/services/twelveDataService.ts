@@ -123,6 +123,24 @@ export async function getTimeSeries(
   });
 }
 
+/** Today's 1-minute closes in UTC, used to backfill the live event/price overlay. */
+export async function getIntradaySeries(
+  symbol: string,
+  outputsize = 390
+): Promise<NormalizedPriceData[]> {
+  return cachedJson(`intraday:${symbol}:${outputsize}`, TTL_INTRADAY, async () => {
+    const data = await fetchSeries({ symbol, interval: '1min', outputsize, timezone: 'UTC' });
+    if (data.status === 'error') throw new Error(data.message || `API error for ${symbol}`);
+    return (data.values ?? [])
+      .map((item) => ({
+        date: item.datetime,
+        timestamp: new Date(`${item.datetime.replace(' ', 'T')}Z`).getTime(),
+        price: parseFloat(item.close),
+      }))
+      .reverse();
+  });
+}
+
 // Portfolio assets configuration
 export const PORTFOLIO_ASSETS = [
   { symbol: 'BTC/USD', displayName: 'Bitcoin', color: '#F7931A' },
