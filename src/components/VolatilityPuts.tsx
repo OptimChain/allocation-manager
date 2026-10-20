@@ -19,6 +19,7 @@ import {
   type StopRiskSnapshot,
 } from '../services/stopEventStream';
 import EventPriceChart from './EventPriceChart';
+import { BOUNCE_TICKETS, OVERLAY_SYMBOLS, SPREAD_TICKETS } from './chartTargets';
 
 const WHITEPAPER_URL =
   'https://raw.githubusercontent.com/IamJasonBian/allocation-gym/IamJasonBian/audit-redis-proto/docs/7/iwn_vol_analysis.pdf';
@@ -269,13 +270,47 @@ export default function VolatilityPuts({
         )}
       </div>
 
+      <div
+        data-testid="spread-tickets"
+        className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-5"
+      >
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white">Other tickets — call debit spreads</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          1 lot, GFD after 9:35, recipes not OCC. Long the ~0.22Δ call, short the cheap twin
+          (vol ≥ 50 both legs). NET 400C vol 36 — no spread. NBIS sits.
+        </p>
+        <ul className="mt-3 divide-y divide-gray-100 dark:divide-zinc-900">
+          {SPREAD_TICKETS.map((sp) => {
+            const naked = BOUNCE_TICKETS.find((t) => t.symbol === sp.symbol && t.action === 'place');
+            const width = sp.shortStrike - sp.longStrike;
+            const be = sp.longStrike + sp.debit;
+            const pair = `${sp.longStrike}/${sp.shortStrike}C`;
+            return (
+              <li key={`${sp.symbol}-${pair}`} className="py-2.5 flex items-baseline justify-between gap-4 text-sm">
+                <div>
+                  <span className="font-medium text-gray-900 dark:text-white">{sp.symbol}</span>
+                  <span className="text-gray-500 dark:text-zinc-400"> {pair}</span>
+                  <span className="block text-xs text-gray-400 dark:text-zinc-500 mt-0.5">
+                    width ${width} · BE {be.toFixed(2)}
+                    {naked?.limit != null ? ` · vs naked ${naked.limit.toFixed(2)}` : ' · new name'}
+                  </span>
+                </div>
+                <span className="font-medium tabular-nums text-gray-900 dark:text-white">
+                  debit {sp.debit.toFixed(2)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 min-w-0">
           <EventPriceChart
             events={datedEvents}
             ticks={ticks}
             names={snapshot.names}
-            designated={[...DESIGNATED_SYMBOLS]}
+            designated={[...DESIGNATED_SYMBOLS, ...OVERLAY_SYMBOLS]}
             focusSymbol={focus || undefined}
           />
         </div>

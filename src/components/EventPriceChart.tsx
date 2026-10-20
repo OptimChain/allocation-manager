@@ -12,12 +12,21 @@ import {
 } from 'recharts';
 import { getIntradaySeries } from '../services/twelveDataService';
 import { eventTs, type CoverageName, type PriceTick, type StopRiskEvent } from '../services/stopEventStream';
+import { overlayTargets, visibleOnChart, type OverlayTarget, type TargetKind } from './chartTargets';
 
 const BUY = '#10b981';
 const SELL = '#ef4444';
 const PRICE = '#71717a';
 const STOP = '#f59e0b';
 const LIVE = '#3b82f6';
+const TARGET_COLOR: Record<TargetKind, string> = {
+  stop: STOP,
+  held: '#5ecfc8',
+  proposed: '#e0b15c',
+  breakeven: '#a1a1aa',
+  sit: '#8b93a7',
+  spread: '#7c6cf0',
+};
 
 interface PricePoint {
   t: number;
@@ -95,6 +104,32 @@ function EventTag(props: { cx?: number; cy?: number; payload?: EventPoint }) {
   );
 }
 
+function TargetChip({ target, lastPrice }: { target: OverlayTarget; lastPrice: number | null }) {
+  const pct =
+    lastPrice && target.price != null ? ((target.price - lastPrice) / lastPrice) * 100 : null;
+  const tone = TARGET_COLOR[target.kind];
+  return (
+    <span
+      data-testid="chart-target"
+      data-kind={target.kind}
+      className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border"
+      style={{ borderColor: tone, color: tone }}
+    >
+      <span>{target.label}</span>
+      {target.price != null && <span>${target.price.toFixed(target.kind === 'breakeven' ? 2 : 0)}</span>}
+      {(target.kind === 'proposed' || target.kind === 'spread') && target.detail && (
+        <span className="opacity-70">{target.detail}</span>
+      )}
+      {pct != null && (
+        <span className="opacity-70">
+          {pct >= 0 ? '+' : ''}
+          {pct.toFixed(0)}%
+        </span>
+      )}
+    </span>
+  );
+}
+
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: { payload: PricePoint | EventPoint }[] }) {
   if (!active || !payload?.length) return null;
   const hit = payload.find((p) => 'event' in p.payload)?.payload as EventPoint | undefined;
@@ -165,6 +200,17 @@ export default function EventPriceChart({
   const multiDay = xs.length > 1 && Math.max(...xs) - Math.min(...xs) > 1.5 * DAY_MS;
   const stop = names.find((n) => n.symbol === symbol)?.stop_price || null;
   const lastPrice = line.length ? line[line.length - 1].price : null;
+  const targets = useMemo(
+    () => overlayTargets({ symbol, stopPrice: stop }),
+    [symbol, stop],
+  );
+  const rangePrices = [...line, ...tags].map((p) => p.price);
+  const range = rangePrices.length
+    ? { min: Math.min(...rangePrices), max: Math.max(...rangePrices) }
+    : lastPrice != null
+      ? { min: lastPrice, max: lastPrice }
+      : null;
+  const drawn = range ? visibleOnChart(targets, range).filter((t) => t.kind !== 'stop') : [];
 
   return (
     <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-5">
@@ -236,7 +282,21 @@ export default function EventPriceChart({
             <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={STOP} strokeWidth="2" strokeDasharray="3 2" /></svg> Trail stop
           </span>
         )}
+        <span className="inline-flex items-center gap-1">
+          <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={TARGET_COLOR.held} strokeWidth="2" strokeDasharray="2 2" /></svg> Held / proposed strike
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={TARGET_COLOR.spread} strokeWidth="2" strokeDasharray="2 2" /></svg> Call debit spread
+        </span>
       </div>
+
+      {targets.length > 0 && (
+        <div className="flex gap-1.5 flex-wrap mb-3" data-testid="chart-targets">
+          {targets.map((t) => (
+            <TargetChip key={t.id} target={t} lastPrice={lastPrice} />
+          ))}
+        </div>
+      )}
 
       <div className="h-72" data-testid="event-price-chart">
         <ResponsiveContainer width="100%" height="100%">
@@ -262,7 +322,22 @@ export default function EventPriceChart({
               tickFormatter={(v: number) => `$${v.toFixed(0)}`}
             />
             <Tooltip content={<ChartTooltip />} />
-            {stop && <ReferenceLine y={stop} stroke={STOP} strokeWidth={2} strokeDasharray="4 3" />}
+            {stop && (
+              <ReferenceLine y={stop} stroke={STOP} strokeWidth={2} strokeDasharray="4 3" ifOverflow="hidden" />
+            )}
+            {drawn.map((t) =>
+              t.price != null ? (
+                <ReferenceLine
+                  key={t.id}
+                  y={t.price}
+                  stroke={TARGET_COLOR[t.kind]}
+                  strokeWidth={1.5}
+                  strokeDasharray="3 3"
+                  ifOverflow="hidden"
+                  label={{ value: t.label, position: 'insideTopRight', fill: TARGET_COLOR[t.kind], fontSize: 10 }}
+                />
+              ) : null,
+            )}
             <Line
               data={intraday}
               dataKey="price"

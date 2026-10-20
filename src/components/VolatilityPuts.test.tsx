@@ -136,6 +136,16 @@ describe('VolatilityPuts', () => {
     expect(screen.getAllByTestId('live-event')).toHaveLength(2);
   });
 
+  it('lists call debit spreads as other tickets even when focused on NBIS', () => {
+    render(<VolatilityPuts snapshot={SNAPSHOT} ticks={{}} connected focusSymbol="NBIS" />);
+    const sheet = screen.getByTestId('spread-tickets');
+    expect(sheet.textContent).toMatch(/1050\/1100C/);
+    expect(sheet.textContent).toMatch(/380\/400C/);
+    expect(sheet.textContent).toMatch(/38\/40C/);
+    expect(sheet.querySelectorAll('li')).toHaveLength(3);
+    expect(sheet.textContent).toMatch(/NET 400C vol 36/);
+  });
+
   it('inDateRange keeps events inside inclusive local-day bounds', () => {
     const at = (iso: string) => ({ type: 'engine', ts: iso });
     const local = (d: string, h: number) => new Date(`${d}T${String(h).padStart(2, '0')}:00:00`).toISOString();
