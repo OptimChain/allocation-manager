@@ -5,6 +5,8 @@ const {
   encodeSse,
   engineOrderEvents,
   snapshotToSse,
+  lastSalesFromTwelveData,
+  mergeQuotePrices,
 } = require('../../netlify/functions/lib/stopEvents.cjs');
 
 describe('DESIGNATED_STOPS', () => {
@@ -157,6 +159,24 @@ describe('buildStopRiskSnapshot', () => {
     expect(snap.names.find((n) => n.symbol === 'NBIS').mark).toBe(211.01);
     expect(snap.prices.NBIS).toEqual({ symbol: 'NBIS', price: 211.01, ts: '2026-10-14T22:00:00Z' });
     expect(snapshotToSse(snap)).toContain('event: price\nid: NBIS-2026-10-14T22:00:00Z');
+  });
+});
+
+describe('Twelve Data last sale vs Alpaca ask', () => {
+  it('reads close from a single quote and a multi-symbol map', () => {
+    expect(lastSalesFromTwelveData({ symbol: 'NBIS', close: '170.24001' })).toEqual({ NBIS: 170.24001 });
+    expect(
+      lastSalesFromTwelveData({
+        NBIS: { symbol: 'NBIS', close: '170.24' },
+        MU: { symbol: 'MU', close: '904.90' },
+      }),
+    ).toEqual({ NBIS: 170.24, MU: 904.9 });
+  });
+
+  it('overwrites engine ask with Twelve Data last sale', () => {
+    expect(
+      mergeQuotePrices({ prices: { NBIS: 195.75, MU: 960.75, NET: 319.36 } }, { NBIS: 170.24, MU: 904.9 }),
+    ).toEqual({ prices: { NBIS: 170.24, MU: 904.9, NET: 319.36 } });
   });
 });
 

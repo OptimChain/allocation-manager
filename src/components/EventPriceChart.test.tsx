@@ -17,8 +17,16 @@ jest.mock('recharts', () => {
     ComposedChart: ({ children }: { children: React.ReactNode }) => <svg>{children}</svg>,
     Line: () => null,
     Scatter: () => null,
-    ReferenceLine: ({ y, label }: { y?: number; label?: string | { value?: string } }) => (
-      <g data-testid="chart-target-line" data-y={y}>
+    ReferenceLine: ({
+      x,
+      y,
+      label,
+    }: {
+      x?: number;
+      y?: number;
+      label?: string | { value?: string };
+    }) => (
+      <g data-testid={x != null ? 'chart-expiry-line' : 'chart-target-line'} data-x={x} data-y={y}>
         {typeof label === 'string' ? label : label?.value}
       </g>
     ),
@@ -97,6 +105,11 @@ describe('EventPriceChart target overlay', () => {
     expect(ys).toContain(220);
     expect(ys).toContain(230);
     expect(ys.some((y) => Math.abs(y - 236.45) < 0.02)).toBe(true);
+
+    expect(screen.getByRole('button', { name: 'To exp' }).getAttribute('aria-pressed')).toBe('true');
+    const expiryLines = screen.getAllByTestId('chart-expiry-line');
+    expect(expiryLines.some((el) => /Nov 20/.test(el.textContent || ''))).toBe(true);
+    expect(expiryLines.some((el) => /Nov 27/.test(el.textContent || ''))).toBe(true);
   });
 
   it('does not plot an after-hours engine ask as last sale', async () => {

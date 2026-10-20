@@ -115,6 +115,37 @@ function tailEvents(events, limit = EVENT_TAIL) {
   return [...events].sort((a, b) => eventTs(b) - eventTs(a)).slice(0, limit);
 }
 
+/** Twelve Data /quote close (last sale). Single object or {SYM: quote}. */
+function lastSalesFromTwelveData(payload) {
+  const prices = {};
+  if (!payload || typeof payload !== 'object' || payload.status === 'error') return prices;
+  const rows =
+    payload.close != null || payload.price != null
+      ? { [String(payload.symbol || '').toUpperCase()]: payload }
+      : payload;
+  for (const [key, row] of Object.entries(rows)) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    const px = Number(row.close ?? row.price);
+    const sym = String(row.symbol || key).toUpperCase();
+    if (sym && px > 0) prices[sym] = px;
+  }
+  return prices;
+}
+
+/** Last sale wins over Alpaca ask. */
+function mergeQuotePrices(engineQuotes, lastSales) {
+  const engine = (engineQuotes && engineQuotes.prices) || engineQuotes || {};
+  const prices = {};
+  for (const [sym, value] of Object.entries(engine)) {
+    const px = typeof value === 'number' ? value : Number(value);
+    if (px > 0) prices[String(sym).toUpperCase()] = px;
+  }
+  for (const [sym, px] of Object.entries(lastSales || {})) {
+    if (Number(px) > 0) prices[String(sym).toUpperCase()] = Number(px);
+  }
+  return { prices };
+}
+
 function normalizePrices(quotes, asOf) {
   const raw = quotes?.prices || quotes || {};
   const prices = {};
@@ -189,4 +220,6 @@ module.exports = {
   encodeSse,
   snapshotToSse,
   resolveStop,
+  lastSalesFromTwelveData,
+  mergeQuotePrices,
 };

@@ -11,6 +11,8 @@ export interface OverlayTarget {
   detail?: string;
   /** Calendar days to expiry, for "out 32d" chips/lines. */
   dte?: number;
+  expiry?: string;
+  expiryTs?: number;
 }
 
 export interface HeldOption {
@@ -124,11 +126,47 @@ function occLabel(strike: number, right: string): string {
   return `${strike}${occRight(right)}`;
 }
 
+/** Listed expiry at ~4pm ET (20:00 UTC). */
+export function expiryTimestamp(expiry: string): number {
+  return Date.parse(`${expiry}T20:00:00Z`);
+}
+
 /** Calendar days from asOf to the listed expiry (4pm ET ≈ 20:00 UTC). */
 export function dteDays(expiry: string, asOf = new Date()): number {
-  const end = Date.parse(`${expiry}T20:00:00Z`);
+  const end = expiryTimestamp(expiry);
   if (!Number.isFinite(end)) return 0;
   return Math.max(0, Math.round((end - asOf.getTime()) / 86_400_000));
+}
+
+export function uniqueExpiryMarkers(
+  rows: OverlayTarget[],
+): { ts: number; label: string }[] {
+  const seen = new Map<string, { ts: number; label: string }>();
+  for (const r of rows) {
+    if (!r.expiry) continue;
+    if (!seen.has(r.expiry)) {
+      seen.set(r.expiry, {
+        ts: r.expiryTs ?? expiryTimestamp(r.expiry),
+        label: shortExpiry(r.expiry),
+      });
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.ts - b.ts);
+}
+
+export function furthestExpiryTs(rows: OverlayTarget[]): number | null {
+  const ts = rows
+    .map((r) => r.expiryTs)
+    .filter((t): t is number => t != null && Number.isFinite(t));
+  return ts.length ? Math.max(...ts) : null;
+}
+
+function dated(
+  row: OverlayTarget,
+  expiry?: string,
+): OverlayTarget {
+  if (!expiry) return row;
+  return { ...row, expiry, expiryTs: expiryTimestamp(expiry) };
 }
 
 function outLabel(dte: number | undefined): string {
@@ -185,27 +223,37 @@ export function overlayTargets({
   } else if (ticket?.action === 'place' && ticket.strike != null && ticket.right) {
     const dte = ticket.expiry ? dteDays(ticket.expiry, asOf) : undefined;
     const occ = occLabel(ticket.strike, ticket.right);
-    rows.push({
-      id: `${sym}-proposed-${ticket.strike}`,
-      symbol: sym,
-      price: ticket.strike,
-      label: `${occ} proposed${outLabel(dte)}`,
-      kind: 'proposed',
-      dte,
-      detail: ticket.expiry
-        ? `${shortExpiry(ticket.expiry)} · ${dte}d · limit ${ticket.limit?.toFixed(2)}`
-        : undefined,
-    });
+    rows.push(
+      dated(
+        {
+          id: `${sym}-proposed-${ticket.strike}`,
+          symbol: sym,
+          price: ticket.strike,
+          label: `${occ} proposed${outLabel(dte)}`,
+          kind: 'proposed',
+          dte,
+          detail: ticket.expiry
+            ? `${shortExpiry(ticket.expiry)} · ${dte}d · limit ${ticket.limit?.toFixed(2)}`
+            : undefined,
+        },
+        ticket.expiry,
+      ),
+    );
     if (ticket.limit != null && ticket.limit > 0 && ticket.right === 'call') {
-      rows.push({
-        id: `${sym}-proposed-be-${ticket.strike}`,
-        symbol: sym,
-        price: ticket.strike + ticket.limit,
-        label: `${occ} BE${outLabel(dte)}`,
-        kind: 'breakeven',
-        dte,
-        detail: `${occ} BE ${ (ticket.strike + ticket.limit).toFixed(2) } · ${dte}d`,
-      });
+      rows.push(
+        dated(
+          {
+            id: `${sym}-proposed-be-${ticket.strike}`,
+            symbol: sym,
+            price: ticket.strike + ticket.limit,
+            label: `${occ} BE${outLabel(dte)}`,
+            kind: 'breakeven',
+            dte,
+            detail: `${occ} BE ${(ticket.strike + ticket.limit).toFixed(2)} · ${dte}d`,
+          },
+          ticket.expiry,
+        ),
+      );
     }
   }
 
@@ -214,58 +262,83 @@ export function overlayTargets({
     const dte = dteDays(sp.expiry, asOf);
     const shortOcc = occLabel(sp.shortStrike, sp.right);
     const pair = `${sp.longStrike}/${sp.shortStrike}${occRight(sp.right)}`;
-    rows.push({
-      id: `${sym}-spread-${sp.longStrike}-${sp.shortStrike}`,
-      symbol: sym,
-      price: sp.longStrike,
-      label: `${pair}${outLabel(dte)}`,
-      kind: 'spread',
-      dte,
-      detail: `${shortExpiry(sp.expiry)} · ${dte}d · debit ${sp.debit.toFixed(2)}`,
-    });
-    rows.push({
-      id: `${sym}-spread-short-${sp.shortStrike}`,
-      symbol: sym,
-      price: sp.shortStrike,
-      label: `${shortOcc} short${outLabel(dte)}`,
-      kind: 'spread',
-      dte,
-      detail: `short ${shortOcc} · ${dte}d`,
-    });
-    rows.push({
-      id: `${sym}-spread-be-${sp.longStrike}-${sp.shortStrike}`,
-      symbol: sym,
-      price: sp.longStrike + sp.debit,
-      label: `${pair} BE${outLabel(dte)}`,
-      kind: 'breakeven',
-      dte,
-      detail: `${pair} BE ${(sp.longStrike + sp.debit).toFixed(2)} · ${dte}d`,
-    });
+    rows.push(
+      dated(
+        {
+          id: `${sym}-spread-${sp.longStrike}-${sp.shortStrike}`,
+          symbol: sym,
+          price: sp.longStrike,
+          label: `${pair}${outLabel(dte)}`,
+          kind: 'spread',
+          dte,
+          detail: `${shortExpiry(sp.expiry)} · ${dte}d · debit ${sp.debit.toFixed(2)}`,
+        },
+        sp.expiry,
+      ),
+    );
+    rows.push(
+      dated(
+        {
+          id: `${sym}-spread-short-${sp.shortStrike}`,
+          symbol: sym,
+          price: sp.shortStrike,
+          label: `${shortOcc} short${outLabel(dte)}`,
+          kind: 'spread',
+          dte,
+          detail: `short ${shortOcc} · ${dte}d`,
+        },
+        sp.expiry,
+      ),
+    );
+    rows.push(
+      dated(
+        {
+          id: `${sym}-spread-be-${sp.longStrike}-${sp.shortStrike}`,
+          symbol: sym,
+          price: sp.longStrike + sp.debit,
+          label: `${pair} BE${outLabel(dte)}`,
+          kind: 'breakeven',
+          dte,
+          detail: `${pair} BE ${(sp.longStrike + sp.debit).toFixed(2)} · ${dte}d`,
+        },
+        sp.expiry,
+      ),
+    );
   }
 
   for (const opt of held) {
     if (opt.symbol.toUpperCase() !== sym) continue;
     const occ = occLabel(opt.strike, opt.right);
     const dte = dteDays(opt.expiry, asOf);
-    rows.push({
-      id: `${sym}-held-${opt.expiry}-${opt.strike}`,
-      symbol: sym,
-      price: opt.strike,
-      label: `${occ} ×${opt.quantity}${outLabel(dte)}`,
-      kind: 'held',
-      dte,
-      detail: `${shortExpiry(opt.expiry)} · ${dte}d · ${occ} ×${opt.quantity}`,
-    });
+    rows.push(
+      dated(
+        {
+          id: `${sym}-held-${opt.expiry}-${opt.strike}`,
+          symbol: sym,
+          price: opt.strike,
+          label: `${occ} ×${opt.quantity}${outLabel(dte)}`,
+          kind: 'held',
+          dte,
+          detail: `${shortExpiry(opt.expiry)} · ${dte}d · ${occ} ×${opt.quantity}`,
+        },
+        opt.expiry,
+      ),
+    );
     if (opt.avg != null && opt.avg > 0 && opt.right === 'call') {
-      rows.push({
-        id: `${sym}-be-${opt.expiry}-${opt.strike}`,
-        symbol: sym,
-        price: opt.strike + opt.avg,
-        label: `${occ} BE${outLabel(dte)}`,
-        kind: 'breakeven',
-        dte,
-        detail: `${occ} BE ${(opt.strike + opt.avg).toFixed(2)} · ${dte}d`,
-      });
+      rows.push(
+        dated(
+          {
+            id: `${sym}-be-${opt.expiry}-${opt.strike}`,
+            symbol: sym,
+            price: opt.strike + opt.avg,
+            label: `${occ} BE${outLabel(dte)}`,
+            kind: 'breakeven',
+            dte,
+            detail: `${occ} BE ${(opt.strike + opt.avg).toFixed(2)} · ${dte}d`,
+          },
+          opt.expiry,
+        ),
+      );
     }
   }
 

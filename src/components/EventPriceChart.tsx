@@ -16,6 +16,8 @@ import {
   overlayTargets,
   visibleOnChart,
   isSaneEngineQuote,
+  uniqueExpiryMarkers,
+  furthestExpiryTs,
   type OverlayTarget,
   type TargetKind,
 } from './chartTargets';
@@ -46,7 +48,7 @@ export interface EventPoint {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WINDOWS = { '1D': DAY_MS, '5D': 5 * DAY_MS, All: Infinity } as const;
+const WINDOWS = { '1D': DAY_MS, '5D': 5 * DAY_MS, All: Infinity, 'To exp': Infinity } as const;
 type WindowKey = keyof typeof WINDOWS;
 
 function fmtClock(t: number): string {
@@ -172,7 +174,7 @@ export default function EventPriceChart({
 }) {
   const symbols = useMemo(() => chartSymbols(events, designated), [events, designated]);
   const [picked, setPicked] = useState<string | null>(null);
-  const [windowKey, setWindowKey] = useState<WindowKey>('1D');
+  const [windowKey, setWindowKey] = useState<WindowKey>('To exp');
   const symbol = picked || (focusSymbol && symbols.includes(focusSymbol) ? focusSymbol : symbols[0]) || '';
 
   const [backfill, setBackfill] = useState<PricePoint[]>([]);
@@ -213,13 +215,18 @@ export default function EventPriceChart({
   const allTags = eventPoints(events, symbol);
   const tags = allTags.filter((p) => p.t >= since);
   const xs = [...line, ...tags].map((p) => p.t);
-  const multiDay = xs.length > 1 && Math.max(...xs) - Math.min(...xs) > 1.5 * DAY_MS;
   const stop = names.find((n) => n.symbol === symbol)?.stop_price || null;
   const lastPrice = line.length ? line[line.length - 1].price : null;
   const targets = useMemo(
     () => overlayTargets({ symbol, stopPrice: stop }),
     [symbol, stop],
   );
+  const expiryMarks = windowKey === 'To exp' ? uniqueExpiryMarkers(targets) : [];
+  const expiryEnd = windowKey === 'To exp' ? furthestExpiryTs(targets) : null;
+  const tMin = xs.length ? Math.min(...xs) : Date.now() - DAY_MS;
+  const tMaxNow = xs.length ? Math.max(...xs) : Date.now();
+  const tMax = expiryEnd != null ? Math.max(tMaxNow, expiryEnd) : tMaxNow;
+  const multiDay = tMax - tMin > 1.5 * DAY_MS;
   const drawn = visibleOnChart(targets).filter((t) => t.kind !== 'stop' && t.price != null);
   const yValues = [
     ...line.map((p) => p.price),
@@ -318,6 +325,11 @@ export default function EventPriceChart({
         <span className="inline-flex items-center gap-1">
           <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={TARGET_COLOR.spread} strokeWidth="2" strokeDasharray="2 2" /></svg> Call debit spread
         </span>
+        {expiryMarks.length > 0 && (
+          <span className="inline-flex items-center gap-1">
+            <svg width="14" height="10"><line x1="7" y1="0" x2="7" y2="10" stroke="#a1a1aa" strokeWidth="1.5" strokeDasharray="2 2" /></svg> Expiry
+          </span>
+        )}
       </div>
 
       {targets.length > 0 && (
@@ -336,7 +348,7 @@ export default function EventPriceChart({
               type="number"
               dataKey="t"
               scale="time"
-              domain={['dataMin', 'dataMax']}
+              domain={[tMin, tMax]}
               tickFormatter={multiDay ? fmtDay : fmtClock}
               stroke="#a1a1aa"
               fontSize={11}
@@ -352,6 +364,17 @@ export default function EventPriceChart({
               tickFormatter={(v: number) => `$${v.toFixed(0)}`}
             />
             <Tooltip content={<ChartTooltip />} />
+            {expiryMarks.map((e) => (
+              <ReferenceLine
+                key={`exp-${e.ts}`}
+                x={e.ts}
+                stroke="#a1a1aa"
+                strokeWidth={1}
+                strokeDasharray="2 4"
+                ifOverflow="extendDomain"
+                label={{ value: e.label, position: 'insideTopLeft', fill: '#a1a1aa', fontSize: 10 }}
+              />
+            ))}
             {stop && (
               <ReferenceLine y={stop} stroke={STOP} strokeWidth={2} strokeDasharray="4 3" ifOverflow="extendDomain" />
             )}

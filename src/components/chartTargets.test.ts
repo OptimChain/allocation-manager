@@ -4,6 +4,8 @@ import {
   spreadDebit,
   isSaneEngineQuote,
   dteDays,
+  uniqueExpiryMarkers,
+  furthestExpiryTs,
   HELD_DEFAULTS,
   BOUNCE_TICKETS,
   SPREAD_TICKETS,
@@ -59,6 +61,9 @@ describe('overlayTargets', () => {
     expect(onChart.some((r) => r.price === 230)).toBe(true);
     expect(onChart.find((r) => r.price === 230)?.dte).toBe(32);
     expect(onChart.find((r) => r.kind === 'breakeven' && r.detail?.includes('230'))?.price).toBeCloseTo(236.45, 2);
+    const expiries = uniqueExpiryMarkers(rows);
+    expect(expiries.map((e) => e.label)).toEqual(['Nov 20', 'Nov 27']);
+    expect(furthestExpiryTs(rows)).toBe(Date.parse('2026-11-27T20:00:00Z'));
 
     const mu = overlayTargets({ symbol: 'MU', proposed: BOUNCE_TICKETS, asOf });
     expect(mu.find((r) => r.kind === 'proposed')?.price).toBe(1050);

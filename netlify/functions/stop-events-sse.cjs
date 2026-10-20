@@ -8,7 +8,8 @@
  *
  * Sources (public reads, no RH credentials):
  *   Trading DB positions + bot activity, engine trailing-stop book + orders,
- *   engine order history (event tail) and quotes (price frames).
+ *   engine order history (event tail) and quotes (Twelve Data last sale,
+ *   falling back to Alpaca ask from engine /api/quotes).
  */
 
 const {
@@ -18,6 +19,8 @@ const {
   engineOrderEvents,
   snapshotToSse,
   tailEvents,
+  lastSalesFromTwelveData,
+  mergeQuotePrices,
 } = require('./lib/stopEvents.cjs');
 
 const TRADING_DB = (
@@ -88,9 +91,19 @@ async function loadSnapshot() {
     r.status === 'fulfilled' ? r.value : null
   );
   const symbols = quoteSymbols(history);
-  const quotes = await getJson(
-    `${ENGINE_API}/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`
-  ).catch(() => null);
+  const origin = (process.env.DEPLOY_PRIME_URL || process.env.URL || 'https://5thstreetcapital.org').replace(
+    /\/$/,
+    ''
+  );
+  const [engineQuotes, twelveData] = await Promise.all([
+    getJson(`${ENGINE_API}/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`).catch(() => null),
+    symbols.length
+      ? getJson(
+          `${origin}/.netlify/functions/twelvedata?endpoint=quote&symbol=${encodeURIComponent(symbols.join(','))}`
+        ).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const quotes = mergeQuotePrices(engineQuotes, lastSalesFromTwelveData(twelveData));
 
   return buildStopRiskSnapshot({
     positions: pickPositions(dbPos, enginePos),
