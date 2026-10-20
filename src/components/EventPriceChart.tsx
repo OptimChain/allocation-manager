@@ -353,7 +353,7 @@ export default function EventPriceChart({
             />
             <Tooltip content={<ChartTooltip />} />
             {stop && (
-              <ReferenceLine y={stop} stroke={STOP} strokeWidth={2} strokeDasharray="4 3" ifOverflow="extend" />
+              <ReferenceLine y={stop} stroke={STOP} strokeWidth={2} strokeDasharray="4 3" ifOverflow="extendDomain" />
             )}
             {drawn.map((t) =>
               t.price != null ? (
@@ -363,7 +363,7 @@ export default function EventPriceChart({
                   stroke={TARGET_COLOR[t.kind]}
                   strokeWidth={1.5}
                   strokeDasharray="3 3"
-                  ifOverflow="extend"
+                  ifOverflow="extendDomain"
                   label={{ value: t.label, position: 'insideTopRight', fill: TARGET_COLOR[t.kind], fontSize: 10 }}
                 />
               ) : null,
