@@ -9,6 +9,8 @@ export interface OverlayTarget {
   label: string;
   kind: TargetKind;
   detail?: string;
+  /** Calendar days to expiry, for "out 32d" chips/lines. */
+  dte?: number;
 }
 
 export interface HeldOption {
@@ -122,18 +124,40 @@ function occLabel(strike: number, right: string): string {
   return `${strike}${occRight(right)}`;
 }
 
+/** Calendar days from asOf to the listed expiry (4pm ET ≈ 20:00 UTC). */
+export function dteDays(expiry: string, asOf = new Date()): number {
+  const end = Date.parse(`${expiry}T20:00:00Z`);
+  if (!Number.isFinite(end)) return 0;
+  return Math.max(0, Math.round((end - asOf.getTime()) / 86_400_000));
+}
+
+function outLabel(dte: number | undefined): string {
+  return dte != null ? ` · ${dte}d` : '';
+}
+
+/**
+ * Alpaca /api/quotes uses latest *ask*. After hours that can sit 6–15% above
+ * last sale. Do not treat that ask as the tape.
+ */
+export function isSaneEngineQuote(lastSale: number, engine: number, maxDrift = 0.04): boolean {
+  if (!(lastSale > 0) || !(engine > 0)) return false;
+  return Math.abs(engine - lastSale) / lastSale <= maxDrift;
+}
+
 export function overlayTargets({
   symbol,
   stopPrice,
   held = HELD_DEFAULTS,
   proposed = BOUNCE_TICKETS,
   spreads = SPREAD_TICKETS,
+  asOf = new Date(),
 }: {
   symbol: string;
   stopPrice?: number | null;
   held?: HeldOption[];
   proposed?: ProposedTicket[];
   spreads?: SpreadTicket[];
+  asOf?: Date;
 }): OverlayTarget[] {
   const sym = symbol.toUpperCase();
   const rows: OverlayTarget[] = [];
@@ -159,67 +183,88 @@ export function overlayTargets({
       detail: 'already long 6 calls',
     });
   } else if (ticket?.action === 'place' && ticket.strike != null && ticket.right) {
+    const dte = ticket.expiry ? dteDays(ticket.expiry, asOf) : undefined;
+    const occ = occLabel(ticket.strike, ticket.right);
     rows.push({
       id: `${sym}-proposed-${ticket.strike}`,
       symbol: sym,
       price: ticket.strike,
-      label: `${occLabel(ticket.strike, ticket.right)} proposed`,
+      label: `${occ} proposed${outLabel(dte)}`,
       kind: 'proposed',
+      dte,
       detail: ticket.expiry
-        ? `${shortExpiry(ticket.expiry)} · limit ${ticket.limit?.toFixed(2)}`
+        ? `${shortExpiry(ticket.expiry)} · ${dte}d · limit ${ticket.limit?.toFixed(2)}`
         : undefined,
     });
+    if (ticket.limit != null && ticket.limit > 0 && ticket.right === 'call') {
+      rows.push({
+        id: `${sym}-proposed-be-${ticket.strike}`,
+        symbol: sym,
+        price: ticket.strike + ticket.limit,
+        label: `${occ} BE${outLabel(dte)}`,
+        kind: 'breakeven',
+        dte,
+        detail: `${occ} BE ${ (ticket.strike + ticket.limit).toFixed(2) } · ${dte}d`,
+      });
+    }
   }
 
   for (const sp of spreads) {
     if (sp.symbol.toUpperCase() !== sym) continue;
+    const dte = dteDays(sp.expiry, asOf);
     const shortOcc = occLabel(sp.shortStrike, sp.right);
     const pair = `${sp.longStrike}/${sp.shortStrike}${occRight(sp.right)}`;
     rows.push({
       id: `${sym}-spread-${sp.longStrike}-${sp.shortStrike}`,
       symbol: sym,
       price: sp.longStrike,
-      label: `${pair}`,
+      label: `${pair}${outLabel(dte)}`,
       kind: 'spread',
-      detail: `${shortExpiry(sp.expiry)} · debit ${sp.debit.toFixed(2)}`,
+      dte,
+      detail: `${shortExpiry(sp.expiry)} · ${dte}d · debit ${sp.debit.toFixed(2)}`,
     });
     rows.push({
       id: `${sym}-spread-short-${sp.shortStrike}`,
       symbol: sym,
       price: sp.shortStrike,
-      label: `${shortOcc} short`,
+      label: `${shortOcc} short${outLabel(dte)}`,
       kind: 'spread',
-      detail: `short ${shortOcc}`,
+      dte,
+      detail: `short ${shortOcc} · ${dte}d`,
     });
     rows.push({
       id: `${sym}-spread-be-${sp.longStrike}-${sp.shortStrike}`,
       symbol: sym,
       price: sp.longStrike + sp.debit,
-      label: `${pair} BE`,
+      label: `${pair} BE${outLabel(dte)}`,
       kind: 'breakeven',
-      detail: `${pair} BE`,
+      dte,
+      detail: `${pair} BE ${(sp.longStrike + sp.debit).toFixed(2)} · ${dte}d`,
     });
   }
 
   for (const opt of held) {
     if (opt.symbol.toUpperCase() !== sym) continue;
     const occ = occLabel(opt.strike, opt.right);
+    const dte = dteDays(opt.expiry, asOf);
     rows.push({
       id: `${sym}-held-${opt.expiry}-${opt.strike}`,
       symbol: sym,
       price: opt.strike,
-      label: `${occ} ×${opt.quantity}`,
+      label: `${occ} ×${opt.quantity}${outLabel(dte)}`,
       kind: 'held',
-      detail: `${shortExpiry(opt.expiry)} ${occ} ×${opt.quantity}`,
+      dte,
+      detail: `${shortExpiry(opt.expiry)} · ${dte}d · ${occ} ×${opt.quantity}`,
     });
-    if (opt.avg != null && opt.avg > 0) {
+    if (opt.avg != null && opt.avg > 0 && opt.right === 'call') {
       rows.push({
         id: `${sym}-be-${opt.expiry}-${opt.strike}`,
         symbol: sym,
         price: opt.strike + opt.avg,
-        label: `${occ} BE`,
+        label: `${occ} BE${outLabel(dte)}`,
         kind: 'breakeven',
-        detail: `${occ} BE`,
+        dte,
+        detail: `${occ} BE ${(opt.strike + opt.avg).toFixed(2)} · ${dte}d`,
       });
     }
   }
@@ -227,15 +272,11 @@ export function overlayTargets({
   return rows;
 }
 
-/** Lines that fit the visible price window. Sit has no price. Stop always draws. */
-export function visibleOnChart(
-  rows: OverlayTarget[],
-  range: { min: number; max: number },
-): OverlayTarget[] {
-  const pad = Math.max((range.max - range.min) * 0.25, range.max * 0.03);
-  return rows.filter((r) => {
-    if (r.kind === 'stop' && r.price != null) return true;
-    if (r.price == null) return false;
-    return r.price >= range.min - pad && r.price <= range.max + pad;
-  });
+/**
+ * Order overlays always draw (strike + BE pad the Y domain). Sit has no price.
+ * Tape-window filtering used to hide 220/230 and squash the 1D scale — we want
+ * those lines now.
+ */
+export function visibleOnChart(rows: OverlayTarget[]): OverlayTarget[] {
+  return rows.filter((r) => r.kind === 'sit' || r.price != null);
 }

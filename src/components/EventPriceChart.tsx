@@ -12,7 +12,13 @@ import {
 } from 'recharts';
 import { getIntradaySeries } from '../services/twelveDataService';
 import { eventTs, type CoverageName, type PriceTick, type StopRiskEvent } from '../services/stopEventStream';
-import { overlayTargets, visibleOnChart, type OverlayTarget, type TargetKind } from './chartTargets';
+import {
+  overlayTargets,
+  visibleOnChart,
+  isSaneEngineQuote,
+  type OverlayTarget,
+  type TargetKind,
+} from './chartTargets';
 
 const BUY = '#10b981';
 const SELL = '#ef4444';
@@ -192,7 +198,17 @@ export default function EventPriceChart({
   // Kept as separate series: the engine quote and the 1-min closes come from
   // different sources and shouldn't be joined across the gap between them.
   const intraday = backfill.filter((p) => p.t >= since);
-  const liveLine = live.filter((p) => p.t > lastBackfill && p.t >= since);
+  const lastSale = intraday.length ? intraday[intraday.length - 1].price : null;
+  const liveWindow = live.filter((p) => p.t > lastBackfill && p.t >= since);
+  const lastEngine = live.length ? live[live.length - 1].price : null;
+  // Alpaca /api/quotes is latest ask. After hours that can sit 6–15% above last
+  // sale — do not plot it as the tape or let it set last / Y domain.
+  const liveLine =
+    lastSale != null ? liveWindow.filter((p) => isSaneEngineQuote(lastSale, p.price)) : liveWindow;
+  const rejectedAsk =
+    lastEngine != null && lastSale != null && !isSaneEngineQuote(lastSale, lastEngine) ? lastEngine : null;
+  const askDriftPct =
+    rejectedAsk != null && lastSale != null ? ((rejectedAsk - lastSale) / lastSale) * 100 : null;
   const line = [...intraday, ...liveLine];
   const allTags = eventPoints(events, symbol);
   const tags = allTags.filter((p) => p.t >= since);
@@ -204,13 +220,19 @@ export default function EventPriceChart({
     () => overlayTargets({ symbol, stopPrice: stop }),
     [symbol, stop],
   );
-  const rangePrices = [...line, ...tags].map((p) => p.price);
-  const range = rangePrices.length
-    ? { min: Math.min(...rangePrices), max: Math.max(...rangePrices) }
-    : lastPrice != null
-      ? { min: lastPrice, max: lastPrice }
-      : null;
-  const drawn = range ? visibleOnChart(targets, range).filter((t) => t.kind !== 'stop') : [];
+  const drawn = visibleOnChart(targets).filter((t) => t.kind !== 'stop' && t.price != null);
+  const yValues = [
+    ...line.map((p) => p.price),
+    ...tags.map((p) => p.price),
+    ...targets.filter((t) => t.price != null).map((t) => t.price as number),
+  ];
+  const yDomain: [number, number] | ['auto', 'auto'] = (() => {
+    if (!yValues.length) return ['auto', 'auto'];
+    const lo = Math.min(...yValues);
+    const hi = Math.max(...yValues);
+    const pad = Math.max((hi - lo) * 0.08, hi * 0.01, 1);
+    return [lo - pad, hi + pad];
+  })();
 
   return (
     <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-zinc-800 p-5">
@@ -218,9 +240,15 @@ export default function EventPriceChart({
         <div>
           <h3 className="text-base font-semibold text-gray-900 dark:text-white">Engine events on price</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {tags.length} of {allTags.length} {symbol || '—'} events in the tail ({windowKey}) over the live quote
+            {tags.length} of {allTags.length} {symbol || '—'} events in the tail ({windowKey}) over last sale
             {lastPrice != null && <> · ${lastPrice.toFixed(2)}</>}
           </p>
+          {rejectedAsk != null && askDriftPct != null && lastSale != null && (
+            <p data-testid="engine-ask-note" className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Engine quote ${rejectedAsk.toFixed(2)} is Alpaca latest ask ({askDriftPct >= 0 ? '+' : ''}
+              {askDriftPct.toFixed(0)}% vs last sale ${lastSale.toFixed(2)}) — not plotted as last.
+            </p>
+          )}
         </div>
         <div className="flex gap-1" role="group" aria-label="Time window">
           {(Object.keys(WINDOWS) as WindowKey[]).map((w) => (
@@ -274,9 +302,11 @@ export default function EventPriceChart({
         <span className="inline-flex items-center gap-1">
           <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={PRICE} strokeWidth="2" /></svg> 1-min close
         </span>
-        <span className="inline-flex items-center gap-1">
-          <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={LIVE} strokeWidth="2" /><circle cx="7" cy="5" r="2.5" fill={LIVE} /></svg> Engine quote (live)
-        </span>
+        {liveLine.length > 0 && (
+          <span data-testid="engine-quote-legend" className="inline-flex items-center gap-1">
+            <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={LIVE} strokeWidth="2" /><circle cx="7" cy="5" r="2.5" fill={LIVE} /></svg> Engine quote (live)
+          </span>
+        )}
         {stop && (
           <span className="inline-flex items-center gap-1">
             <svg width="14" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={STOP} strokeWidth="2" strokeDasharray="3 2" /></svg> Trail stop
@@ -315,7 +345,7 @@ export default function EventPriceChart({
             <YAxis
               type="number"
               dataKey="price"
-              domain={['auto', 'auto']}
+              domain={yDomain}
               stroke="#a1a1aa"
               fontSize={11}
               width={56}
@@ -323,7 +353,7 @@ export default function EventPriceChart({
             />
             <Tooltip content={<ChartTooltip />} />
             {stop && (
-              <ReferenceLine y={stop} stroke={STOP} strokeWidth={2} strokeDasharray="4 3" ifOverflow="hidden" />
+              <ReferenceLine y={stop} stroke={STOP} strokeWidth={2} strokeDasharray="4 3" ifOverflow="extend" />
             )}
             {drawn.map((t) =>
               t.price != null ? (
@@ -333,7 +363,7 @@ export default function EventPriceChart({
                   stroke={TARGET_COLOR[t.kind]}
                   strokeWidth={1.5}
                   strokeDasharray="3 3"
-                  ifOverflow="hidden"
+                  ifOverflow="extend"
                   label={{ value: t.label, position: 'insideTopRight', fill: TARGET_COLOR[t.kind], fontSize: 10 }}
                 />
               ) : null,

@@ -65,7 +65,7 @@ const EVENTS: StopRiskEvent[] = [
 ];
 
 describe('EventPriceChart target overlay', () => {
-  it('chips the NBIS sit and held 220/230 calls without drawing those strikes on the 1D scale', async () => {
+  it('draws NBIS sit, held 220/230C strikes, and BEs with DTE on the chart', async () => {
     const now = Date.now();
     render(
       <EventPriceChart
@@ -89,10 +89,36 @@ describe('EventPriceChart target overlay', () => {
     );
     expect(chips.some((el) => /sit/i.test(el.textContent || ''))).toBe(true);
     expect(chips.some((el) => /230C/.test(el.textContent || ''))).toBe(true);
+    expect(chips.some((el) => /\d+d/.test(el.textContent || ''))).toBe(true);
 
     const lines = screen.getAllByTestId('chart-target-line');
     const ys = lines.map((el) => Number(el.getAttribute('data-y')));
     expect(ys).toContain(159.7);
-    expect(ys.some((y) => y === 220 || y === 230)).toBe(false);
+    expect(ys).toContain(220);
+    expect(ys).toContain(230);
+    expect(ys.some((y) => Math.abs(y - 236.45) < 0.02)).toBe(true);
+  });
+
+  it('does not plot an after-hours engine ask as last sale', async () => {
+    const now = Date.now();
+    render(
+      <EventPriceChart
+        events={EVENTS}
+        ticks={{ NBIS: [{ symbol: 'NBIS', price: 195.75, ts: new Date(now).toISOString() }] }}
+        names={[{ ...NAME, mark: 195.75 }]}
+        designated={['NBIS']}
+        focusSymbol="NBIS"
+        loadBackfill={async () => [
+          { timestamp: now - 60 * 60 * 1000, price: 164 },
+          { timestamp: now, price: 170.24 },
+        ]}
+      />,
+    );
+
+    expect(await screen.findByTestId('event-price-chart')).toBeTruthy();
+    const note = await screen.findByTestId('engine-ask-note');
+    expect(note.textContent).toMatch(/195\.75/);
+    expect(note.textContent).toMatch(/ask/i);
+    expect(screen.queryByTestId('engine-quote-legend')).toBeNull();
   });
 });

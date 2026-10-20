@@ -2,6 +2,8 @@ import {
   overlayTargets,
   visibleOnChart,
   spreadDebit,
+  isSaneEngineQuote,
+  dteDays,
   HELD_DEFAULTS,
   BOUNCE_TICKETS,
   SPREAD_TICKETS,
@@ -41,16 +43,33 @@ describe('overlayTargets', () => {
     expect(overlayTargets({ symbol: 'NET', proposed: BOUNCE_TICKETS }).find((r) => r.kind === 'proposed')?.price).toBe(370);
   });
 
-  it('keeps far OTM strikes off the 1D price scale', () => {
+  it('draws held/proposed strikes and breakevens with DTE even when they sit above the tape', () => {
+    const asOf = new Date('2026-10-19T20:00:00Z');
+    expect(dteDays('2026-11-20', asOf)).toBe(32);
+
     const rows = overlayTargets({
       symbol: 'NBIS',
       stopPrice: 159.7,
       held: HELD_DEFAULTS,
       proposed: BOUNCE_TICKETS,
+      asOf,
     });
-    const onChart = visibleOnChart(rows, { min: 162, max: 171 });
-    expect(onChart.map((r) => r.kind).sort()).toEqual(['stop']);
-    expect(onChart.some((r) => r.price === 220 || r.price === 230)).toBe(false);
+    const onChart = visibleOnChart(rows);
+    expect(onChart.some((r) => r.price === 220)).toBe(true);
+    expect(onChart.some((r) => r.price === 230)).toBe(true);
+    expect(onChart.find((r) => r.price === 230)?.dte).toBe(32);
+    expect(onChart.find((r) => r.kind === 'breakeven' && r.detail?.includes('230'))?.price).toBeCloseTo(236.45, 2);
+
+    const mu = overlayTargets({ symbol: 'MU', proposed: BOUNCE_TICKETS, asOf });
+    expect(mu.find((r) => r.kind === 'proposed')?.price).toBe(1050);
+    expect(mu.find((r) => r.kind === 'proposed')?.dte).toBe(32);
+    expect(mu.find((r) => r.kind === 'breakeven' && r.detail?.includes('1050C'))?.price).toBeCloseTo(1070.65, 2);
+  });
+
+  it('rejects an after-hours ask that is well above last sale', () => {
+    expect(isSaneEngineQuote(170.24, 195.75)).toBe(false);
+    expect(isSaneEngineQuote(904.9, 904.9)).toBe(true);
+    expect(isSaneEngineQuote(334.59, 355.69)).toBe(false);
   });
 
   it('prices call debit verticals bid-side from live books and skips NET (dead short)', () => {
