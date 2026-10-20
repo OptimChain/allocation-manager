@@ -1,6 +1,9 @@
 /** Designated trailing-stop names and the coded trail percentages. */
 const DESIGNATED_STOPS = Object.freeze({ MU: 4, NBIS: 6 });
 
+/** Overlay tape — keep this ≤ TD's 8 credits/min. Do not quote the whole event tail. */
+const LAST_SALE_SYMBOLS = Object.freeze(['MU', 'NBIS', 'AVGO', 'NET', 'SMCI']);
+
 /** How many engine events the SSE tail keeps. */
 const EVENT_TAIL = 120;
 
@@ -213,6 +216,7 @@ function snapshotToSse(snapshot, { retry = 8000 } = {}) {
 
 module.exports = {
   DESIGNATED_STOPS,
+  LAST_SALE_SYMBOLS,
   EVENT_TAIL,
   engineOrderEvents,
   tailEvents,

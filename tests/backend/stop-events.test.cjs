@@ -7,6 +7,7 @@ const {
   snapshotToSse,
   lastSalesFromTwelveData,
   mergeQuotePrices,
+  LAST_SALE_SYMBOLS,
 } = require('../../netlify/functions/lib/stopEvents.cjs');
 
 describe('DESIGNATED_STOPS', () => {
@@ -177,6 +178,11 @@ describe('Twelve Data last sale vs Alpaca ask', () => {
     expect(
       mergeQuotePrices({ prices: { NBIS: 195.75, MU: 960.75, NET: 319.36 } }, { NBIS: 170.24, MU: 904.9 }),
     ).toEqual({ prices: { NBIS: 170.24, MU: 904.9, NET: 319.36 } });
+  });
+
+  it('does not pull last sale for the whole event tail (TD credits are 8/min)', () => {
+    expect(LAST_SALE_SYMBOLS).toEqual(['MU', 'NBIS', 'AVGO', 'NET', 'SMCI']);
+    expect(LAST_SALE_SYMBOLS).toHaveLength(5);
   });
 });
 

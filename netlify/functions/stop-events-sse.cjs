@@ -14,6 +14,7 @@
 
 const {
   DESIGNATED_STOPS,
+  LAST_SALE_SYMBOLS,
   EVENT_TAIL,
   buildStopRiskSnapshot,
   engineOrderEvents,
@@ -97,11 +98,9 @@ async function loadSnapshot() {
   );
   const [engineQuotes, twelveData] = await Promise.all([
     getJson(`${ENGINE_API}/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`).catch(() => null),
-    symbols.length
-      ? getJson(
-          `${origin}/.netlify/functions/twelvedata?endpoint=quote&symbol=${encodeURIComponent(symbols.join(','))}`
-        ).catch(() => null)
-      : Promise.resolve(null),
+    getJson(
+      `${origin}/.netlify/functions/twelvedata?endpoint=quote&symbol=${encodeURIComponent(LAST_SALE_SYMBOLS.join(','))}`
+    ).catch(() => null),
   ]);
   const quotes = mergeQuotePrices(engineQuotes, lastSalesFromTwelveData(twelveData));
 
