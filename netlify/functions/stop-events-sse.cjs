@@ -1,6 +1,7 @@
 /**
  * Live stop-risk snapshot for designated names (MU 4%, NBIS 6%), plus a tail
- * of the last 120 engine order events (all symbols) and live quotes for them.
+ * of the last 160 engine equity + option order events (all symbols) and live
+ * quotes for them.
  *
  * GET  /.netlify/functions/stop-events-sse
  *   Accept: text/event-stream  → SSE frames (EventSource reconnects after close)
@@ -8,7 +9,7 @@
  *
  * Sources (public reads, no RH credentials):
  *   Trading DB positions + bot activity, engine trailing-stop book + orders,
- *   engine order history (event tail) and quotes (Twelve Data last sale,
+ *   engine order + option order history (event tail) and quotes (Twelve Data last sale,
  *   falling back to Alpaca ask from engine /api/quotes).
  */
 
@@ -105,8 +106,9 @@ async function loadSnapshot() {
     getJson(`${ENGINE_API}/api/positions`),
     getJson(`${ENGINE_API}/api/orders/history?limit=${EVENT_TAIL}`),
     getJson(`${ENGINE_API}/api/earnings`),
+    getJson(`${ENGINE_API}/api/options/orders`),
   ]);
-  const [dbPos, dbAct, trailing, orders, enginePos, history, earnings] = settled.map((r) =>
+  const [dbPos, dbAct, trailing, orders, enginePos, history, earnings, optionOrders] = settled.map((r) =>
     r.status === 'fulfilled' ? r.value : null
   );
   const symbols = quoteSymbols(history);
@@ -121,6 +123,7 @@ async function loadSnapshot() {
     stops: pickStops(trailing, orders),
     activity: pickActivity(dbAct),
     history: history?.orders || [],
+    optionHistory: optionOrders?.orders || [],
     quotes: quotes || {},
     earnings: earnings?.windows || [],
     asOf: new Date().toISOString(),

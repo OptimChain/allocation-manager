@@ -1,6 +1,6 @@
 export const DESIGNATED_SYMBOLS = ['MU', 'NBIS'] as const;
 /** Engine events kept in the SSE tail. */
-export const EVENT_TAIL = 120;
+export const EVENT_TAIL = 160;
 /** Live price points kept per symbol on the client. */
 export const PRICE_TICK_CAP = 720;
 export type DesignatedSymbol = (typeof DESIGNATED_SYMBOLS)[number];
@@ -43,6 +43,14 @@ export interface StopRiskEvent {
   limit_price?: number | null;
   stop_price?: number | null;
   filled_quantity?: number;
+  /** Set on option orders; `price` is then the (lowest) strike, not a fill. */
+  asset?: 'option';
+  premium?: number;
+  strike?: number | null;
+  strikes?: number[];
+  option_type?: string | null;
+  expiration?: string | null;
+  position_effect?: string | null;
 }
 
 export interface PriceTick {

@@ -4,8 +4,11 @@ const DESIGNATED_STOPS = Object.freeze({ MU: 4, NBIS: 6 });
 /** Overlay tape — keep this ≤ TD's 8 credits/min. Do not quote the whole event tail. */
 const LAST_SALE_SYMBOLS = Object.freeze(['MU', 'NBIS', 'AVGO', 'NET', 'SMCI']);
 
-/** How many engine events the SSE tail keeps. */
-const EVENT_TAIL = 120;
+/** How many engine events (equity + option orders) the SSE tail keeps. */
+const EVENT_TAIL = 160;
+
+/** Option orders that never traded — left off the chart and feed. */
+const DEAD_OPTION_STATES = new Set(['cancelled', 'canceled', 'rejected', 'failed']);
 
 function num(v) {
   if (v == null || v === '') return 0;
@@ -108,6 +111,61 @@ function engineOrderEvents(history) {
     });
 }
 
+/**
+ * Engine option orders (/api/options/orders) as chart events. Tags sit at the
+ * strike on the underlying's price axis; the per-contract premium rides along.
+ * chain_symbol is on the order, falling back to legs[0] (RH raw shape).
+ */
+function engineOptionEvents(history) {
+  const rows = Array.isArray(history) ? history : history?.orders || [];
+  return rows
+    .filter((o) => o && (o.order_id || o.id) && Array.isArray(o.legs) && o.legs.length)
+    .map((o) => {
+      const legs = o.legs;
+      const symbol = String(o.chain_symbol || legs[0].chain_symbol || '').toUpperCase();
+      const state = String(o.state || o.status || 'unknown').toLowerCase();
+      const single = legs.length === 1;
+      const side = single
+        ? String(legs[0].side || '').toUpperCase()
+        : String(o.direction || '').toLowerCase() === 'credit'
+          ? 'SELL'
+          : 'BUY';
+      const strikes = legs.map((l) => num(l.strike ?? l.strike_price)).filter((k) => k > 0);
+      const optionType = String(legs[0].option_type || '').toLowerCase();
+      const expiration = legs[0].expiration || legs[0].expiration_date || null;
+      const effect = single ? String(legs[0].position_effect || '').toLowerCase() || null : null;
+      const qty = num(o.quantity ?? o.qty);
+      const premium = num(o.price);
+      const id = String(o.order_id || o.id);
+      const contract = `${strikes.join('/')}${optionType === 'put' ? 'P' : 'C'}`;
+      const expLabel = expiration ? ` ${String(expiration).slice(5).replace('-', '/')}` : '';
+      return {
+        type: 'engine',
+        asset: 'option',
+        id: `opt-${id}`,
+        order_id: id,
+        code: `option_${state}`,
+        symbol,
+        side,
+        status: state,
+        order_type: 'option',
+        quantity: qty,
+        filled_quantity: state === 'filled' ? qty : 0,
+        price: strikes.length ? Math.min(...strikes) : 0,
+        premium,
+        strike: strikes[0] ?? null,
+        strikes,
+        option_type: optionType || null,
+        expiration,
+        position_effect: effect,
+        created_at: o.created_at || null,
+        ts: o.updated_at || o.created_at || null,
+        message: `${side} ${qty} ${symbol} ${contract}${expLabel}${effect ? ` ${effect}` : ''} @ ${premium ? premium.toFixed(2) : '—'}`,
+      };
+    })
+    .filter((e) => e.symbol && !DEAD_OPTION_STATES.has(e.status));
+}
+
 function eventTs(e) {
   const t = Date.parse(e.ts || e.created_at || '');
   return Number.isFinite(t) ? t : 0;
@@ -164,6 +222,7 @@ function buildStopRiskSnapshot({
   stops = [],
   activity = [],
   history = [],
+  optionHistory = [],
   quotes = {},
   earnings = [],
   asOf = new Date().toISOString(),
@@ -176,7 +235,7 @@ function buildStopRiskSnapshot({
     return coverageFor(position, stop, DESIGNATED_STOPS[symbol]);
   });
 
-  const events = tailEvents(engineOrderEvents(history));
+  const events = tailEvents([...engineOrderEvents(history), ...engineOptionEvents(optionHistory)]);
   const prices = normalizePrices(quotes, asOf);
   // Engine positions carry no mark; fall back to the live quote.
   for (const name of names) {
@@ -220,6 +279,7 @@ module.exports = {
   LAST_SALE_SYMBOLS,
   EVENT_TAIL,
   engineOrderEvents,
+  engineOptionEvents,
   tailEvents,
   buildStopRiskSnapshot,
   encodeSse,

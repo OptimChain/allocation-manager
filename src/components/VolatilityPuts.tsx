@@ -322,7 +322,7 @@ export default function VolatilityPuts({
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5" data-testid="feed-count">
               {from || to
                 ? `${sortedEvents.length} engine order events in range`
-                : 'Last 120 engine order events'}
+                : 'Last 160 engine order events'}
             </p>
           </div>
           <div className="divide-y divide-gray-100 dark:divide-zinc-900 max-h-[440px] overflow-y-auto">
