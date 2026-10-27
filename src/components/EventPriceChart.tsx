@@ -94,14 +94,28 @@ export function chartSymbols(events: StopRiskEvent[], designated: string[]): str
   return [...new Set([...active, ...designated])];
 }
 
-/** Tag shape: ▲ buy, ▼ sell, ◆ stop; hollow until filled. */
-function EventTag(props: { cx?: number; cy?: number; payload?: EventPoint }) {
+/** Tag shape: ▲ buy, ▼ sell, ◆ stop, ● option (at strike); hollow until filled. */
+export function EventTag(props: { cx?: number; cy?: number; payload?: EventPoint }) {
   const { cx, cy, payload } = props;
   if (cx == null || cy == null || !payload) return null;
   const sell = payload.event.side === 'SELL';
   const color = sell ? SELL : BUY;
   const filled = payload.event.status === 'filled';
   const r = 6;
+  if (payload.event.asset === 'option') {
+    return (
+      <circle
+        data-testid="event-tag"
+        data-asset="option"
+        cx={cx}
+        cy={cy}
+        r={r - 1}
+        fill={filled ? color : 'var(--chart-surface, #09090b)'}
+        stroke={color}
+        strokeWidth={2}
+      />
+    );
+  }
   const points =
     payload.event.order_type === 'stop'
       ? `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`
@@ -156,7 +170,12 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: { paylo
       {hit ? (
         <>
           <p className="font-medium text-gray-900 dark:text-white mt-0.5">{hit.event.message}</p>
-          <p className="text-gray-500 dark:text-zinc-400">{hit.event.status}</p>
+          <p className="text-gray-500 dark:text-zinc-400">
+            {hit.event.status}
+            {hit.event.asset === 'option' && hit.event.premium != null && (
+              <> · ${(hit.event.premium * 100 * (hit.event.quantity || 1)).toFixed(0)} premium</>
+            )}
+          </p>
         </>
       ) : (
         <p className="font-medium text-gray-900 dark:text-white mt-0.5">${point.price.toFixed(2)}</p>
@@ -316,6 +335,9 @@ export default function EventPriceChart({
         </span>
         <span className="inline-flex items-center gap-1">
           <svg width="10" height="10"><polygon points="5,0 10,5 5,10 0,5" fill={PRICE} /></svg> Stop order
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <svg width="10" height="10"><circle cx="5" cy="5" r="4" fill={PRICE} /></svg> Option (at strike)
         </span>
         <span className="inline-flex items-center gap-1">
           <svg width="10" height="10"><polygon points="1,1 9,1 5,9" fill="none" stroke={PRICE} strokeWidth="1.5" /></svg> Open (hollow)

@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import EventPriceChart from './EventPriceChart';
+import EventPriceChart, { EventTag, eventPoints } from './EventPriceChart';
 import type { CoverageName, StopRiskEvent } from '../services/stopEventStream';
 
 jest.mock('../services/twelveDataService', () => ({
@@ -160,5 +160,57 @@ describe('EventPriceChart target overlay', () => {
     );
     const legend = await screen.findByTestId('earnings-legend');
     expect(legend.querySelector('line')?.getAttribute('stroke')).toBe('#a855f7');
+  });
+});
+
+describe('option events on the chart', () => {
+  const OPTION: StopRiskEvent = {
+    type: 'engine',
+    asset: 'option',
+    id: 'opt-1',
+    symbol: 'NBIS',
+    side: 'BUY',
+    status: 'filled',
+    order_type: 'option',
+    quantity: 10,
+    price: 230,
+    premium: 1.5,
+    strike: 230,
+    option_type: 'call',
+    ts: new Date().toISOString(),
+    message: 'BUY 10 NBIS 230C 12/04 open @ 1.50',
+  };
+
+  it('places option orders at their strike alongside equity tags', () => {
+    const points = eventPoints([...EVENTS, OPTION], 'NBIS');
+    expect(points.map((p) => p.price).sort()).toEqual([165.4, 230]);
+  });
+
+  it('draws options as circles (filled once filled, hollow while open) and equity as polygons', () => {
+    const { container, rerender } = render(
+      <svg>
+        <EventTag cx={10} cy={10} payload={{ t: 1, price: 230, event: OPTION }} />
+      </svg>,
+    );
+    const circle = container.querySelector('circle[data-asset="option"]');
+    expect(circle).not.toBeNull();
+    expect(circle?.getAttribute('fill')).toBe('#10b981');
+
+    rerender(
+      <svg>
+        <EventTag cx={10} cy={10} payload={{ t: 1, price: 230, event: { ...OPTION, side: 'SELL', status: 'queued' } }} />
+      </svg>,
+    );
+    const open = container.querySelector('circle[data-asset="option"]');
+    expect(open?.getAttribute('stroke')).toBe('#ef4444');
+    expect(open?.getAttribute('fill')).toContain('--chart-surface');
+
+    rerender(
+      <svg>
+        <EventTag cx={10} cy={10} payload={{ t: 1, price: 165.4, event: EVENTS[0] }} />
+      </svg>,
+    );
+    expect(container.querySelector('circle')).toBeNull();
+    expect(container.querySelector('polygon[data-testid="event-tag"]')).not.toBeNull();
   });
 });

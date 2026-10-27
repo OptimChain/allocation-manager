@@ -4,6 +4,7 @@ const {
   buildStopRiskSnapshot,
   encodeSse,
   engineOrderEvents,
+  engineOptionEvents,
   snapshotToSse,
   lastSalesFromTwelveData,
   mergeQuotePrices,
@@ -144,10 +145,100 @@ describe('buildStopRiskSnapshot', () => {
   it('keeps only the newest EVENT_TAIL engine events, newest first', () => {
     const history = Array.from({ length: EVENT_TAIL + 30 }, (_, i) => order(i));
     const snap = buildStopRiskSnapshot({ positions, stops, history });
-    expect(EVENT_TAIL).toBe(120);
+    expect(EVENT_TAIL).toBe(160);
     expect(snap.events).toHaveLength(EVENT_TAIL);
     expect(snap.events[0].id).toBe(`o-${EVENT_TAIL + 29}`);
     expect(snap.events.every((e) => e.type === 'engine')).toBe(true);
+  });
+
+  // Shape of engine /api/options/orders rows.
+  const optionOrder = (extra = {}, leg = {}) => ({
+    order_id: 'opt-a',
+    created_at: '2026-10-26T18:00:04.196641Z',
+    updated_at: '2026-10-26T18:00:05.612106Z',
+    direction: 'debit',
+    legs: [
+      {
+        chain_symbol: 'NBIS',
+        expiration: '2026-12-04',
+        option_type: 'call',
+        position_effect: 'open',
+        quantity: 0,
+        side: 'buy',
+        strike: 230.0,
+        ...leg,
+      },
+    ],
+    opening_strategy: 'long_call',
+    order_type: 'limit',
+    premium: 150.0,
+    price: 1.5,
+    processed_premium: 1500.0,
+    quantity: 10.0,
+    state: 'filled',
+    ...extra,
+  });
+
+  it('maps engine option orders to events placed at the strike', () => {
+    const [evt] = engineOptionEvents({ orders: [optionOrder()] });
+    expect(evt).toMatchObject({
+      type: 'engine',
+      asset: 'option',
+      id: 'opt-opt-a',
+      order_id: 'opt-a',
+      code: 'option_filled',
+      symbol: 'NBIS',
+      side: 'BUY',
+      status: 'filled',
+      order_type: 'option',
+      quantity: 10,
+      filled_quantity: 10,
+      price: 230,
+      premium: 1.5,
+      strike: 230,
+      option_type: 'call',
+      expiration: '2026-12-04',
+      position_effect: 'open',
+      ts: '2026-10-26T18:00:05.612106Z',
+      message: 'BUY 10 NBIS 230C 12/04 open @ 1.50',
+    });
+  });
+
+  it('reads sells, puts and order-level chain_symbol; drops never-traded option orders', () => {
+    const events = engineOptionEvents([
+      optionOrder({ order_id: 'close', direction: 'credit' }, { side: 'sell', position_effect: 'close' }),
+      optionOrder({ order_id: 'put', chain_symbol: 'mu' }, { chain_symbol: undefined, option_type: 'put', strike: 180 }),
+      optionOrder({ order_id: 'dead', state: 'cancelled' }),
+      optionOrder({ order_id: 'nolegs', legs: [] }),
+    ]);
+    expect(events.map((e) => e.order_id)).toEqual(['close', 'put']);
+    expect(events[0]).toMatchObject({ side: 'SELL', position_effect: 'close' });
+    expect(events[1]).toMatchObject({ symbol: 'MU', option_type: 'put', price: 180 });
+    expect(events[1].message).toContain('MU 180P');
+  });
+
+  it('labels multi-leg option orders by direction and places them at the low strike', () => {
+    const [evt] = engineOptionEvents([
+      {
+        ...optionOrder({ order_id: 'spread', direction: 'debit' }),
+        legs: [
+          { chain_symbol: 'NBIS', option_type: 'call', side: 'buy', strike: 230, expiration: '2026-12-04' },
+          { chain_symbol: 'NBIS', option_type: 'call', side: 'sell', strike: 250, expiration: '2026-12-04' },
+        ],
+      },
+    ]);
+    expect(evt).toMatchObject({ side: 'BUY', price: 230, strikes: [230, 250], position_effect: null });
+    expect(evt.message).toBe('BUY 10 NBIS 230/250C 12/04 @ 1.50');
+  });
+
+  it('merges option orders into the event tail by time', () => {
+    const snap = buildStopRiskSnapshot({
+      positions,
+      stops,
+      history: [order(1)],
+      optionHistory: [optionOrder()],
+    });
+    expect(snap.events.map((e) => e.id)).toEqual(['opt-opt-a', 'o-1']);
   });
 
   it('passes engine earnings windows through to the snapshot', () => {
