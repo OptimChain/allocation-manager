@@ -829,7 +829,8 @@ function rowToPosition(r) {
     profit_loss:     toNum(r.profit_loss) ?? 0,
     // stored as a fraction, surfaced as a percent
     profit_loss_pct: pct == null ? 0 : r2(pct * 100),
-    percent_change:  pct == null ? null : r2(pct * 100),
+    // no previous close is stored, so day change is unknown — not the P&L %
+    percent_change:  null,
     percentage:      null,
     asset_type:      r.asset_type || 'equity',
   };

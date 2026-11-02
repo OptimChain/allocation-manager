@@ -80,6 +80,14 @@ describe('order-book-snapshot (DB-sourced)', () => {
     expect(nvda.current_price).toBe(120);    // derived from equity / quantity
   });
 
+  test('percent_change (the "Day" column) is null, not the since-purchase %', async () => {
+    // The DB holds no previous close, so day change is unknown.
+    await seedBook();
+    const body = await snapshot();
+    const nvda = body.portfolio.positions.find(p => p.symbol === 'NVDA');
+    expect(nvda.percent_change).toBeNull();
+  });
+
   test('orders split into the open book and recent history', async () => {
     await seedBook();
     const body = await snapshot();
