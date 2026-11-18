@@ -118,7 +118,10 @@ function tailEvents(events, limit = EVENT_TAIL) {
   return [...events].sort((a, b) => eventTs(b) - eventTs(a)).slice(0, limit);
 }
 
-/** Twelve Data /quote close (last sale). Single object or {SYM: quote}. */
+/**
+ * Twelve Data /quote last sale. Single object or {SYM: quote}.
+ * With prepost=true the row carries extended_price; it wins when it is the newer print.
+ */
 function lastSalesFromTwelveData(payload) {
   const prices = {};
   if (!payload || typeof payload !== 'object' || payload.status === 'error') return prices;
@@ -128,23 +131,41 @@ function lastSalesFromTwelveData(payload) {
       : payload;
   for (const [key, row] of Object.entries(rows)) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
-    const px = Number(row.close ?? row.price);
+    const extended = Number(row.extended_price);
+    const isNewer = Number(row.extended_timestamp) > Number(row.last_quote_at ?? row.timestamp ?? 0);
+    const px = extended > 0 && isNewer ? extended : Number(row.close ?? row.price);
     const sym = String(row.symbol || key).toUpperCase();
     if (sym && px > 0) prices[sym] = px;
   }
   return prices;
 }
 
-/** Last sale wins over Alpaca ask. */
-function mergeQuotePrices(engineQuotes, lastSales) {
+/**
+ * Robinhood /quotes non-regular last sale (post-market and overnight).
+ * A symbol is returned only when that print is newer than its regular-session one.
+ */
+function extendedSalesFromRobinhood(payload) {
+  const prices = {};
+  for (const row of payload?.results || []) {
+    if (!row) continue;
+    const px = Number(row.last_non_reg_trade_price ?? row.last_extended_hours_trade_price);
+    const at = Date.parse(row.venue_last_non_reg_trade_time);
+    const regularAt = Date.parse(row.venue_last_trade_time);
+    const sym = String(row.symbol || '').toUpperCase();
+    if (sym && px > 0 && at > regularAt) prices[sym] = px;
+  }
+  return prices;
+}
+
+/** Last sale wins over Alpaca ask; later last-sale sources win over earlier ones. */
+function mergeQuotePrices(engineQuotes, ...lastSales) {
   const engine = (engineQuotes && engineQuotes.prices) || engineQuotes || {};
   const prices = {};
-  for (const [sym, value] of Object.entries(engine)) {
-    const px = typeof value === 'number' ? value : Number(value);
-    if (px > 0) prices[String(sym).toUpperCase()] = px;
-  }
-  for (const [sym, px] of Object.entries(lastSales || {})) {
-    if (Number(px) > 0) prices[String(sym).toUpperCase()] = Number(px);
+  for (const source of [engine, ...lastSales]) {
+    for (const [sym, value] of Object.entries(source || {})) {
+      const px = Number(value);
+      if (px > 0) prices[String(sym).toUpperCase()] = px;
+    }
   }
   return { prices };
 }
@@ -226,5 +247,6 @@ module.exports = {
   snapshotToSse,
   resolveStop,
   lastSalesFromTwelveData,
+  extendedSalesFromRobinhood,
   mergeQuotePrices,
 };

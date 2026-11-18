@@ -6,10 +6,12 @@
  *   Accept: text/event-stream  → SSE frames (EventSource reconnects after close)
  *   Accept: application/json   → JSON snapshot
  *
- * Sources (public reads, no RH credentials):
+ * Sources:
  *   Trading DB positions + bot activity, engine trailing-stop book + orders,
- *   engine order history (event tail) and quotes (Twelve Data last sale,
- *   falling back to Alpaca ask from engine /api/quotes).
+ *   engine order history (event tail) and quotes (Twelve Data last sale incl.
+ *   pre/post-market, falling back to Alpaca ask from engine /api/quotes).
+ *   Overnight prints come from Robinhood /quotes when a token is stored;
+ *   without one the tape holds the last Twelve Data print.
  */
 
 const {
@@ -21,9 +23,12 @@ const {
   snapshotToSse,
   tailEvents,
   lastSalesFromTwelveData,
+  extendedSalesFromRobinhood,
   mergeQuotePrices,
 } = require('./lib/stopEvents.cjs');
 const twelvedata = require('./twelvedata.cjs');
+const tokenStore = require('./lib/tokenStore.cjs');
+const { fetchWithTimeout } = require('./lib/http.cjs');
 
 const TRADING_DB = (
   process.env.TRADING_DB_URL || 'https://5thstreetcapital.org/.netlify/functions'
@@ -80,11 +85,28 @@ async function lastSalesViaProxy(symbols) {
     const res = await twelvedata.handler({
       httpMethod: 'GET',
       path: '/.netlify/functions/twelvedata/quote',
-      queryStringParameters: { symbol: symbols.join(',') },
+      queryStringParameters: { symbol: symbols.join(','), prepost: 'true' },
     });
     if (!res || res.statusCode >= 400) return {};
     const payload = typeof res.body === 'string' ? JSON.parse(res.body) : res.body;
     return lastSalesFromTwelveData(payload);
+  } catch {
+    return {};
+  }
+}
+
+/** Robinhood post-market / overnight last sale; {} when no token is stored or the call fails. */
+async function extendedSalesViaRobinhood(symbols) {
+  try {
+    const token = await tokenStore.getToken();
+    if (!token) return {};
+    const res = await fetchWithTimeout(
+      `https://api.robinhood.com/quotes/?symbols=${encodeURIComponent(symbols.join(','))}`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+      4000
+    );
+    if (!res.ok) return {};
+    return extendedSalesFromRobinhood(await res.json());
   } catch {
     return {};
   }
@@ -110,11 +132,12 @@ async function loadSnapshot() {
     r.status === 'fulfilled' ? r.value : null
   );
   const symbols = quoteSymbols(history);
-  const [engineQuotes, lastSales] = await Promise.all([
+  const [engineQuotes, lastSales, extendedSales] = await Promise.all([
     getJson(`${ENGINE_API}/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`).catch(() => null),
     lastSalesViaProxy(LAST_SALE_SYMBOLS),
+    extendedSalesViaRobinhood(LAST_SALE_SYMBOLS),
   ]);
-  const quotes = mergeQuotePrices(engineQuotes, lastSales);
+  const quotes = mergeQuotePrices(engineQuotes, lastSales, extendedSales);
 
   return buildStopRiskSnapshot({
     positions: pickPositions(dbPos, enginePos),
