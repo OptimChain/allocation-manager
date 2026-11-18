@@ -6,6 +6,7 @@ const {
   engineOrderEvents,
   snapshotToSse,
   lastSalesFromTwelveData,
+  extendedSalesFromRobinhood,
   mergeQuotePrices,
   LAST_SALE_SYMBOLS,
 } = require('../../netlify/functions/lib/stopEvents.cjs');
@@ -178,6 +179,37 @@ describe('Twelve Data last sale vs Alpaca ask', () => {
         MU: { symbol: 'MU', close: '904.90' },
       }),
     ).toEqual({ NBIS: 170.24, MU: 904.9 });
+  });
+
+  it('prefers the Twelve Data extended price only when it is the newer print', () => {
+    const row = { symbol: 'NBIS', close: '106.035004', last_quote_at: 1794949140, extended_price: '117' };
+    expect(lastSalesFromTwelveData({ ...row, extended_timestamp: 1794963540 })).toEqual({ NBIS: 117 });
+    expect(lastSalesFromTwelveData({ ...row, extended_timestamp: 1794900000 })).toEqual({ NBIS: 106.035004 });
+  });
+
+  it('takes the Robinhood overnight print over Twelve Data, and skips stale ones', () => {
+    const overnight = extendedSalesFromRobinhood({
+      results: [
+        {
+          symbol: 'NBIS',
+          last_trade_price: '105.990000',
+          venue_last_trade_time: '2026-11-17T20:59:59Z',
+          last_non_reg_trade_price: '114.620000',
+          venue_last_non_reg_trade_time: '2026-11-18T01:29:23Z',
+        },
+        {
+          symbol: 'MU',
+          last_trade_price: '712.42',
+          venue_last_trade_time: '2026-11-17T20:59:59Z',
+          last_non_reg_trade_price: '700.00',
+          venue_last_non_reg_trade_time: '2026-11-17T13:29:00Z',
+        },
+      ],
+    });
+    expect(overnight).toEqual({ NBIS: 114.62 });
+    expect(mergeQuotePrices({ prices: { NBIS: 91.59, MU: 676.27 } }, { NBIS: 117, MU: 712.42 }, overnight)).toEqual({
+      prices: { NBIS: 114.62, MU: 712.42 },
+    });
   });
 
   it('overwrites engine ask with Twelve Data last sale', () => {
