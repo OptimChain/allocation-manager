@@ -101,7 +101,7 @@ async function extendedSalesViaRobinhood(symbols) {
     const token = await tokenStore.getToken();
     if (!token) return {};
     const res = await fetchWithTimeout(
-      `https://api.robinhood.com/quotes/?symbols=${encodeURIComponent(symbols.join(','))}`,
+      `https://api.robinhood.com/marketdata/quotes/?bounds=24_5&symbols=${encodeURIComponent(symbols.join(','))}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
       4000
     );
